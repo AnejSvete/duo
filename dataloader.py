@@ -505,8 +505,10 @@ def get_dataset(
         formal_type = getattr(formal_cfg, "type", "nc1")
         if mode == "train":
             num_examples = getattr(formal_cfg, "num_examples_train", 10000)
+            split_name = "train"
         else:
             num_examples = getattr(formal_cfg, "num_examples_valid", 1000)
+            split_name = "validation"
         if formal_type == "nc1":
             num_vars = getattr(formal_cfg, "num_vars", 4)
             evaluate = getattr(formal_cfg, "evaluate", True)
@@ -521,7 +523,9 @@ def get_dataset(
             )
         else:
             raise ValueError(f"Unknown formal dataset type: {formal_type}")
-        dataset = datasets.Dataset.from_list(examples)
+        dataset = datasets.DatasetDict(
+            {split_name: datasets.Dataset.from_list(examples)}
+        )
     elif dataset_name == "wikitext103":
         dataset = datasets.load_dataset(
             "wikitext",
