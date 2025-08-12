@@ -201,7 +201,8 @@ def make_nc1_examples(
             assign_str = ", ".join(
                 [f"{k}={'T' if v else 'F'}" for k, v in sorted(assignments.items())]
             )
-            output = f"Formula: {formula_str}\nAssignments: {{ {assign_str} }}\nTrace: {trace}"
+            # output = f"Formula: {formula_str}\nAssignments: {{ {assign_str} }}\nTrace: {trace}"
+            output = trace
             examples.append({"text": output})
 
     return examples
