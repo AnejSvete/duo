@@ -18,7 +18,6 @@ srun python -u -m main \
   loader.batch_size=512 \
   loader.eval_batch_size=512 \
   data=formal \
-  wandb.name=mdlm-nc1 \
   model=nano \
   algo=mdlm \
   model.length=128 \

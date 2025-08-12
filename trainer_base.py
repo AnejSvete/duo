@@ -269,6 +269,12 @@ class TrainerBase(L.LightningModule):
     def training_step(self, batch, batch_idx):
         current_accumulation_step = batch_idx % self.trainer.accumulate_grad_batches
 
+        # Robust fallback for do_not_mask
+        if "do_not_mask" not in batch:
+            batch["do_not_mask"] = torch.zeros_like(
+                batch["input_ids"], dtype=torch.bool
+            )
+
         losses = self._loss(
             batch["input_ids"],
             batch["attention_mask"],
@@ -300,6 +306,11 @@ class TrainerBase(L.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         del batch_idx
+        # Robust fallback for do_not_mask
+        if "do_not_mask" not in batch:
+            batch["do_not_mask"] = torch.zeros_like(
+                batch["input_ids"], dtype=torch.bool
+            )
         losses = self._loss(
             batch["input_ids"], batch["attention_mask"], batch["do_not_mask"]
         )
