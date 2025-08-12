@@ -688,6 +688,21 @@ def get_dataset(
         tokenized_dataset = tokenized_dataset.remove_columns("text")
 
     if not wrap:
+        # For formal dataset, add 'text' column before saving
+        if dataset_name == "formal":
+            # Get the original text examples
+            if isinstance(data, datasets.Dataset):
+                original_texts = data["text"]
+            else:
+                original_texts = data[mode]["text"]
+            n = len(tokenized_dataset)
+            if len(original_texts) > n:
+                original_texts = original_texts[:n]
+            elif len(original_texts) < n:
+                original_texts = original_texts + [original_texts[-1]] * (
+                    n - len(original_texts)
+                )
+            tokenized_dataset = tokenized_dataset.add_column("text", original_texts)
         if not streaming:
             tokenized_dataset.save_to_disk(_path)
         return tokenized_dataset.with_format("torch")
@@ -721,7 +736,9 @@ def get_dataset(
             original_texts = original_texts[:n]
         elif len(original_texts) < n:
             # Repeat last text if needed
-            original_texts = original_texts + [original_texts[-1]] * (n - len(original_texts))
+            original_texts = original_texts + [original_texts[-1]] * (
+                n - len(original_texts)
+            )
         chunked_dataset = chunked_dataset.add_column("text", original_texts)
 
     chunked_dataset = chunked_dataset.with_format("torch")
