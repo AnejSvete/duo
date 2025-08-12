@@ -706,6 +706,24 @@ def get_dataset(
             desc="Grouping",
         )
         chunked_dataset.save_to_disk(_path)
+
+    # If this is the formal dataset, add the original text field for the collator
+    if dataset_name == "formal":
+        # Get the original text examples
+        if isinstance(data, datasets.Dataset):
+            original_texts = data["text"]
+        else:
+            # If data is a DatasetDict, get the split
+            original_texts = data[mode]["text"]
+        # Repeat or truncate to match chunked_dataset length
+        n = len(chunked_dataset)
+        if len(original_texts) > n:
+            original_texts = original_texts[:n]
+        elif len(original_texts) < n:
+            # Repeat last text if needed
+            original_texts = original_texts + [original_texts[-1]] * (n - len(original_texts))
+        chunked_dataset = chunked_dataset.add_column("text", original_texts)
+
     chunked_dataset = chunked_dataset.with_format("torch")
     return chunked_dataset
 
