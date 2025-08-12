@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH -J lm1b_mdlm                  # Job name
+#SBATCH -J text8_mdlm                  # Job name
 #SBATCH -o watch_folder/%x_%j.out     # output file (%j expands to jobID)
 #SBATCH --mem-per-cpu=32000                   # server memory requested (per node)
 #SBATCH -t 16:00:00                  # Time limit (hh:mm:ss)
-#SBATCH --gpus=1                  # Type/number of GPUs needed
+#SBATCH --gpus=rtx_3090:1                  # Type/number of GPUs needed
 #SBATCH --open-mode=append            # Do not overwrite logs
 #SBATCH --requeue                     # Requeue upon pre-emption
 
@@ -14,10 +14,11 @@ module load stack/2024-06 python/3.12.8 eth_proxy
 source /cluster/home/asvete/duo/bin/activate
 
 srun python -u -m main \
-  loader.batch_size=64 \
-  loader.eval_batch_size=64 \
-  data=lm1b \
-  wandb.name=mdlm-lm1b \
-  model=small \
+  wandb.name="mdlm-text8-$(date +%Y%m%d-%H%M%S)" \
+  loader.batch_size=512 \
+  loader.eval_batch_size=512 \
+  data=text8 \
+  wandb.name=mdlm-text8 \
+  model=nano \
   algo=mdlm \
-  model.length=128 
+  model.length=256
