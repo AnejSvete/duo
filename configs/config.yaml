@@ -80,7 +80,7 @@ wandb:
   notes: Computational expressivity of MDMs
   group: null
   job_type: null
-  name: null
+  name: ${now:%Y%m%d_%H%M%S}
   id: ${.name}_${seed}
   tags:
     - ${noise.type}

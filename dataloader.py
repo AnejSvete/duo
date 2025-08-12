@@ -109,15 +109,19 @@ def scientific_papers_detokenizer(x):
 
 
 class FormalTokenizer(transformers.PreTrainedTokenizer):
-    def __init__(self, pad_token="[PAD]", **kwargs):
+    def __init__(
+        self, pad_token="[PAD]", bos_token="[BOS]", eos_token="[EOS]", **kwargs
+    ):
         self.FORMAL_TOKENS = ["(", ")", "#", "|", "and", "or", "not", "T", "F"]
-        vocab = {pad_token: 0}
-        offset = 1
+        vocab = {pad_token: 0, bos_token: 1, eos_token: 2}
+        offset = 3
         for i, tok in enumerate(self.FORMAL_TOKENS):
             vocab[tok] = i + offset
         self._vocab_str_to_int = vocab
         self._vocab_int_to_str = {v: k for k, v in vocab.items()}
-        super().__init__(pad_token=pad_token, **kwargs)
+        super().__init__(
+            pad_token=pad_token, bos_token=bos_token, eos_token=eos_token, **kwargs
+        )
 
     @property
     def vocab_size(self) -> int:
