@@ -21,4 +21,5 @@ srun python -u -m main \
   wandb.name=mdlm-nc1 \
   model=nano \
   algo=mdlm \
-  model.length=256
+  model.length=128 \
+  trainer.val_check_interval=10 

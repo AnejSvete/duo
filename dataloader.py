@@ -504,10 +504,10 @@ def get_dataset(
         formal_cfg = getattr(config.data, "formal", {})
         formal_type = getattr(formal_cfg, "type", "nc1")
         if mode == "train":
-            num_examples = getattr(formal_cfg, "num_examples_train", 10000)
+            num_examples = getattr(formal_cfg, "num_examples_train", 50000)
             split_name = "train"
         else:
-            num_examples = getattr(formal_cfg, "num_examples_valid", 1000)
+            num_examples = getattr(formal_cfg, "num_examples_valid", 5000)
             split_name = "validation"
         if formal_type == "nc1":
             num_vars = getattr(formal_cfg, "num_vars", 4)
