@@ -4,14 +4,13 @@ from typing import Any, Dict, Set, Tuple
 
 import datasets
 
-# NOTE: This script is designed to be imported as a module.
-# The `generate_formal_dataset` function is the main entry point.
-
 # --- AST Generation ---
 
 
 def generate_nc1_formula_ast(num_vars: int) -> Dict[str, Any]:
-    """Generates an AST for a formula likely to be NC1-complete."""
+    """
+    Generates an AST for a formula likely to be NC1-complete.
+    """
     if num_vars <= 0:
         return {"const": random.choice(["T", "F"])}
     target_depth = math.ceil(math.log2(num_vars))
@@ -32,7 +31,9 @@ def generate_nc1_formula_ast(num_vars: int) -> Dict[str, Any]:
 
 
 def random_bfvp_ast(max_depth=3, max_ops=6) -> Dict[str, Any]:
-    """Generates a random variable-free formula AST."""
+    """
+    Original function to generate a random variable-free formula.
+    """
     ops, constants = ["and", "or"], ["T", "F"]
 
     def gen(depth, ops_left):
@@ -49,8 +50,9 @@ def random_bfvp_ast(max_depth=3, max_ops=6) -> Dict[str, Any]:
             return {"op": "not", "child": gen(depth - 1, ops_left - 1)}
         else:
             remaining_ops = ops_left - 1
-            ops_for_left = random.randint(0, remaining_ops)
-            ops_for_right = remaining_ops - ops_for_left
+            ops_for_left, ops_for_right = random.randint(
+                0, remaining_ops
+            ), remaining_ops - random.randint(0, remaining_ops)
             return {
                 "op": op,
                 "left": gen(depth - 1, ops_for_left),
@@ -66,26 +68,33 @@ def random_bfvp_ast(max_depth=3, max_ops=6) -> Dict[str, Any]:
 def substitute_vars_in_ast(
     node: Dict[str, Any], assignments: Dict[str, bool]
 ) -> Dict[str, Any]:
-    """Replaces all variable nodes in an AST with constant nodes."""
+    """
+    NEW: Replaces all variable nodes in an AST with constant nodes based on an assignment map.
+    """
     if "const" in node:
         return node
     if "var" in node:
-        value = assignments.get(node["var"], False)
+        value = assignments.get(
+            node["var"], False
+        )  # Default to False if var not in assignments
         return {"const": "T" if value else "F"}
     if node["op"] == "not":
         return {
             "op": "not",
             "child": substitute_vars_in_ast(node["child"], assignments),
         }
-    return {
-        "op": node["op"],
-        "left": substitute_vars_in_ast(node["left"], assignments),
-        "right": substitute_vars_in_ast(node["right"], assignments),
-    }
+    else:
+        return {
+            "op": node["op"],
+            "left": substitute_vars_in_ast(node["left"], assignments),
+            "right": substitute_vars_in_ast(node["right"], assignments),
+        }
 
 
 def get_variables_from_ast(node: Dict[str, Any]) -> Set[str]:
-    """Returns a set of unique variable names from an AST."""
+    """
+    Traverses an AST and returns a set of unique variable names.
+    """
     if "var" in node:
         return {node["var"]}
     if "const" in node:
@@ -96,7 +105,9 @@ def get_variables_from_ast(node: Dict[str, Any]) -> Set[str]:
 
 
 def ast_to_str(ast: Dict[str, Any]) -> str:
-    """Converts an AST to its string representation."""
+    """
+    Converts an AST to its string representation.
+    """
     if "const" in ast:
         return ast["const"]
     if "var" in ast:
@@ -147,11 +158,13 @@ def reduce_ast_step(node: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
     return reducer(node), was_reduced
 
 
-# --- Example Formatting and Dataset Generation ---
+# --- Example Formatting ---
 
 
 def get_reduction_trace(start_ast: Dict[str, Any]) -> str:
-    """Takes a variable-free AST and returns the pipe-separated reduction string."""
+    """
+    REFACTORED: Takes a variable-free AST and returns the pipe-separated reduction string.
+    """
     current_ast = start_ast
     steps = [ast_to_str(current_ast)]
     while "op" in current_ast:
@@ -165,103 +178,118 @@ def get_reduction_trace(start_ast: Dict[str, Any]) -> str:
 def make_nc1_examples(
     num_examples: int, num_vars: int, evaluate: bool
 ) -> list[Dict[str, str]]:
-    """Generates NC1 examples. If evaluate, the 'text' is the reduction trace."""
+    """
+    Generates NC1 formulas. If evaluate is True, it now shows the full reduction trace.
+    """
     examples = []
     for _ in range(num_examples):
         ast_with_vars = generate_nc1_formula_ast(num_vars)
+        formula_str = ast_to_str(ast_with_vars)
+
         if not evaluate:
-            examples.append({"text": ast_to_str(ast_with_vars)})
+            examples.append({"text": formula_str})
         else:
             variables = get_variables_from_ast(ast_with_vars)
             assignments = {var: random.choice([True, False]) for var in variables}
+
+            # Create a new AST by substituting variables with their assigned T/F values
             substituted_ast = substitute_vars_in_ast(ast_with_vars, assignments)
+
+            # Get the collapsing reduction trace for the now variable-free AST
             trace = get_reduction_trace(substituted_ast)
-            examples.append({"text": trace})
+
+            assign_str = ", ".join(
+                [f"{k}={'T' if v else 'F'}" for k, v in sorted(assignments.items())]
+            )
+            output = f"Formula: {formula_str}\nAssignments: {{ {assign_str} }}\nTrace: {trace}"
+            examples.append({"text": output})
+
     return examples
 
 
 def make_bfvp_examples(
     num_examples=1000, max_depth=3, max_ops=6
 ) -> list[Dict[str, str]]:
-    """Generates BFVP examples. The 'text' is the formula + reduction trace."""
+    """
+    Generates and evaluates variable-free formulas using the new trace helper.
+    """
     examples = []
     for _ in range(num_examples):
         ast = random_bfvp_ast(max_depth=max_depth, max_ops=max_ops)
-        formula_str = ast_to_str(ast)
+        # The original formula string itself is the first part of the trace
         trace = get_reduction_trace(ast)
-        # The first step of the trace is the formula itself.
-        examples.append({"text": f"{formula_str} | {trace}"})
+        examples.append({"text": f"{ast_to_str(ast)} | {trace}"})
     return examples
 
 
-def generate_formal_dataset(config: Dict[str, Any]) -> datasets.DatasetDict:
-    """
-    Main entry point for generating formal language datasets.
-    This function is called by the data loading script.
-    """
-    formal_config = config.get("formal", {})
-    mode = formal_config.get("mode", "bfvp")
-
-    if mode == "nc1":
-        num_train = formal_config.get("num_train", 10000)
-        num_val = formal_config.get("num_val", 1000)
-        num_vars = formal_config.get("num_vars", 8)
-        evaluate = formal_config.get("evaluate", True)
-
-        train_data = make_nc1_examples(num_train, num_vars, evaluate)
-        val_data = make_nc1_examples(num_val, num_vars, evaluate)
-    else:  # Default to 'bfvp'
-        num_train = formal_config.get("num_train", 10000)
-        num_val = formal_config.get("num_val", 1000)
-        max_depth = formal_config.get("max_depth", 4)
-        max_ops = formal_config.get("max_ops", 8)
-
-        train_data = make_bfvp_examples(num_train, max_depth, max_ops)
-        val_data = make_bfvp_examples(num_val, max_depth, max_ops)
-
-    train_dataset = datasets.Dataset.from_list(train_data)
-    val_dataset = datasets.Dataset.from_list(val_data)
-
-    return datasets.DatasetDict({"train": train_dataset, "validation": val_dataset})
-
-
-# --- Self-testing block ---
+# --- Main Execution ---
 if __name__ == "__main__":
-    print("--- Running Self-Test for formal_data.py ---")
+    import argparse
+    import pprint
 
-    print("\n--- Generating BFVP sample ---")
-    bfvp_config = {"formal": {"mode": "bfvp", "num_train": 2, "num_val": 1}}
-    bfvp_dataset = generate_formal_dataset(bfvp_config)
-    print(bfvp_dataset)
-    print("Example train instance:")
-    print(bfvp_dataset["train"][0]["text"])
+    parser = argparse.ArgumentParser(description="Generate Boolean formulas.")
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="bfvp",
+        choices=["bfvp", "nc1"],
+        help="Generation mode.",
+    )
+    parser.add_argument(
+        "--num_examples", type=int, default=2, help="Number of examples to generate."
+    )
+    parser.add_argument(
+        "--show_examples", action="store_true", help="Print the generated examples."
+    )
 
-    print("\n--- Generating NC1 (evaluated) sample ---")
-    nc1_eval_config = {
-        "formal": {
-            "mode": "nc1",
-            "num_train": 2,
-            "num_val": 1,
-            "num_vars": 4,
-            "evaluate": True,
+    parser.add_argument(
+        "--num_vars", type=int, default=4, help="Number of variables for NC1 mode."
+    )
+    parser.add_argument(
+        "--evaluate",
+        action="store_true",
+        help="For NC1 mode, assign values and show full evaluation trace.",
+    )
+
+    parser.add_argument(
+        "--max_depth", type=int, default=4, help="Maximum formula depth for BFVP mode."
+    )
+    parser.add_argument(
+        "--max_ops", type=int, default=8, help="Maximum operations for BFVP mode."
+    )
+    args = parser.parse_args()
+
+    print(f"Running in '{args.mode}' mode.")
+
+    if args.mode == "nc1":
+        # (NC1 mode execution logic...)
+        if args.evaluate:
+            print(
+                f"Generating and evaluating {args.num_examples} formula(s) with approx. {args.num_vars} variables..."
+            )
+        else:
+            print(
+                f"Generating {args.num_examples} formula string(s) with approx. {args.num_vars} variables..."
+            )
+        examples = make_nc1_examples(args.num_examples, args.num_vars, args.evaluate)
+
+        if args.show_examples:
+            print("\n--- Generated NC1 Examples ---")
+            for i, ex in enumerate(examples):
+                print(f"--- Example {i+1} ---")
+                print(ex["text"])
+    elif args.mode == "bfvp":
+        # (BFVP mode execution logic...)
+        config = {
+            "num_examples": args.num_examples,
+            "max_depth": args.max_depth,
+            "max_ops": args.max_ops,
         }
-    }
-    nc1_eval_dataset = generate_formal_dataset(nc1_eval_config)
-    print(nc1_eval_dataset)
-    print("Example train instance:")
-    print(nc1_eval_dataset["train"][0]["text"])
+        print("\nGenerating BFVP dataset with config:")
+        pprint.pprint(config)
+        examples = make_bfvp_examples(**config)
 
-    print("\n--- Generating NC1 (unevaluated) sample ---")
-    nc1_uneval_config = {
-        "formal": {
-            "mode": "nc1",
-            "num_train": 2,
-            "num_val": 1,
-            "num_vars": 4,
-            "evaluate": False,
-        }
-    }
-    nc1_uneval_dataset = generate_formal_dataset(nc1_uneval_config)
-    print(nc1_uneval_dataset)
-    print("Example train instance:")
-    print(nc1_uneval_dataset["train"][0]["text"])
+        if args.show_examples:
+            print("\n--- Generated BFVP Examples ---")
+            for ex in examples:
+                print(ex["text"])
