@@ -21,6 +21,7 @@ import transformers
 # For artificial/formal language data generation
 import formal_data
 import utils
+from masked_formal_collator import MaskedFormalCollator
 
 LOGGER = utils.get_logger(__name__)
 
@@ -108,26 +109,15 @@ def scientific_papers_detokenizer(x):
 
 
 class FormalTokenizer(transformers.PreTrainedTokenizer):
-    def __init__(
-        self,
-        bos_token="[BOS]",
-        eos_token="[EOS]",
-        pad_token="[PAD]",
-        **kwargs,
-    ):
-        vocab = {bos_token: 0, eos_token: 1, pad_token: 2}
-        self.FORMAL_TOKENS = ["(", ")", "|", "and", "or", "not", "T", "F"]
-        offset = 3
+    def __init__(self, pad_token="[PAD]", **kwargs):
+        self.FORMAL_TOKENS = ["(", ")", "#", "|", "and", "or", "not", "T", "F"]
+        vocab = {pad_token: 0}
+        offset = 1
         for i, tok in enumerate(self.FORMAL_TOKENS):
             vocab[tok] = i + offset
         self._vocab_str_to_int = vocab
         self._vocab_int_to_str = {v: k for k, v in vocab.items()}
-        super().__init__(
-            bos_token=bos_token,
-            eos_token=eos_token,
-            pad_token=pad_token,
-            **kwargs,
-        )
+        super().__init__(pad_token=pad_token, **kwargs)
 
     @property
     def vocab_size(self) -> int:
@@ -823,6 +813,8 @@ def get_dataloaders(
             config=config,
         )
 
+    collator = MaskedFormalCollator(tokenizer=tokenizer, max_length=config.model.length)
+
     if skip_train:
         train_loader = None
     else:
@@ -833,8 +825,10 @@ def get_dataloaders(
             pin_memory=config.loader.pin_memory,
             shuffle=not config.data.streaming,
             persistent_workers=True,
+            collate_fn=collator,  # 👈 3. USE THE COLLATOR
         )
         train_loader.tokenizer = tokenizer
+
     if skip_valid:
         valid_loader = None
     else:
@@ -851,8 +845,8 @@ def get_dataloaders(
             pin_memory=config.loader.pin_memory,
             shuffle=shuffle_valid,
             generator=generator,
+            collate_fn=collator,
         )
-        # Will be used in generative perplexity calculation
         valid_loader.tokenizer = tokenizer
 
     return train_loader, valid_loader

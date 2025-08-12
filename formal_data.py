@@ -9,7 +9,8 @@ import datasets
 
 def generate_nc1_formula_ast(num_vars: int) -> Dict[str, Any]:
     """
-    Generates an AST for a formula likely to be NC1-complete.
+    Generates an AST for a formula likely to be NC1-complete by creating
+    a balanced tree with logarithmic depth based on the number of variables.
     """
     if num_vars <= 0:
         return {"const": random.choice(["T", "F"])}
@@ -32,7 +33,7 @@ def generate_nc1_formula_ast(num_vars: int) -> Dict[str, Any]:
 
 def random_bfvp_ast(max_depth=3, max_ops=6) -> Dict[str, Any]:
     """
-    Original function to generate a random variable-free formula.
+    Generates a random variable-free formula AST.
     """
     ops, constants = ["and", "or"], ["T", "F"]
 
@@ -50,9 +51,8 @@ def random_bfvp_ast(max_depth=3, max_ops=6) -> Dict[str, Any]:
             return {"op": "not", "child": gen(depth - 1, ops_left - 1)}
         else:
             remaining_ops = ops_left - 1
-            ops_for_left, ops_for_right = random.randint(
-                0, remaining_ops
-            ), remaining_ops - random.randint(0, remaining_ops)
+            ops_for_left = random.randint(0, remaining_ops)
+            ops_for_right = remaining_ops - ops_for_left
             return {
                 "op": op,
                 "left": gen(depth - 1, ops_for_left),
@@ -69,14 +69,12 @@ def substitute_vars_in_ast(
     node: Dict[str, Any], assignments: Dict[str, bool]
 ) -> Dict[str, Any]:
     """
-    NEW: Replaces all variable nodes in an AST with constant nodes based on an assignment map.
+    Replaces all variable nodes in an AST with constant nodes based on an assignment map.
     """
     if "const" in node:
         return node
     if "var" in node:
-        value = assignments.get(
-            node["var"], False
-        )  # Default to False if var not in assignments
+        value = assignments.get(node["var"], False)
         return {"const": "T" if value else "F"}
     if node["op"] == "not":
         return {
@@ -163,7 +161,7 @@ def reduce_ast_step(node: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
 
 def get_reduction_trace(start_ast: Dict[str, Any]) -> str:
     """
-    REFACTORED: Takes a variable-free AST and returns the pipe-separated reduction string.
+    Takes a variable-free AST and returns the evaluation trace string.
     """
     current_ast = start_ast
     steps = [ast_to_str(current_ast)]
@@ -172,38 +170,32 @@ def get_reduction_trace(start_ast: Dict[str, Any]) -> str:
         if not reduced:
             break
         steps.append(ast_to_str(current_ast))
-    return " | ".join(steps)
+
+    if len(steps) <= 1:
+        return steps[0]
+
+    # Separate the initial formula from the evaluation steps with a '#'
+    return f"{steps[0]} # {' | '.join(steps[1:])}"
 
 
 def make_nc1_examples(
     num_examples: int, num_vars: int, evaluate: bool
 ) -> list[Dict[str, str]]:
     """
-    Generates NC1 formulas. If evaluate is True, it now shows the full reduction trace.
+    Generates NC1 formulas. If evaluate, the 'text' is the reduction trace.
     """
     examples = []
     for _ in range(num_examples):
         ast_with_vars = generate_nc1_formula_ast(num_vars)
-        formula_str = ast_to_str(ast_with_vars)
 
         if not evaluate:
-            examples.append({"text": formula_str})
+            examples.append({"text": ast_to_str(ast_with_vars)})
         else:
             variables = get_variables_from_ast(ast_with_vars)
             assignments = {var: random.choice([True, False]) for var in variables}
-
-            # Create a new AST by substituting variables with their assigned T/F values
             substituted_ast = substitute_vars_in_ast(ast_with_vars, assignments)
-
-            # Get the collapsing reduction trace for the now variable-free AST
             trace = get_reduction_trace(substituted_ast)
-
-            assign_str = ", ".join(
-                [f"{k}={'T' if v else 'F'}" for k, v in sorted(assignments.items())]
-            )
-            # output = f"Formula: {formula_str}\nAssignments: {{ {assign_str} }}\nTrace: {trace}"
-            output = trace
-            examples.append({"text": output})
+            examples.append({"text": trace})
 
     return examples
 
@@ -212,18 +204,17 @@ def make_bfvp_examples(
     num_examples=1000, max_depth=3, max_ops=6
 ) -> list[Dict[str, str]]:
     """
-    Generates and evaluates variable-free formulas using the new trace helper.
+    Generates and evaluates variable-free formulas.
     """
     examples = []
     for _ in range(num_examples):
         ast = random_bfvp_ast(max_depth=max_depth, max_ops=max_ops)
-        # The original formula string itself is the first part of the trace
         trace = get_reduction_trace(ast)
-        examples.append({"text": f"{ast_to_str(ast)} | {trace}"})
+        examples.append({"text": trace})
     return examples
 
 
-# --- Main Execution ---
+# --- Main Execution Block (for self-testing) ---
 if __name__ == "__main__":
     import argparse
     import pprint
@@ -263,7 +254,6 @@ if __name__ == "__main__":
     print(f"Running in '{args.mode}' mode.")
 
     if args.mode == "nc1":
-        # (NC1 mode execution logic...)
         if args.evaluate:
             print(
                 f"Generating and evaluating {args.num_examples} formula(s) with approx. {args.num_vars} variables..."
@@ -280,7 +270,6 @@ if __name__ == "__main__":
                 print(f"--- Example {i+1} ---")
                 print(ex["text"])
     elif args.mode == "bfvp":
-        # (BFVP mode execution logic...)
         config = {
             "num_examples": args.num_examples,
             "max_depth": args.max_depth,
