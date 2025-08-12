@@ -134,6 +134,20 @@ class AR(trainer_base.TrainerBase):
 
 
 class MDLM(trainer_base.AbsorbingState):
+    def _process_model_output(self, model_output, xt, sigma):
+        # For MDLM, mask out the mask token and normalize
+        del sigma
+        model_output[:, :, self.mask_index] += self.neg_infinity
+        # Normalize to log-probabilities
+        model_output = model_output - torch.logsumexp(
+            model_output, dim=-1, keepdim=True
+        )
+        # Optionally, mask out unmasked positions (if needed for your loss)
+        unmasked_indices = xt != self.mask_index
+        model_output[unmasked_indices] = self.neg_infinity
+        model_output[unmasked_indices, xt[unmasked_indices]] = 0
+        return model_output
+
     def generate_conditioned(self, prompts, mode="random", top_k=1):
         """
         Generate completions conditioned on prompts, using the specified unmasking mode.
