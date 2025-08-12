@@ -684,6 +684,10 @@ def get_dataset(
         )
     elif dataset_name == "ag_news":
         tokenized_dataset = tokenized_dataset.remove_columns(["text", "label"])
+    elif dataset_name == "formal":
+        # Remove 'text' if present, will re-add below
+        if "text" in tokenized_dataset.column_names:
+            tokenized_dataset = tokenized_dataset.remove_columns("text")
     else:
         tokenized_dataset = tokenized_dataset.remove_columns("text")
 
@@ -705,6 +709,11 @@ def get_dataset(
             tokenized_dataset = tokenized_dataset.add_column("text", original_texts)
         if not streaming:
             tokenized_dataset.save_to_disk(_path)
+        # After loading, check for 'text' column if formal
+        if dataset_name == "formal" and "text" not in tokenized_dataset.column_names:
+            raise RuntimeError(
+                "'text' column missing from tokenized formal dataset after saving. Please check data pipeline."
+            )
         return tokenized_dataset.with_format("torch")
 
     group_texts = functools.partial(
@@ -740,7 +749,17 @@ def get_dataset(
                 n - len(original_texts)
             )
         chunked_dataset = chunked_dataset.add_column("text", original_texts)
+        # After adding, check for 'text' column
+        if "text" not in chunked_dataset.column_names:
+            raise RuntimeError(
+                "'text' column missing from chunked formal dataset after adding. Please check data pipeline."
+            )
 
+    # After loading, check for 'text' column if formal
+    if dataset_name == "formal" and "text" not in chunked_dataset.column_names:
+        raise RuntimeError(
+            "'text' column missing from chunked formal dataset after processing. Please check data pipeline."
+        )
     chunked_dataset = chunked_dataset.with_format("torch")
     return chunked_dataset
 
