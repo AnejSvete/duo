@@ -305,7 +305,6 @@ class TrainerBase(L.LightningModule):
         assert self.metrics.valid_nlls.nll.weight == 0
 
     def validation_step(self, batch, batch_idx):
-        del batch_idx
         # Robust fallback for do_not_mask
         if "do_not_mask" not in batch:
             batch["do_not_mask"] = torch.zeros_like(
@@ -314,9 +313,75 @@ class TrainerBase(L.LightningModule):
         losses = self._loss(
             batch["input_ids"], batch["attention_mask"], batch["do_not_mask"]
         )
-
         self.metrics.update_valid(losses.nlls, losses.prior_loss, losses.num_tokens)
+
+        # --- Formal accuracy evaluation ---
+        # Only run if formal dataset (do_not_mask is used)
+        if batch["do_not_mask"].any():
+            prompts, targets = self._extract_prompts_and_targets(
+                batch["input_ids"], batch["do_not_mask"]
+            )
+            # Generate completions conditioned on prompts
+            gen_mode = getattr(self.config.eval, "generation_mode", "random")
+            top_k = getattr(self.config.eval, "top_k", 1)
+            generated = self.generate_conditioned(prompts, mode=gen_mode, top_k=top_k)
+            # Compute accuracy (exact match and token-level)
+            acc_exact, acc_token = self._compute_accuracy(generated, targets)
+            self.log(
+                "val/acc_exact", acc_exact, on_step=False, on_epoch=True, sync_dist=True
+            )
+            self.log(
+                "val/acc_token", acc_token, on_step=False, on_epoch=True, sync_dist=True
+            )
+            return {"loss": losses.loss, "acc_exact": acc_exact, "acc_token": acc_token}
         return losses.loss
+
+    def _extract_prompts_and_targets(self, input_ids, do_not_mask):
+        # Extract prompt (tokens up to and including first True in do_not_mask) and target (rest)
+        prompts = []
+        targets = []
+        for ids, mask in zip(input_ids, do_not_mask):
+            # Find last True in mask (should be at #)
+            idx = (mask == 1).nonzero(as_tuple=True)[0]
+            if len(idx) > 0:
+                split_idx = idx[-1].item() + 1
+            else:
+                split_idx = 0
+            prompts.append(ids[:split_idx])
+            targets.append(ids[split_idx:])
+        # Pad to same length
+        max_prompt = max([p.size(0) for p in prompts])
+        max_target = max([t.size(0) for t in targets])
+        prompts = torch.stack(
+            [
+                F.pad(p, (0, max_prompt - p.size(0)), value=self.tokenizer.pad_token_id)
+                for p in prompts
+            ]
+        )
+        targets = torch.stack(
+            [
+                F.pad(t, (0, max_target - t.size(0)), value=self.tokenizer.pad_token_id)
+                for t in targets
+            ]
+        )
+        return prompts, targets
+
+    def _compute_accuracy(self, generated, targets):
+        # Both are (batch, seq) tensors
+        # Ignore padding in targets
+        pad = self.tokenizer.pad_token_id
+        mask = targets != pad
+        exact = ((generated == targets) | ~mask).all(dim=1).float().mean().item()
+        token = ((generated == targets) & mask).sum().item() / mask.sum().item()
+        return exact, token
+
+    def generate_conditioned(self, prompts, mode="random", top_k=1):
+        # Stub: implement in subclass or algo
+        # prompts: (batch, seq) tensor
+        # Return: (batch, seq) tensor of generated completions (same length as targets)
+        raise NotImplementedError(
+            "Implement prompt-conditioned generation with unmasking modes in subclass/algo."
+        )
 
     def on_validation_epoch_end(self):
         for k, v in self.metrics.valid_nlls.items():
