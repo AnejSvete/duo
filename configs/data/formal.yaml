@@ -1,0 +1,16 @@
+train: formal
+valid: formal
+tokenizer_name_or_path: formal
+cache_dir: /cluster/scratch/asvete/duo
+wrap: True
+streaming: False
+insert_train_eos: True
+insert_valid_eos: True
+formal:
+  type: nc1   # nc1 or bfvp
+  num_examples_train: 10000
+  num_examples_valid: 1000
+  num_vars: 4   # for nc1
+  evaluate: True
+  max_depth: 4  # for bfvp
+  max_ops: 8    # for bfvp
