@@ -119,7 +119,7 @@ class TrainerBase(L.LightningModule):
         self.metrics.to(*args, **kwargs)
         return self
 
-    def q_xt(self, x, alpha_t):
+    def q_xt(self, x, alpha_t, do_not_mask, mask_mode="random"):
         raise NotImplementedError
 
     def _get_parameters(self):
@@ -281,6 +281,7 @@ class TrainerBase(L.LightningModule):
             batch["do_not_mask"],
             current_accumulation_step,
             train_mode=True,
+            ground_truth_masking=self.config.training.ground_truth_masking,
         )
         self.metrics.update_train(losses.nlls, losses.prior_loss, losses.num_tokens)
         self.log(
@@ -311,7 +312,11 @@ class TrainerBase(L.LightningModule):
                 batch["input_ids"], dtype=torch.bool
             )
         losses = self._loss(
-            batch["input_ids"], batch["attention_mask"], batch["do_not_mask"]
+            batch["input_ids"],
+            batch["attention_mask"],
+            batch["do_not_mask"],
+            self.config.training.ground_truth_masking,
+            # ground_truth_masking=False,
         )
         self.metrics.update_valid(losses.nlls, losses.prior_loss, losses.num_tokens)
 
@@ -341,6 +346,7 @@ class TrainerBase(L.LightningModule):
                 # Log the last generated samples
                 text_samples = self.tokenizer.batch_decode(generated)
                 text_samples = text_samples[: self.config.sampling.num_sample_log]
+                print(f"text_samples: {text_samples}")
                 self.trainer.logger.log_table(
                     key=f"conditioned_samples@global_step{self.global_step}",
                     columns=["Solved Samples"],
@@ -488,6 +494,7 @@ class TrainerBase(L.LightningModule):
         output_tokens,
         current_accumulation_step=None,
         train_mode=False,
+        ground_truth_masking=False,
     ):
         raise NotImplementedError
 
@@ -498,6 +505,7 @@ class TrainerBase(L.LightningModule):
         do_not_mask,
         current_accumulation_step=None,
         train_mode=False,
+        ground_truth_masking=False,
     ):
         (input_tokens, output_tokens, valid_tokens) = self._process_model_input(
             x0, valid_tokens
@@ -508,6 +516,7 @@ class TrainerBase(L.LightningModule):
             do_not_mask,
             current_accumulation_step,
             train_mode,
+            ground_truth_masking,
         )
         assert loss.ndim == 2
         if self.ignore_bos:
@@ -582,6 +591,7 @@ class Diffusion(TrainerBase):
         do_not_mask,
         current_accumulation_step=None,
         train_mode=False,
+        ground_truth_masking=False,
     ):
         del output_tokens
         t = self._sample_t(x0.shape[0], current_accumulation_step)
@@ -597,7 +607,7 @@ class Diffusion(TrainerBase):
         assert alpha_t.ndim == 2
         sigma = self._sigma_from_alphat(alpha_t)
 
-        xt = self.q_xt(x0, alpha_t, do_not_mask)
+        xt = self.q_xt(x0, alpha_t, do_not_mask, ground_truth_masking)
 
         log_x_theta = self.forward(xt, sigma=sigma)
         utils.print_nans(log_x_theta, "model_output")
@@ -747,18 +757,57 @@ class AbsorbingState(Diffusion):
         if self.subs_masking:
             assert self.parameterization == "mean"
 
-    def q_xt(self, x, alpha_t, do_not_mask):
-        """Computes the noisy sample xt, protecting specified tokens."""
-        # Decide which tokens to potentially mask based on the noise schedule
-        potential_mask = torch.rand(*x.shape, device=x.device) < 1 - alpha_t
-
-        # Only mask tokens where potential_mask is True AND do_not_mask is False
-        final_mask = potential_mask & ~do_not_mask
-
-        xt = torch.where(final_mask, self.mask_index, x)
-        if self.ignore_bos:
-            xt[:, 0] = x[:, 0]
-        return xt
+    def q_xt(self, x, alpha_t, do_not_mask, mask_mode="random"):
+        """Computes the noisy sample xt, protecting specified tokens.
+        mask_mode: 'random' (default) or 'ground_truth'.
+        'ground_truth' masks a contiguous sequence of tokens until the next '|' token.
+        """
+        if mask_mode == "random":
+            # Decide which tokens to potentially mask based on the noise schedule
+            potential_mask = torch.rand(*x.shape, device=x.device) < 1 - alpha_t
+            # Only mask tokens where potential_mask is True AND do_not_mask is False
+            final_mask = potential_mask & ~do_not_mask
+            xt = torch.where(final_mask, self.mask_index, x)
+            if self.ignore_bos:
+                xt[:, 0] = x[:, 0]
+            return xt
+        elif mask_mode == "ground_truth":
+            # Mask a contiguous sequence of tokens until the next '|' token
+            xt = x.clone()
+            batch_size, seq_len = x.shape
+            pipe_token_id = None
+            # Try to get the pipe token id from tokenizer
+            if hasattr(self.tokenizer, "convert_tokens_to_ids"):
+                pipe_token_id = self.tokenizer.convert_tokens_to_ids("|")
+            if pipe_token_id is None:
+                # Fallback: try to find it in x
+                pipe_token_id = int((x == ord("|")).any().item())
+            for i in range(batch_size):
+                # Find valid positions to start masking (not BOS, not already masked, not do_not_mask)
+                valid_positions = torch.arange(seq_len)[~do_not_mask[i]]
+                if self.ignore_bos:
+                    valid_positions = valid_positions[valid_positions != 0]
+                if len(valid_positions) == 0:
+                    continue
+                # Pick a random start position
+                start_pos = valid_positions[
+                    torch.randint(0, len(valid_positions), (1,))
+                ].item()
+                # Mask from start_pos until next pipe token or end
+                end_pos = seq_len
+                pipe_indices = (x[i] == pipe_token_id).nonzero(as_tuple=True)[0]
+                next_pipe = pipe_indices[pipe_indices > start_pos]
+                if len(next_pipe) > 0:
+                    end_pos = next_pipe[0].item()
+                # Mask tokens in range [start_pos, end_pos), respecting do_not_mask
+                for j in range(start_pos, end_pos):
+                    if not do_not_mask[i, j]:
+                        xt[i, j] = self.mask_index
+            if self.ignore_bos:
+                xt[:, 0] = x[:, 0]
+            return xt
+        else:
+            raise ValueError(f"Unknown mask_mode: {mask_mode}")
 
     def prior_sample(self, *batch_dims):
         return self.mask_index * torch.ones(
@@ -828,7 +877,7 @@ class UniformState(Diffusion):
         if self.config.algo.name != "distillation":
             assert self.T == 0
 
-    def q_xt(self, x, alpha_t, do_not_mask):
+    def q_xt(self, x, alpha_t, do_not_mask, mask_mode="random"):
         """Computes the noisy sample xt, protecting specified tokens."""
         # Decide which tokens to potentially corrupt based on the noise schedule
         potential_corruption = torch.rand(*x.shape, device=x.device) < 1 - alpha_t

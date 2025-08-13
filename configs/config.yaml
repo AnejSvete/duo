@@ -42,6 +42,7 @@ training:
   change_of_variables: False
   loss_precision: 'bf16'  # bf16, float32, float64
   finetune_path: ''
+  ground_truth_masking: true
 
 eval:
   checkpoint_path: ''  # Used to evaluate a checkpoint after training.
