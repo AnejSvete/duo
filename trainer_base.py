@@ -783,7 +783,9 @@ class AbsorbingState(Diffusion):
                 pipe_token_id = int((x == ord("|")).any().item())
             for i in range(batch_size):
                 # Find valid positions to start masking (not BOS, not already masked, not do_not_mask)
-                valid_positions = torch.arange(seq_len)[~do_not_mask[i]]
+                valid_positions = torch.arange(seq_len, device=do_not_mask.device)[
+                    ~do_not_mask[i]
+                ]
                 if self.ignore_bos:
                     valid_positions = valid_positions[valid_positions != 0]
                 if len(valid_positions) == 0:
