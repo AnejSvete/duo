@@ -402,9 +402,9 @@ class TrainerBase(L.LightningModule):
         token = ((generated == targets) & mask).sum().item() / mask.sum().item()
         print(f"#correct: {((generated == targets) & mask).sum().item()}")
         print(f"#all: {mask.sum().item()}")
-        print(f"targets: {targets}")
-        print(f"generated: {generated}")
-        print(f"mask: {mask}")
+        print(f"targets: {targets[:2]}")
+        print(f"generated: {generated[:2]}")
+        print(f"mask: {mask[:2]}")
         return exact, token
 
     def generate_conditioned(self, prompts, mode="random", top_k=1):
@@ -525,19 +525,19 @@ class TrainerBase(L.LightningModule):
             x0, valid_tokens
         )
 
-        print(f"input_tokens: {input_tokens}")
+        print(f"input_tokens: {input_tokens[:2]}")
         print()
         print()
         print()
-        # print(f"output_tokens: {output_tokens}")
+        # print(f"output_tokens: {output_tokens[:2]}")
         # print()
         # print()
         # print()
-        print(f"do_not_mask: {do_not_mask}")
+        print(f"do_not_mask: {do_not_mask[:2]}")
         print()
         print()
         print()
-        # print(f"valid_tokens: {valid_tokens}")
+        # print(f"valid_tokens: {valid_tokens[:2]}")
         # print()
         # print()
         # print()
