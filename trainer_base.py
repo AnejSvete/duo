@@ -757,12 +757,11 @@ class AbsorbingState(Diffusion):
         if self.subs_masking:
             assert self.parameterization == "mean"
 
-    def q_xt(self, x, alpha_t, do_not_mask, mask_mode="random"):
+    def q_xt(self, x, alpha_t, do_not_mask, ground_truth_masking):
         """Computes the noisy sample xt, protecting specified tokens.
-        mask_mode: 'random' (default) or 'ground_truth'.
-        'ground_truth' masks a contiguous sequence of tokens until the next '|' token.
+        ground_truth_masking: If True, uses ground truth masking.
         """
-        if mask_mode == "random":
+        if ground_truth_masking:
             # Decide which tokens to potentially mask based on the noise schedule
             potential_mask = torch.rand(*x.shape, device=x.device) < 1 - alpha_t
             # Only mask tokens where potential_mask is True AND do_not_mask is False
@@ -771,7 +770,7 @@ class AbsorbingState(Diffusion):
             if self.ignore_bos:
                 xt[:, 0] = x[:, 0]
             return xt
-        elif mask_mode == "ground_truth":
+        elif ground_truth_masking:
             # Mask a contiguous sequence of tokens until the next '|' token
             xt = x.clone()
             batch_size, seq_len = x.shape
