@@ -407,49 +407,49 @@ class TrainerBase(L.LightningModule):
             self.log(
                 name=k, value=v.compute(), on_step=False, on_epoch=True, sync_dist=True
             )
-        if (
-            self.config.eval.compute_perplexity_on_sanity
-            or not self.trainer.sanity_checking
-        ) and self.config.eval.generate_samples:
-            samples, text_samples = None, None
-            for _ in range(self.config.sampling.num_sample_batches):
-                samples = self.generate_samples(
-                    num_samples=self.config.loader.eval_batch_size
-                )
+        # if (
+        #     self.config.eval.compute_perplexity_on_sanity
+        #     or not self.trainer.sanity_checking
+        # ) and self.config.eval.generate_samples:
+        #     samples, text_samples = None, None
+        #     for _ in range(self.config.sampling.num_sample_batches):
+        #         samples = self.generate_samples(
+        #             num_samples=self.config.loader.eval_batch_size
+        #         )
 
-                self.metrics.record_entropy(samples)
-                # Decode the samples to be re-tokenized by eval model
-                text_samples = self.tokenizer.batch_decode(samples)
-                if self.config.eval.compute_generative_perplexity:
-                    self.metrics.record_generative_perplexity(
-                        text_samples, self.num_tokens, self.device
-                    )
-            if text_samples is not None:
-                if self.trainer.global_rank == 0 and hasattr(
-                    self.trainer.logger, "log_table"
-                ):
-                    # Log the last generated samples
-                    text_samples = text_samples[: self.config.sampling.num_sample_log]
-                    self.trainer.logger.log_table(
-                        key=f"samples@global_step{self.global_step}",
-                        columns=["Generated Samples"],
-                        data=[[s] for s in text_samples],
-                    )
-                if self.config.eval.compute_generative_perplexity:
-                    self.log(
-                        "val/gen_ppl",
-                        self.metrics.gen_ppl.compute(),
-                        on_epoch=True,
-                        on_step=False,
-                        sync_dist=True,
-                    )
-                    self.log(
-                        "val/sample_entropy",
-                        self.metrics.sample_entropy.compute(),
-                        on_epoch=True,
-                        on_step=False,
-                        sync_dist=True,
-                    )
+        #         self.metrics.record_entropy(samples)
+        #         # Decode the samples to be re-tokenized by eval model
+        #         text_samples = self.tokenizer.batch_decode(samples)
+        #         if self.config.eval.compute_generative_perplexity:
+        #             self.metrics.record_generative_perplexity(
+        #                 text_samples, self.num_tokens, self.device
+        #             )
+        #     if text_samples is not None:
+        #         if self.trainer.global_rank == 0 and hasattr(
+        #             self.trainer.logger, "log_table"
+        #         ):
+        #             # Log the last generated samples
+        #             text_samples = text_samples[: self.config.sampling.num_sample_log]
+        #             self.trainer.logger.log_table(
+        #                 key=f"samples@global_step{self.global_step}",
+        #                 columns=["Generated Samples"],
+        #                 data=[[s] for s in text_samples],
+        #             )
+        #         if self.config.eval.compute_generative_perplexity:
+        #             self.log(
+        #                 "val/gen_ppl",
+        #                 self.metrics.gen_ppl.compute(),
+        #                 on_epoch=True,
+        #                 on_step=False,
+        #                 sync_dist=True,
+        #             )
+        #             self.log(
+        #                 "val/sample_entropy",
+        #                 self.metrics.sample_entropy.compute(),
+        #                 on_epoch=True,
+        #                 on_step=False,
+        #                 sync_dist=True,
+        #             )
         self._train_mode()
 
     def configure_optimizers(self):
