@@ -561,13 +561,13 @@ class Diffusion(TrainerBase):
         if self.antithetic_sampling:
             offset = torch.arange(n, device=self.device) / n
             _eps_t = (_eps_t / n + offset) % 1
-        t = (1 - self.sampling_eps) * _eps_t + self.sampling_eps
-        if accum_step is not None:
-            t = t.chunk(self.trainer.num_nodes)[self.trainer.node_rank]
-            t = t.chunk(self.trainer.num_devices)[self.trainer.local_rank]
-            t = t.chunk(self.trainer.accumulate_grad_batches)[accum_step]
-            # corner case for the last datapoint
-            t = t[:batch_dim]
+            t = (1 - self.sampling_eps) * _eps_t + self.sampling_eps
+            if accum_step is not None:
+                chunks = t.chunk(self.trainer.accumulate_grad_batches)
+                if accum_step < len(chunks):
+                    t = chunks[accum_step]
+                else:
+                    t = chunks[0]  # fallback to first chunk if out of range
         return t
 
     def _sigma_from_alphat(self, alpha_t):
