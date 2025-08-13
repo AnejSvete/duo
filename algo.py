@@ -240,7 +240,7 @@ class MDLM(trainer_base.AbsorbingState):
             if not mask_pos.any():
                 break
             # Use sigma=0 for all positions (default denoising step)
-            sigma = torch.zeros(x.shape[0], x.shape[1], device=x.device)
+            sigma = torch.zeros(x.shape[0], device=x.device)
             with torch.no_grad():
                 logits = self.backbone(x, sigma)  # (B, L, V)
                 logits[:, :, mask_token] = self.neg_infinity
