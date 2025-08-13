@@ -346,7 +346,7 @@ class TrainerBase(L.LightningModule):
                 # Log the last generated samples
                 text_samples = self.tokenizer.batch_decode(generated)
                 text_samples = text_samples[: self.config.sampling.num_sample_log]
-                print(f"text_samples: {text_samples}")
+                # print(f"text_samples: {text_samples}")
                 self.trainer.logger.log_table(
                     key=f"conditioned_samples@global_step{self.global_step}",
                     columns=["Solved Samples"],
@@ -510,6 +510,23 @@ class TrainerBase(L.LightningModule):
         (input_tokens, output_tokens, valid_tokens) = self._process_model_input(
             x0, valid_tokens
         )
+
+        print(f"input_tokens: {input_tokens}")
+        print()
+        print()
+        print()
+        print(f"output_tokens: {output_tokens}")
+        print()
+        print()
+        print()
+        print(f"do_not_mask: {do_not_mask}")
+        print()
+        print()
+        print()
+        print(f"valid_tokens: {valid_tokens}")
+        print()
+        print()
+        print()
         loss = self.nll(
             input_tokens,
             output_tokens,
@@ -553,29 +570,46 @@ class Diffusion(TrainerBase):
         return sigma
 
     def _sample_t(self, n, accum_step):
-        if accum_step is not None:
-            # During training
-            batch_dim = n
-            n = self.config.loader.global_batch_size
-        _eps_t = torch.rand(n, device=self.device)
-        if self.antithetic_sampling:
-            offset = torch.arange(n, device=self.device) / n
-            _eps_t = (_eps_t / n + offset) % 1
-            t = (1 - self.sampling_eps) * _eps_t + self.sampling_eps
-            if accum_step is not None:
-                chunks = t.chunk(self.trainer.accumulate_grad_batches)
-                if accum_step < len(chunks):
-                    t = chunks[accum_step]
-                else:
-                    t = chunks[0]  # fallback to first chunk if out of range
-            # Always ensure t matches x0.shape[0] (caller batch size)
-            # Use inspect to get caller's x0 shape
-            import inspect  # TODO: fix...
+        """
+        Samples timesteps `t` for a batch of size `n`.
 
-            frame = inspect.currentframe().f_back
-            x0 = frame.f_locals.get("x0", None)
-            if x0 is not None:
-                t = t[: x0.shape[0]]
+        If training with antithetic sampling and gradient accumulation, it generates
+        stratified samples for the entire global batch and returns the appropriate
+        chunk for the current accumulation step, correctly sized to `n`.
+        """
+        # For validation, or if not using antithetic sampling, use simple random sampling.
+        if accum_step is None or not self.antithetic_sampling:
+            _eps_t = torch.rand(n, device=self.device)
+            t = (1 - self.sampling_eps) * _eps_t + self.sampling_eps
+            return t
+
+        # Handle the training case with antithetic sampling and gradient accumulation.
+        else:
+            global_batch_size = self.config.loader.global_batch_size
+            num_accum_steps = self.trainer.accumulate_grad_batches
+
+            # 1. Generate stratified random values for the entire global batch.
+            _eps_t_global = torch.rand(global_batch_size, device=self.device)
+            offset_global = (
+                torch.arange(global_batch_size, device=self.device) / global_batch_size
+            )
+            t_global = (_eps_t_global / global_batch_size + offset_global) % 1.0
+
+            # 2. Chunk the global tensor into pieces for each accumulation step.
+            chunks = t_global.chunk(num_accum_steps)
+
+            # Check for valid accumulation step to prevent index errors.
+            if accum_step >= len(chunks):
+                # Fallback to the first chunk if accum_step is somehow out of range.
+                accum_step = 0
+
+            current_chunk = chunks[accum_step]
+
+            # 3. CRITICAL FIX: Trim the chunk to the size of the actual input batch `n`.
+            # This robustly handles the final, smaller batch of an epoch.
+            sized_chunk = current_chunk[:n]
+
+            t = (1 - self.sampling_eps) * sized_chunk + self.sampling_eps
             return t
 
     def _sigma_from_alphat(self, alpha_t):
