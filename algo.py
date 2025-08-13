@@ -219,22 +219,34 @@ class MDLM(trainer_base.AbsorbingState):
         model_output[unmasked_indices, xt[unmasked_indices]] = 0
         return model_output
 
-    def generate_conditioned(self, prompts, mode="random", top_k=1):
+    def generate_conditioned(self, prompts, targets, mode="random", top_k=1):
         """
         Generate completions conditioned on prompts, using the specified unmasking mode.
         prompts: (batch, seq) tensor (padded)
+        targets: (batch, seq) tensor used to determine output shape
         Returns: (batch, seq) tensor (same shape as targets)
         """
         pad = self.tokenizer.pad_token_id
         mask_token = self.mask_index
-        batch_size, seq_len = prompts.shape
-        # Find the length of the prompt for each sample (first pad after non-pad)
+        batch_size = prompts.shape[0]
+
+        # --- FIX: Use target's sequence length ---
+        seq_len = targets.shape[1]
+
         prompt_lens = (prompts != pad).sum(dim=1)
-        # Start with prompt, mask the rest
-        x = prompts.clone()
+
+        # Initialize x with the correct target length
+        x = torch.full(
+            (batch_size, seq_len), mask_token, device=prompts.device, dtype=torch.long
+        )
         for i in range(batch_size):
-            x[i, prompt_lens[i] :] = mask_token
+            # Copy the prompt content into the start of x
+            prompt_len = prompt_lens[i]
+            x[i, :prompt_len] = prompts[i, :prompt_len]
+
         finished = torch.zeros(batch_size, dtype=torch.bool, device=prompts.device)
+
+        # --- FIX: Loop until the target sequence is filled ---
         for step in range(seq_len):
             mask_pos = x == mask_token
             if not mask_pos.any():
@@ -242,9 +254,10 @@ class MDLM(trainer_base.AbsorbingState):
             # Use sigma=0 for all positions (default denoising step)
             sigma = torch.zeros(x.shape[0], device=x.device)
             with torch.no_grad():
-                logits = self.backbone(x, sigma)  # (B, L, V)
+                logits = self.backbone(x, sigma)
                 logits[:, :, mask_token] = self.neg_infinity
                 probs = logits.softmax(-1)
+
             for i in range(batch_size):
                 if finished[i]:
                     continue
@@ -288,60 +301,7 @@ class MDLM(trainer_base.AbsorbingState):
                         x[i, pos] = token
                 else:
                     raise ValueError(f"Unknown generation mode: {mode}")
-        for step in range(seq_len):
-            mask_pos = x == mask_token
-            if not mask_pos.any():
-                break
-            # Use sigma=0 for all positions (final denoising step)
-            sigma = torch.zeros(x.shape[0], x.shape[1], device=x.device)
-            with torch.no_grad():
-                logits = self.backbone(x, sigma)  # (B, L, V)
-                logits[:, :, mask_token] = self.neg_infinity
-                probs = logits.softmax(-1)
-            for i in range(batch_size):
-                if finished[i]:
-                    continue
-                masked_indices = mask_pos[i].nonzero(as_tuple=True)[0]
-                if len(masked_indices) == 0:
-                    finished[i] = True
-                    continue
-                if mode == "random":
-                    pos = masked_indices[
-                        torch.randint(0, len(masked_indices), (1,))
-                    ].item()
-                    token = torch.multinomial(probs[i, pos], 1).item()
-                    x[i, pos] = token
-                elif mode == "one_level":
-                    start = prompt_lens[i].item()
-                    ids = x[i]
-                    next_bar = (
-                        ids[start:] == self.tokenizer.convert_tokens_to_ids("|")
-                    ).nonzero(as_tuple=True)
-                    if len(next_bar[0]) > 0:
-                        end = start + next_bar[0][0].item()
-                    else:
-                        end = seq_len
-                    for pos in range(start, end):
-                        if x[i, pos] == mask_token:
-                            token = probs[i, pos].argmax().item()
-                            x[i, pos] = token
-                    prompt_lens[i] = end + 1
-                elif mode == "top_k":
-                    masked_probs = probs[i][mask_pos[i]]
-                    if masked_probs.size(0) == 0:
-                        finished[i] = True
-                        continue
-                    conf, idx = masked_probs.max(dim=1)
-                    k = min(top_k, len(conf))
-                    topk_idx = conf.topk(k).indices
-                    masked_positions = mask_pos[i].nonzero(as_tuple=True)[0]
-                    for j in topk_idx:
-                        pos = masked_positions[j.item()].item()
-                        token = probs[i, pos].argmax().item()
-                        x[i, pos] = token
-                else:
-                    raise ValueError(f"Unknown generation mode: {mode}")
-        return x[:, :seq_len]
+        return x
 
 
 class D3PMAbsorb(trainer_base.AbsorbingState):
