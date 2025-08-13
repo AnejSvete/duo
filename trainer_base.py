@@ -283,10 +283,10 @@ class TrainerBase(L.LightningModule):
             )
 
         losses = self._loss(
-            batch["input_ids"],
-            batch["attention_mask"],
-            batch["do_not_mask"],
-            current_accumulation_step,
+            x0=batch["input_ids"],
+            valid_tokens=batch["attention_mask"],
+            do_not_mask=batch["do_not_mask"],
+            current_accumulation_step=current_accumulation_step,
             train_mode=True,
             ground_truth_masking=self.config.training.ground_truth_masking,
         )
@@ -319,10 +319,11 @@ class TrainerBase(L.LightningModule):
                 batch["input_ids"], dtype=torch.bool
             )
         losses = self._loss(
-            batch["input_ids"],
-            batch["attention_mask"],
-            batch["do_not_mask"],
-            self.config.training.ground_truth_masking,
+            x0=batch["input_ids"],
+            valid_tokens=batch["attention_mask"],
+            do_not_mask=batch["do_not_mask"],
+            train_mode=False,
+            ground_truth_masking=self.config.training.ground_truth_masking,
             # ground_truth_masking=False,
         )
         self.metrics.update_valid(losses.nlls, losses.prior_loss, losses.num_tokens)
@@ -519,6 +520,7 @@ class TrainerBase(L.LightningModule):
         train_mode=False,
         ground_truth_masking=False,
     ):
+        # TODO: Use valid_tokens instead of do_not_mask?
         (input_tokens, output_tokens, valid_tokens) = self._process_model_input(
             x0, valid_tokens
         )
@@ -527,18 +529,18 @@ class TrainerBase(L.LightningModule):
         print()
         print()
         print()
-        print(f"output_tokens: {output_tokens}")
-        print()
-        print()
-        print()
+        # print(f"output_tokens: {output_tokens}")
+        # print()
+        # print()
+        # print()
         print(f"do_not_mask: {do_not_mask}")
         print()
         print()
         print()
-        print(f"valid_tokens: {valid_tokens}")
-        print()
-        print()
-        print()
+        # print(f"valid_tokens: {valid_tokens}")
+        # print()
+        # print()
+        # print()
         loss = self.nll(
             input_tokens,
             output_tokens,
