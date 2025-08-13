@@ -339,7 +339,8 @@ class TrainerBase(L.LightningModule):
                 self.trainer.logger, "log_table"
             ):
                 # Log the last generated samples
-                text_samples = generated[: self.config.sampling.num_sample_log]
+                text_samples = self.tokenizer.batch_decode(generated)
+                text_samples = text_samples[: self.config.sampling.num_sample_log]
                 self.trainer.logger.log_table(
                     key=f"conditioned_samples@global_step{self.global_step}",
                     columns=["Solved Samples"],
