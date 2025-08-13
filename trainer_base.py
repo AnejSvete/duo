@@ -568,6 +568,8 @@ class Diffusion(TrainerBase):
                     t = chunks[accum_step]
                 else:
                     t = chunks[0]  # fallback to first chunk if out of range
+                # Ensure t matches batch size
+                t = t[:n]
         return t
 
     def _sigma_from_alphat(self, alpha_t):
