@@ -392,6 +392,9 @@ class TrainerBase(L.LightningModule):
         mask = targets != pad
         exact = ((generated == targets) | ~mask).all(dim=1).float().mean().item()
         token = ((generated == targets) & mask).sum().item() / mask.sum().item()
+        print(f"targets: {targets}")
+        print(f"generated: {generated}")
+        print(f"mask: {mask}")
         return exact, token
 
     def generate_conditioned(self, prompts, mode="random", top_k=1):
