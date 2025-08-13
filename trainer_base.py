@@ -335,6 +335,16 @@ class TrainerBase(L.LightningModule):
             self.log(
                 "val/acc_token", acc_token, on_step=False, on_epoch=True, sync_dist=True
             )
+            if self.trainer.global_rank == 0 and hasattr(
+                self.trainer.logger, "log_table"
+            ):
+                # Log the last generated samples
+                text_samples = generated[: self.config.sampling.num_sample_log]
+                self.trainer.logger.log_table(
+                    key=f"conditioned_samples@global_step{self.global_step}",
+                    columns=["Solved Samples"],
+                    data=[[s] for s in text_samples],
+                )
             return {"loss": losses.loss, "acc_exact": acc_exact, "acc_token": acc_token}
         return losses.loss
 

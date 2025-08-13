@@ -18,7 +18,6 @@ srun python -u -m main \
   loader.batch_size=512 \
   loader.eval_batch_size=512 \
   data=text8 \
-  wandb.name=mdlm-text8 \
   model=nano \
   algo=mdlm \
   model.length=256

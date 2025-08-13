@@ -229,8 +229,6 @@ class MDLM(trainer_base.AbsorbingState):
         pad = self.tokenizer.pad_token_id
         mask_token = self.mask_index
         batch_size = prompts.shape[0]
-
-        # --- FIX: Use target's sequence length ---
         seq_len = targets.shape[1]
 
         prompt_lens = (prompts != pad).sum(dim=1)
@@ -246,7 +244,6 @@ class MDLM(trainer_base.AbsorbingState):
 
         finished = torch.zeros(batch_size, dtype=torch.bool, device=prompts.device)
 
-        # --- FIX: Loop until the target sequence is filled ---
         for step in range(seq_len):
             mask_pos = x == mask_token
             if not mask_pos.any():
