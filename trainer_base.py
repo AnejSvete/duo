@@ -13,6 +13,13 @@ import metrics
 import models
 import utils
 
+torch.set_printoptions(
+    threshold=float("inf"),  # Print all elements (no truncation)
+    linewidth=200,  # Wider lines before wrapping
+    precision=4,  # Decimal precision for floats
+    sci_mode=False,  # Disable scientific notation
+)
+
 
 @dataclass
 class Loss:
