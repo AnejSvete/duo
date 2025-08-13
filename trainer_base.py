@@ -568,9 +568,15 @@ class Diffusion(TrainerBase):
                     t = chunks[accum_step]
                 else:
                     t = chunks[0]  # fallback to first chunk if out of range
-                # Ensure t matches batch size
-                t = t[:n]
-        return t
+            # Always ensure t matches x0.shape[0] (caller batch size)
+            # Use inspect to get caller's x0 shape
+            import inspect  # TODO: fix...
+
+            frame = inspect.currentframe().f_back
+            x0 = frame.f_locals.get("x0", None)
+            if x0 is not None:
+                t = t[: x0.shape[0]]
+            return t
 
     def _sigma_from_alphat(self, alpha_t):
         return -torch.log(alpha_t)
