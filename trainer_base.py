@@ -770,7 +770,7 @@ class AbsorbingState(Diffusion):
             if self.ignore_bos:
                 xt[:, 0] = x[:, 0]
             return xt
-        elif ground_truth_masking:
+        else:
             # Mask a contiguous sequence of tokens until the next '|' token
             xt = x.clone()
             batch_size, seq_len = x.shape
@@ -805,8 +805,6 @@ class AbsorbingState(Diffusion):
             if self.ignore_bos:
                 xt[:, 0] = x[:, 0]
             return xt
-        else:
-            raise ValueError(f"Unknown mask_mode: {mask_mode}")
 
     def prior_sample(self, *batch_dims):
         return self.mask_index * torch.ones(
