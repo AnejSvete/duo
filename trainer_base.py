@@ -339,9 +339,7 @@ class TrainerBase(L.LightningModule):
             gen_mode = getattr(self.config.eval, "generation_mode", "random")
             top_k = getattr(self.config.eval, "top_k", 1)
             # Pass the `targets` tensor for shape compatibility, as required by the function signature.
-            generated = self.generate_conditioned(
-                prompts, targets, mode=gen_mode, top_k=top_k
-            )
+            generated = self.generate_conditioned(prompts, mode=gen_mode, top_k=top_k)
 
             # Compute accuracy (exact match and token-level)
             acc_exact, acc_token = self._compute_accuracy(
