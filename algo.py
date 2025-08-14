@@ -13,7 +13,7 @@ import utils
 
 
 class AR(trainer_base.TrainerBase):
-    def generate_conditioned(self, prompts):
+    def generate_conditioned(self, prompts, mode="random", top_k=1):
         """
         Generate completions conditioned on prompts using efficient, vectorized
         autoregressive decoding. This version uses a deterministic greedy strategy.
