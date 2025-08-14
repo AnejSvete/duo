@@ -840,7 +840,7 @@ class AbsorbingState(Diffusion):
             batch_size, seq_len = x.shape
 
             pipe_token_id = self.tokenizer.convert_tokens_to_ids("|")
-            pad_token_id = self.pad_token_id
+            pad_token_id = self.tokenizer.pad_token_id
 
             if pipe_token_id == self.tokenizer.unk_token_id:
                 raise ValueError(
