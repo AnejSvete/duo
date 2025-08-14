@@ -667,10 +667,13 @@ class Diffusion(TrainerBase):
         )
         print(len(x0_text))
         for i in range(len(x0_text)):
-            print(f"x0[{i}]: {x0_text[i]}, xt[{i}]: {xt_text[i]}")
+            print(f"x0[{i}]: {x0_text[i]}")
+            print(f"xt[{i}]: {xt_text[i]}")
+            print()
+        print()
+        print()
 
         log_x_theta = self.forward(xt, sigma=sigma)
-        print(log_x_theta.shape)
         utils.print_nans(log_x_theta, "model_output")
         return self.nll_per_token(
             log_x_theta=log_x_theta,
@@ -832,50 +835,51 @@ class AbsorbingState(Diffusion):
                 xt[:, 0] = x[:, 0]
             return xt
         else:
-            # Mask a contiguous sequence of tokens until the next '|' token.
-            # NOTE: This logic iterates over the batch and is not fully vectorized, which may impact performance.
+            # Mask a segment INCLUDING the end pipe, and pad everything after.
             xt = x.clone()
             batch_size, seq_len = x.shape
 
-            # --- FIX: Robustly find the pipe token ID ---
             pipe_token_id = self.tokenizer.convert_tokens_to_ids("|")
+            pad_token_id = self.pad_token_id
 
-            # Ensure the token exists in the vocabulary. Checking against the UNK token is a common pattern.
             if pipe_token_id == self.tokenizer.unk_token_id:
                 raise ValueError(
-                    "The '|' character is not in the tokenizer's vocabulary. "
-                    "This is required for the 'ground_truth_masking' strategy."
+                    "The '|' character is not in the tokenizer's vocabulary."
                 )
 
             for i in range(batch_size):
-                # Find valid positions to start masking (not BOS, not already masked, not do_not_mask)
-                valid_positions = torch.arange(seq_len, device=do_not_mask.device)[
-                    ~do_not_mask[i]
-                ]
-                if self.ignore_bos:
-                    valid_positions = valid_positions[valid_positions != 0]
+                pipe_indices = (x[i] == pipe_token_id).nonzero(as_tuple=True)[0]
+                valid_start_pipes = pipe_indices[~do_not_mask[i][pipe_indices]]
 
-                if len(valid_positions) == 0:
+                if len(valid_start_pipes) == 0:
                     continue
 
-                # Pick a random start position from the valid ones
-                start_pos = valid_positions[
-                    torch.randint(0, len(valid_positions), (1,))
+                start_pipe_pos = valid_start_pipes[
+                    torch.randint(0, len(valid_start_pipes), (1,))
                 ].item()
 
-                # Determine the end position: the next pipe token or the end of the sequence
-                end_pos = seq_len
-                # Find all occurrences of the pipe token in the current sequence
-                pipe_indices = (x[i] == pipe_token_id).nonzero(as_tuple=True)[0]
-                # Find the first pipe that occurs *after* our chosen start position
-                next_pipe = pipe_indices[pipe_indices > start_pos]
-                if len(next_pipe) > 0:
-                    end_pos = next_pipe[0].item()
+                start_pos = start_pipe_pos + 1
 
-                # Mask tokens in the range [start_pos, end_pos), respecting do_not_mask
-                for j in range(start_pos, end_pos):
+                end_mask_pos = seq_len
+                next_pipes = pipe_indices[pipe_indices > start_pipe_pos]
+                if len(next_pipes) > 0:
+                    end_mask_pos = next_pipes[0].item()
+
+                # Stop if there's nothing to mask (e.g., two pipes are adjacent)
+                if start_pos > end_mask_pos:
+                    continue
+
+                # 3. Mask tokens WITHIN the segment, INCLUDING the end pipe
+                # CHANGE: Extend the range to include end_mask_pos
+                for j in range(start_pos, end_mask_pos + 1):
                     if not do_not_mask[i, j]:
                         xt[i, j] = self.mask_index
+
+                # 4. Pad everything AFTER the now-masked end pipe
+                # CHANGE: Start padding at the next position
+                start_pad_pos = end_mask_pos + 1
+                if start_pad_pos < seq_len:
+                    xt[i, start_pad_pos:] = pad_token_id
 
             if self.ignore_bos:
                 xt[:, 0] = x[:, 0]
