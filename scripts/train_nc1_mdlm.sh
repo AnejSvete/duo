@@ -20,5 +20,5 @@ srun python -u -m main \
   data=formal \
   model=nano \
   algo=mdlm \
-  model.length=96 \
+  model.length=64 \
   trainer.val_check_interval=100 

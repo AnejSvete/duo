@@ -665,6 +665,7 @@ class Diffusion(TrainerBase):
             xt[: self.config.sampling.num_sample_log],
             skip_special_tokens=False,
         )
+        print(x0_text.shape)
         for i in range(len(x0_text)):
             print(f"x0[{i}]: {x0_text[i]}, xt[{i}]: {xt_text[i]}")
 
