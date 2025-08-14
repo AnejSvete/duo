@@ -657,7 +657,19 @@ class Diffusion(TrainerBase):
 
         xt = self.q_xt(x0, alpha_t, do_not_mask, ground_truth_masking)
 
+        x0_text = self.tokenizer.batch_decode(
+            x0[: self.config.sampling.num_sample_log],
+            skip_special_tokens=False,
+        )
+        xt_text = self.tokenizer.batch_decode(
+            xt[: self.config.sampling.num_sample_log],
+            skip_special_tokens=False,
+        )
+        for i in range(len(x0_text)):
+            print(f"x0[{i}]: {x0_text[i]}, xt[{i}]: {xt_text[i]}")
+
         log_x_theta = self.forward(xt, sigma=sigma)
+        print(log_x_theta.shape)
         utils.print_nans(log_x_theta, "model_output")
         return self.nll_per_token(
             log_x_theta=log_x_theta,
