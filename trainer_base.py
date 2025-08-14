@@ -414,17 +414,17 @@ class TrainerBase(L.LightningModule):
             num_correct_tokens / num_target_tokens if num_target_tokens > 0 else 0.0
         )
 
-        print(f"#correct: {((generated == targets) & target_mask).sum().item()}")
-        print(f"#all: {target_mask.sum().item()}")
-        for i in range(len(generated[:5])):
-            print(f"Sample {i}:")
-            print(f"  targets: {targets[i]}")
-            print(f"  generated: {generated[i]}")
-            print(f"  target_mask: {target_mask[i]}")
-            print(
-                f"  #correct: {((generated[i] == targets[i]) & target_mask[i]).sum().item()}"
-            )
-            print(f"  #all: {target_mask[i].sum().item()}")
+        # print(f"#correct: {((generated == targets) & target_mask).sum().item()}")
+        # print(f"#all: {target_mask.sum().item()}")
+        # for i in range(len(generated[:5])):
+        #     print(f"Sample {i}:")
+        #     print(f"  targets: {targets[i]}")
+        #     print(f"  generated: {generated[i]}")
+        #     print(f"  target_mask: {target_mask[i]}")
+        #     print(
+        #         f"  #correct: {((generated[i] == targets[i]) & target_mask[i]).sum().item()}"
+        #     )
+        #     print(f"  #all: {target_mask[i].sum().item()}")
 
         return acc_exact, acc_token
 
