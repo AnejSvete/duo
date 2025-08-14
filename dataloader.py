@@ -729,7 +729,6 @@ def get_dataset(
             load_from_cache_file=True,
             desc="Grouping",
         )
-        chunked_dataset.save_to_disk(_path)
 
     # If this is the formal dataset, add the original text field for the collator
     if dataset_name == "formal":
@@ -755,11 +754,9 @@ def get_dataset(
                 "'text' column missing from chunked formal dataset after adding. Please check data pipeline."
             )
 
-    # After loading, check for 'text' column if formal
-    if dataset_name == "formal" and "text" not in chunked_dataset.column_names:
-        raise RuntimeError(
-            "'text' column missing from chunked formal dataset after processing. Please check data pipeline."
-        )
+    if not streaming:
+        chunked_dataset.save_to_disk(_path)
+
     chunked_dataset = chunked_dataset.with_format("torch")
     return chunked_dataset
 
@@ -883,7 +880,7 @@ def get_dataloaders(
             pin_memory=config.loader.pin_memory,
             shuffle=not config.data.streaming,
             persistent_workers=True,
-            collate_fn=collator,  # 👈 3. USE THE COLLATOR
+            collate_fn=collator,
         )
         train_loader.tokenizer = tokenizer
 
