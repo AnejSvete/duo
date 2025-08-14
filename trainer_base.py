@@ -342,9 +342,7 @@ class TrainerBase(L.LightningModule):
             generated = self.generate_conditioned(prompts, mode=gen_mode, top_k=top_k)
 
             # Compute accuracy (exact match and token-level)
-            acc_exact, acc_token = self._compute_accuracy(
-                generated, targets, batch["do_not_mask"]
-            )
+            acc_exact, acc_token = self._compute_accuracy(generated, targets)
             self.log(
                 "val/acc_exact", acc_exact, on_step=False, on_epoch=True, sync_dist=True
             )
@@ -361,7 +359,7 @@ class TrainerBase(L.LightningModule):
                     skip_special_tokens=True,
                 )
                 target_samples = self.tokenizer.batch_decode(
-                    targets[: self.config.sampling.num_sample_log],
+                    batch["input_ids"][: self.config.sampling.num_sample_log],
                     skip_special_tokens=True,
                 )
                 self.trainer.logger.log_table(
@@ -390,7 +388,7 @@ class TrainerBase(L.LightningModule):
 
         return prompts, targets
 
-    def _compute_accuracy(self, generated, targets, do_not_mask):
+    def _compute_accuracy(self, generated, targets):
         """
         Computes exact match and token-level accuracy.
         """
@@ -413,18 +411,6 @@ class TrainerBase(L.LightningModule):
         acc_token = (
             num_correct_tokens / num_target_tokens if num_target_tokens > 0 else 0.0
         )
-
-        # print(f"#correct: {((generated == targets) & target_mask).sum().item()}")
-        # print(f"#all: {target_mask.sum().item()}")
-        # for i in range(len(generated[:5])):
-        #     print(f"Sample {i}:")
-        #     print(f"  targets: {targets[i]}")
-        #     print(f"  generated: {generated[i]}")
-        #     print(f"  target_mask: {target_mask[i]}")
-        #     print(
-        #         f"  #correct: {((generated[i] == targets[i]) & target_mask[i]).sum().item()}"
-        #     )
-        #     print(f"  #all: {target_mask[i].sum().item()}")
 
         return acc_exact, acc_token
 
@@ -526,6 +512,7 @@ class TrainerBase(L.LightningModule):
         self,
         input_tokens,
         output_tokens,
+        do_not_mask,
         current_accumulation_step=None,
         train_mode=False,
         ground_truth_masking=False,
@@ -546,22 +533,6 @@ class TrainerBase(L.LightningModule):
             x0, valid_tokens
         )
 
-        # print(f"input_tokens: {input_tokens[:2]}")
-        # print()
-        # print()
-        # print()
-        # # print(f"output_tokens: {output_tokens[:2]}")
-        # # print()
-        # # print()
-        # # print()
-        # print(f"do_not_mask: {do_not_mask[:2]}")
-        # print()
-        # print()
-        # print()
-        # print(f"valid_tokens: {valid_tokens[:2]}")
-        # print()
-        # print()
-        # print()
         loss = self.nll(
             input_tokens,
             output_tokens,

@@ -84,7 +84,15 @@ class AR(trainer_base.TrainerBase):
         valid_tokens = valid_tokens[:, 1:]
         return input_tokens, output_tokens, valid_tokens
 
-    def nll(self, input_tokens, output_tokens, current_accumulation_step):
+    def nll(
+        self,
+        input_tokens,
+        output_tokens,
+        do_not_mask,
+        current_accumulation_step,
+        train_mode,
+        ground_truth_masking,
+    ):
         del current_accumulation_step
         output = self.backbone(input_tokens, None)
         output[:, :, self.mask_index] = self.neg_infinity
