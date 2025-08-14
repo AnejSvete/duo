@@ -366,33 +366,21 @@ class TrainerBase(L.LightningModule):
         return losses.loss
 
     def _extract_prompts_and_targets(self, input_ids, do_not_mask):
-        # Extract prompt (tokens up to and including first True in do_not_mask) and target (rest)
-        prompts = []
-        targets = []
-        for ids, mask in zip(input_ids, do_not_mask):
-            # Find last True in mask (should be at #)
-            idx = (mask == 1).nonzero(as_tuple=True)[0]
-            if len(idx) > 0:
-                split_idx = idx[-1].item() + 1
-            else:
-                split_idx = 0
-            prompts.append(ids[:split_idx])
-            targets.append(ids[split_idx:])
-        # Pad to same length
-        max_prompt = max([p.size(0) for p in prompts])
-        max_target = max([t.size(0) for t in targets])
-        prompts = torch.stack(
-            [
-                F.pad(p, (0, max_prompt - p.size(0)), value=self.tokenizer.pad_token_id)
-                for p in prompts
-            ]
-        )
-        targets = torch.stack(
-            [
-                F.pad(t, (0, max_target - t.size(0)), value=self.tokenizer.pad_token_id)
-                for t in targets
-            ]
-        )
+        """
+        Splits input_ids into a prompt tensor and a target tensor using a boolean mask.
+
+        - The prompt tensor contains the original tokens where the mask is True, and padding elsewhere.
+        - The target tensor contains the original tokens where the mask is False, and padding elsewhere.
+        """
+
+        ignore_index = -100
+
+        targets = input_ids.clone()
+        targets[do_not_mask] = ignore_index
+
+        prompts = input_ids.clone()
+        prompts[~do_not_mask] = self.tokenizer.pad_token_id
+
         return prompts, targets
 
     def _compute_accuracy(self, generated, targets, do_not_mask):

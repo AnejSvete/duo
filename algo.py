@@ -223,81 +223,135 @@ class MDLM(trainer_base.AbsorbingState):
         """
         Generate completions conditioned on prompts, using the specified unmasking mode.
         prompts: (batch, seq) tensor (padded)
-        targets: (batch, seq) tensor used to determine output shape
-        Returns: (batch, seq) tensor (same shape as targets)
+        targets: (batch, seq) tensor used to determine output shape for compatibility.
+        Returns: (batch, seq) tensor (same shape as prompts/targets)
         """
-        pad = self.tokenizer.pad_token_id
-        mask_token = self.mask_index
-        batch_size = prompts.shape[0]
-        seq_len = targets.shape[1]
+        pad_id = self.tokenizer.pad_token_id
+        mask_id = self.mask_index
+        batch_size, seq_len = prompts.shape
+        device = prompts.device
 
-        prompt_lens = (prompts != pad).sum(dim=1)
+        # Vectorized Initialization: Start with the prompts and replace padding with masks.
+        # This is much cleaner than looping.
+        x = prompts.clone()
+        x[x == pad_id] = mask_id
 
-        # Initialize x with the correct target length
-        x = torch.full(
-            (batch_size, seq_len), mask_token, device=prompts.device, dtype=torch.long
-        )
-        for i in range(batch_size):
-            # Copy the prompt content into the start of x
-            prompt_len = prompt_lens[i]
-            x[i, :prompt_len] = prompts[i, :prompt_len]
+        # Tracks which sequences in the batch are complete.
+        finished = torch.zeros(batch_size, dtype=torch.bool, device=device)
 
-        finished = torch.zeros(batch_size, dtype=torch.bool, device=prompts.device)
+        # The main generation loop continues as long as there are masks to fill.
+        for _ in range(seq_len):
+            # Identify mask positions for the entire batch.
+            mask_pos = x == mask_id
 
-        for step in range(seq_len):
-            mask_pos = x == mask_token
+            # If no masks are left anywhere in the batch, we can stop.
             if not mask_pos.any():
                 break
-            # Use sigma=0 for all positions (default denoising step)
-            sigma = torch.zeros(x.shape[0], device=x.device)
-            with torch.no_grad():
-                logits = self.backbone(x, sigma)
-                logits[:, :, mask_token] = self.neg_infinity
-                probs = logits.softmax(-1)
 
-            for i in range(batch_size):
-                if finished[i]:
-                    continue
-                masked_indices = mask_pos[i].nonzero(as_tuple=True)[0]
-                if len(masked_indices) == 0:
-                    finished[i] = True
-                    continue
-                if mode == "random":
-                    pos = masked_indices[
-                        torch.randint(0, len(masked_indices), (1,))
-                    ].item()
-                    token = torch.multinomial(probs[i, pos], 1).item()
-                    x[i, pos] = token
-                elif mode == "one_level":
+            # Get model predictions for the entire batch.
+            with torch.no_grad():
+                # Use sigma=0 for the standard denoising/generation step.
+                sigma = torch.zeros(batch_size, device=device)
+                logits = self.backbone(x, sigma)
+                # Prevent the model from predicting the mask token itself.
+                logits[:, :, mask_id] = -torch.inf
+                probs = logits.softmax(dim=-1)
+
+            # Create a mask for rows that are not yet finished.
+            unfinished_mask = ~finished
+
+            if mode == "random":
+                # For each unfinished sequence, pick one random masked position to fill.
+
+                # 1. Create random weights for all positions.
+                rand_weights = torch.rand(x.shape, device=device)
+                # 2. Ignore non-masked positions by setting their weights to a negative value.
+                rand_weights[~mask_pos] = -1.0
+                # 3. Find the index of the max random weight for each row. This is our chosen position.
+                chosen_pos = rand_weights.argmax(dim=1)
+
+                # 4. Gather the probability distributions at the chosen positions.
+                # `torch.gather` selects the probs from the `chosen_pos` for each batch item.
+                chosen_probs = torch.gather(
+                    probs, 1, chosen_pos.view(-1, 1, 1).expand(-1, 1, probs.shape[-1])
+                ).squeeze(1)
+
+                # 5. Sample a token for each sequence from its chosen distribution.
+                chosen_tokens = torch.multinomial(chosen_probs, num_samples=1).squeeze(
+                    1
+                )
+
+                # 6. Place the new tokens into `x` at the chosen positions, only for unfinished sequences.
+                rows_to_update = unfinished_mask.nonzero(as_tuple=True)[0]
+                if rows_to_update.numel() > 0:
+                    x[rows_to_update, chosen_pos[rows_to_update]] = chosen_tokens[
+                        rows_to_update
+                    ]
+
+            elif mode == "top_k":
+                # For each unfinished sequence, fill the top_k most confident masked positions.
+
+                # 1. Get the confidence (max probability) for each position.
+                confidences, best_tokens = probs.max(dim=-1)
+                # 2. Ignore non-masked positions.
+                confidences[~mask_pos] = -1.0
+
+                # 3. Find the top `k` most confident positions and their values for each sequence.
+                # We need to handle cases where a sequence has fewer than `k` masks left.
+                num_masks_per_item = mask_pos.sum(dim=1)
+                k = min(top_k, confidences.shape[1])
+                actual_k = torch.min(torch.tensor(k, device=device), num_masks_per_item)
+
+                if actual_k.max() > 0:
+                    # `torch.topk` gives us the indices of the most confident positions.
+                    _, topk_pos = torch.topk(confidences, k=k, dim=1)
+
+                    # Create a mask to only update valid top-k positions
+                    k_range = torch.arange(k, device=device)[None, :]
+                    topk_update_mask = (k_range < actual_k[:, None]) & unfinished_mask[
+                        :, None
+                    ]
+
+                    # Gather the best tokens for the top-k positions
+                    tokens_to_insert = torch.gather(best_tokens, 1, topk_pos)
+
+                    # Use `torch.scatter_` for an efficient in-place update.
+                    x.scatter_(1, topk_pos, tokens_to_insert, src=topk_update_mask)
+
+            elif mode == "one_level":
+                # This mode's logic is inherently sequential and per-item, making it
+                # difficult to vectorize without overly complex code.
+                # It is kept as a loop for clarity and correctness.
+                prompt_lens = (prompts != pad_id).sum(
+                    dim=1
+                )  # Recalculate for this specific logic
+                for i in range(batch_size):
+                    if finished[i]:
+                        continue
                     start = prompt_lens[i].item()
                     ids = x[i]
                     next_bar = (
                         ids[start:] == self.tokenizer.convert_tokens_to_ids("|")
                     ).nonzero(as_tuple=True)
-                    if len(next_bar[0]) > 0:
-                        end = start + next_bar[0][0].item()
-                    else:
-                        end = seq_len
+                    end = (
+                        start + next_bar[0][0].item()
+                        if len(next_bar[0]) > 0
+                        else seq_len
+                    )
+
                     for pos in range(start, end):
-                        if x[i, pos] == mask_token:
-                            token = probs[i, pos].argmax().item()
-                            x[i, pos] = token
+                        if x[i, pos] == mask_id:
+                            x[i, pos] = probs[i, pos].argmax().item()
                     prompt_lens[i] = end + 1
-                elif mode == "top_k":
-                    masked_probs = probs[i][mask_pos[i]]
-                    if masked_probs.size(0) == 0:
-                        finished[i] = True
-                        continue
-                    conf, idx = masked_probs.max(dim=1)
-                    k = min(top_k, len(conf))
-                    topk_idx = conf.topk(k).indices
-                    masked_positions = mask_pos[i].nonzero(as_tuple=True)[0]
-                    for j in topk_idx:
-                        pos = masked_positions[j.item()].item()
-                        token = probs[i, pos].argmax().item()
-                        x[i, pos] = token
-                else:
-                    raise ValueError(f"Unknown generation mode: {mode}")
+
+            else:
+                raise ValueError(f"Unknown generation mode: {mode}")
+
+            # Update the finished status for any sequences that no longer have masks.
+            finished |= (x != mask_id).all(dim=1)
+            if finished.all():
+                break
+
         return x
 
 
