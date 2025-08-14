@@ -377,10 +377,9 @@ class TrainerBase(L.LightningModule):
         - The target tensor contains the original tokens where the mask is False, and a specific
           ignore_index (-100) elsewhere, which is standard practice for loss functions.
         """
-        ignore_index = -100  # Standard ignore index for PyTorch loss functions
 
         targets = input_ids.clone()
-        targets[do_not_mask] = ignore_index
+        targets[do_not_mask] = self.tokenizer.pad_token_id
 
         prompts = input_ids.clone()
         prompts[~do_not_mask] = self.tokenizer.pad_token_id
@@ -391,11 +390,8 @@ class TrainerBase(L.LightningModule):
         """
         Computes exact match and token-level accuracy.
         """
-        # The ignore_index marks positions that are not part of the target (prompts and padding).
-        ignore_index = -100
-
         # `target_mask` is True only for tokens that should be predicted.
-        target_mask = targets != ignore_index
+        target_mask = targets != self.tokenizer.pad_token_id
 
         # 1. Exact Match Accuracy: Percentage of sequences that are perfectly correct.
         # For each sequence, check if all target tokens are correct.
@@ -546,18 +542,18 @@ class TrainerBase(L.LightningModule):
             x0, valid_tokens
         )
 
-        print(f"input_tokens: {input_tokens[:2]}")
-        print()
-        print()
-        print()
-        # print(f"output_tokens: {output_tokens[:2]}")
+        # print(f"input_tokens: {input_tokens[:2]}")
         # print()
         # print()
         # print()
-        print(f"do_not_mask: {do_not_mask[:2]}")
-        print()
-        print()
-        print()
+        # # print(f"output_tokens: {output_tokens[:2]}")
+        # # print()
+        # # print()
+        # # print()
+        # print(f"do_not_mask: {do_not_mask[:2]}")
+        # print()
+        # print()
+        # print()
         # print(f"valid_tokens: {valid_tokens[:2]}")
         # print()
         # print()
