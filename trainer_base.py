@@ -402,7 +402,7 @@ class TrainerBase(L.LightningModule):
         token = ((generated == targets) & mask).sum().item() / mask.sum().item()
         print(f"#correct: {((generated == targets) & mask).sum().item()}")
         print(f"#all: {mask.sum().item()}")
-        for i in range(len(generated)):
+        for i in range(len(generated[:5])):
             print(f"Sample {i}:")
             print(f"  targets: {targets[i]}")
             print(f"  generated: {generated[i]}")
