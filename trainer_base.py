@@ -341,7 +341,9 @@ class TrainerBase(L.LightningModule):
                 prompts, targets, mode=gen_mode, top_k=top_k
             )
             # Compute accuracy (exact match and token-level)
-            acc_exact, acc_token = self._compute_accuracy(generated, targets)
+            acc_exact, acc_token = self._compute_accuracy(
+                generated, targets, batch["do_not_mask"]
+            )
             self.log(
                 "val/acc_exact", acc_exact, on_step=False, on_epoch=True, sync_dist=True
             )
@@ -393,24 +395,26 @@ class TrainerBase(L.LightningModule):
         )
         return prompts, targets
 
-    def _compute_accuracy(self, generated, targets):
+    def _compute_accuracy(self, generated, targets, do_not_mask):
         # Both are (batch, seq) tensors
         # Ignore padding in targets
         pad = self.tokenizer.pad_token_id
-        mask = targets != pad
-        exact = ((generated == targets) | ~mask).all(dim=1).float().mean().item()
-        token = ((generated == targets) & mask).sum().item() / mask.sum().item()
-        print(f"#correct: {((generated == targets) & mask).sum().item()}")
-        print(f"#all: {mask.sum().item()}")
+        predictions = targets != pad & ~do_not_mask
+        exact = ((generated == targets) | ~predictions).all(dim=1).float().mean().item()
+        token = (
+            (generated == targets) & predictions
+        ).sum().item() / predictions.sum().item()
+        print(f"#correct: {((generated == targets) & predictions).sum().item()}")
+        print(f"#all: {predictions.sum().item()}")
         for i in range(len(generated[:5])):
             print(f"Sample {i}:")
             print(f"  targets: {targets[i]}")
             print(f"  generated: {generated[i]}")
-            print(f"  mask: {mask[i]}")
+            print(f"  predictions: {predictions[i]}")
             print(
-                f"  #correct: {((generated[i] == targets[i]) & mask[i]).sum().item()}"
+                f"  #correct: {((generated[i] == targets[i]) & predictions[i]).sum().item()}"
             )
-            print(f"  #all: {mask[i].sum().item()}")
+            print(f"  #all: {predictions[i].sum().item()}")
         return exact, token
 
     def generate_conditioned(self, prompts, mode="random", top_k=1):
