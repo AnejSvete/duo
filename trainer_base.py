@@ -356,14 +356,18 @@ class TrainerBase(L.LightningModule):
             if self.trainer.global_rank == 0 and hasattr(
                 self.trainer.logger, "log_table"
             ):
-                text_samples = self.tokenizer.batch_decode(
-                    generated, skip_special_tokens=True
+                generated_samples = self.tokenizer.batch_decode(
+                    generated[: self.config.sampling.num_sample_log],
+                    skip_special_tokens=True,
                 )
-                text_samples = text_samples[: self.config.sampling.num_sample_log]
+                target_samples = self.tokenizer.batch_decode(
+                    targets[: self.config.sampling.num_sample_log],
+                    skip_special_tokens=True,
+                )
                 self.trainer.logger.log_table(
-                    key=f"conditioned_samples@global_step{self.global_step}",
-                    columns=["Solved Samples"],
-                    data=[[s] for s in text_samples],
+                    key=f"conditioned_generation@global_step{self.global_step}",
+                    columns=["Generated", "Target"],
+                    data=[[s, t] for s, t in zip(generated_samples, target_samples)],
                 )
 
             return {"loss": losses.loss, "acc_exact": acc_exact, "acc_token": acc_token}
@@ -458,8 +462,8 @@ class TrainerBase(L.LightningModule):
         #         if self.trainer.global_rank == 0 and hasattr(
         #             self.trainer.logger, "log_table"
         #         ):
-        #             # Log the last generated samples
-        #             text_samples = text_samples[: self.config.sampling.num_sample_log]
+        #             # Log the last generated samples[: self.config.sampling.num_sample_log]
+        #             text_samples = text_samples
         #             self.trainer.logger.log_table(
         #                 key=f"samples@global_step{self.global_step}",
         #                 columns=["Generated Samples"],
@@ -834,7 +838,7 @@ class AbsorbingState(Diffusion):
         """Computes the noisy sample xt, protecting specified tokens.
         ground_truth_masking: If True, uses ground truth masking.
         """
-        if ground_truth_masking:
+        if not ground_truth_masking:
             # Decide which tokens to potentially mask based on the noise schedule
             potential_mask = torch.rand(*x.shape, device=x.device) < 1 - alpha_t
             # Only mask tokens where potential_mask is True AND do_not_mask is False
@@ -844,16 +848,21 @@ class AbsorbingState(Diffusion):
                 xt[:, 0] = x[:, 0]
             return xt
         else:
-            # Mask a contiguous sequence of tokens until the next '|' token
+            # Mask a contiguous sequence of tokens until the next '|' token.
+            # NOTE: This logic iterates over the batch and is not fully vectorized, which may impact performance.
             xt = x.clone()
             batch_size, seq_len = x.shape
-            pipe_token_id = None
-            # Try to get the pipe token id from tokenizer
-            if hasattr(self.tokenizer, "convert_tokens_to_ids"):
-                pipe_token_id = self.tokenizer.convert_tokens_to_ids("|")
-            if pipe_token_id is None:
-                # Fallback: try to find it in x
-                pipe_token_id = int((x == ord("|")).any().item())
+
+            # --- FIX: Robustly find the pipe token ID ---
+            pipe_token_id = self.tokenizer.convert_tokens_to_ids("|")
+
+            # Ensure the token exists in the vocabulary. Checking against the UNK token is a common pattern.
+            if pipe_token_id == self.tokenizer.unk_token_id:
+                raise ValueError(
+                    "The '|' character is not in the tokenizer's vocabulary. "
+                    "This is required for the 'ground_truth_masking' strategy."
+                )
+
             for i in range(batch_size):
                 # Find valid positions to start masking (not BOS, not already masked, not do_not_mask)
                 valid_positions = torch.arange(seq_len, device=do_not_mask.device)[
@@ -861,22 +870,29 @@ class AbsorbingState(Diffusion):
                 ]
                 if self.ignore_bos:
                     valid_positions = valid_positions[valid_positions != 0]
+
                 if len(valid_positions) == 0:
                     continue
-                # Pick a random start position
+
+                # Pick a random start position from the valid ones
                 start_pos = valid_positions[
                     torch.randint(0, len(valid_positions), (1,))
                 ].item()
-                # Mask from start_pos until next pipe token or end
+
+                # Determine the end position: the next pipe token or the end of the sequence
                 end_pos = seq_len
+                # Find all occurrences of the pipe token in the current sequence
                 pipe_indices = (x[i] == pipe_token_id).nonzero(as_tuple=True)[0]
+                # Find the first pipe that occurs *after* our chosen start position
                 next_pipe = pipe_indices[pipe_indices > start_pos]
                 if len(next_pipe) > 0:
                     end_pos = next_pipe[0].item()
-                # Mask tokens in range [start_pos, end_pos), respecting do_not_mask
+
+                # Mask tokens in the range [start_pos, end_pos), respecting do_not_mask
                 for j in range(start_pos, end_pos):
                     if not do_not_mask[i, j]:
                         xt[i, j] = self.mask_index
+
             if self.ignore_bos:
                 xt[:, 0] = x[:, 0]
             return xt

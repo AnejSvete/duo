@@ -13,68 +13,54 @@ import utils
 
 
 class AR(trainer_base.TrainerBase):
-    def generate_conditioned(self, prompts, mode="random", top_k=1):
+    def generate_conditioned(self, prompts):
         """
-        Generate completions conditioned on prompts, using the specified unmasking mode.
-        prompts: (batch, seq) tensor (padded)
-        Returns: (batch, seq) tensor (same shape as targets)
+        Generate completions conditioned on prompts using efficient, vectorized
+        autoregressive decoding. This version uses a deterministic greedy strategy.
+
+        prompts: (batch, seq) tensor (padded with pad_token_id)
+        Returns: (batch, seq) tensor containing the prompts and generated completions.
         """
-        # Find the length of the prompt for each sample (first pad after non-pad)
-        pad = self.tokenizer.pad_token_id
+        pad_id = self.tokenizer.pad_token_id
         batch_size, seq_len = prompts.shape
-        prompt_lens = (prompts != pad).sum(dim=1)
-        # We'll generate up to max_target_len tokens for each sample
-        # For simplicity, assume all targets are same length as in validation
-        # (the caller should pad appropriately)
-        max_gen_len = seq_len
         device = prompts.device
+
+        # Start with the prompts. We will fill this tensor one token at a time.
         x = prompts.clone()
-        # For AR, generate one token at a time after the prompt
-        for t in range(seq_len):
-            # Only fill positions after the prompt
-            mask = (t >= prompt_lens) & (t < max_gen_len)
-            if not mask.any():
+
+        # Pre-calculate the length of each prompt to know where generation starts.
+        prompt_lens = (prompts != pad_id).sum(dim=1)
+
+        # Autoregressively generate tokens for each position in the sequence.
+        for t in range(1, seq_len):
+            # A mask to determine which samples need a token generated at this step.
+            mask_to_generate = t >= prompt_lens
+
+            # If no samples need a token at this position, skip to the next step.
+            if not mask_to_generate.any():
                 continue
-            # Prepare input up to t for each sample
-            input_toks = []
-            for i in range(batch_size):
-                end = t if t < max_gen_len else max_gen_len
-                input_toks.append(x[i, :end])
-            # Pad to same length
-            max_inp = max([it.size(0) for it in input_toks])
-            input_batch = torch.stack(
-                [F.pad(it, (0, max_inp - it.size(0)), value=pad) for it in input_toks]
-            )
-            # Get logits for next token
+
+            # Get model predictions based on all preceding tokens.
             with torch.no_grad():
-                logits = self.backbone(input_batch, None)  # (B, L, V)
-                logits = logits[:, -1, :]  # (B, V)
-                logits[:, self.mask_index] = self.neg_infinity
-                probs = logits.softmax(-1)
-            # Choose next token according to mode
-            if mode == "random":
-                next_tok = torch.multinomial(probs, 1).squeeze(-1)
-            elif mode == "one_level":
-                # For AR, treat as greedy (since only one token at a time)
-                next_tok = probs.argmax(-1)
-            elif mode == "top_k":
-                # For AR, top_k is greedy for k=1, else sample from top-k
-                if top_k == 1:
-                    next_tok = probs.argmax(-1)
-                else:
-                    topk_probs, topk_idx = torch.topk(probs, top_k, dim=-1)
-                    topk_probs = topk_probs / topk_probs.sum(-1, keepdim=True)
-                    sampled = torch.multinomial(topk_probs, 1).squeeze(-1)
-                    next_tok = topk_idx.gather(1, sampled.unsqueeze(-1)).squeeze(-1)
-            else:
-                raise ValueError(f"Unknown generation mode: {mode}")
-            # Fill in next token for those still generating
-            for i in range(batch_size):
-                if mask[i]:
-                    x[i, t] = next_tok[i]
-        # Return only the generated part (after prompt)
-        # But for validation, we want the full sequence (to compare to targets)
-        return x[:, :seq_len]
+                # The input is the sequence so far: x[:, :t].
+                logits = self.backbone(x[:, :t], None)  # Shape: (B, t, V)
+
+                # We only need the logits for the very last position in the sequence.
+                last_token_logits = logits[:, -1, :]  # Shape: (B, V)
+
+                # Prevent the model from generating the [MASK] token.
+                last_token_logits[:, self.mask_index] = -torch.inf
+                probs = last_token_logits.softmax(dim=-1)
+
+            # --- Simplified Generation ---
+            # For AR generation, deterministically select the most likely token (greedy decoding).
+            next_tok = probs.argmax(dim=-1)
+
+            # --- Vectorized Update ---
+            # Place the newly generated token at position 't' for the active samples.
+            x[mask_to_generate, t] = next_tok[mask_to_generate]
+
+        return x
 
     def __init__(self, config, tokenizer):
         vocab_size = tokenizer.vocab_size
@@ -141,23 +127,6 @@ class MDLM(trainer_base.AbsorbingState):
     def _validate_configuration(self):
         # ancestral sampling isn't desirable because it's slow
         assert self.sampler == "ancestral_cache"
-
-    # def _process_model_output(self, model_output, xt, sigma):
-    #   del sigma
-    #   model_output[:, :, self.mask_index] += self.neg_infinity
-
-    #   # Normalize the model_output such that x.exp() is
-    #   # a probability distribution over vocab_size.
-    #   model_output = model_output - torch.logsumexp(
-    #     model_output, dim=-1, keepdim=True)
-    #   # Apply updates directly in the logits matrix.
-    #   # For the logits of the unmasked tokens, set all values
-    #   # to -infinity except for the indices corresponding to
-    #   # the unmasked tokens.
-    #   unmasked_indices = (xt != self.mask_index)
-    #   model_output[unmasked_indices] = self.neg_infinity
-    #   model_output[unmasked_indices, xt[unmasked_indices]] = 0
-    #   return model_output
 
     def nll_per_token(self, log_x_theta, xt, x0, alpha_t, dalpha_t, low_var=False):
         del xt
@@ -321,9 +290,9 @@ class MDLM(trainer_base.AbsorbingState):
                 # This mode's logic is inherently sequential and per-item, making it
                 # difficult to vectorize without overly complex code.
                 # It is kept as a loop for clarity and correctness.
-                prompt_lens = (prompts != pad_id).sum(
-                    dim=1
-                )  # Recalculate for this specific logic
+
+                # Recalculate for this specific logic
+                prompt_lens = (prompts != pad_id).sum(dim=1)
                 for i in range(batch_size):
                     if finished[i]:
                         continue
