@@ -219,12 +219,11 @@ class MDLM(trainer_base.AbsorbingState):
         model_output[unmasked_indices, xt[unmasked_indices]] = 0
         return model_output
 
-    def generate_conditioned(self, prompts, targets, mode="random", top_k=1):
+    def generate_conditioned(self, prompts, mode="random", top_k=1):
         """
         Generate completions conditioned on prompts, using the specified unmasking mode.
         prompts: (batch, seq) tensor (padded)
-        targets: (batch, seq) tensor used to determine output shape for compatibility.
-        Returns: (batch, seq) tensor (same shape as prompts/targets)
+        Returns: (batch, seq) tensor (same shape as prompts)
         """
         pad_id = self.tokenizer.pad_token_id
         mask_id = self.mask_index

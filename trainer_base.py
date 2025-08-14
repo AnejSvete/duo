@@ -318,13 +318,13 @@ class TrainerBase(L.LightningModule):
             batch["do_not_mask"] = torch.zeros_like(
                 batch["input_ids"], dtype=torch.bool
             )
+
         losses = self._loss(
             x0=batch["input_ids"],
             valid_tokens=batch["attention_mask"],
             do_not_mask=batch["do_not_mask"],
             train_mode=False,
             ground_truth_masking=self.config.training.ground_truth_masking,
-            # ground_truth_masking=False,
         )
         self.metrics.update_valid(losses.nlls, losses.prior_loss, losses.num_tokens)
 
@@ -334,12 +334,15 @@ class TrainerBase(L.LightningModule):
             prompts, targets = self._extract_prompts_and_targets(
                 batch["input_ids"], batch["do_not_mask"]
             )
+
             # Generate completions conditioned on prompts
             gen_mode = getattr(self.config.eval, "generation_mode", "random")
             top_k = getattr(self.config.eval, "top_k", 1)
+            # Pass the `targets` tensor for shape compatibility, as required by the function signature.
             generated = self.generate_conditioned(
                 prompts, targets, mode=gen_mode, top_k=top_k
             )
+
             # Compute accuracy (exact match and token-level)
             acc_exact, acc_token = self._compute_accuracy(
                 generated, targets, batch["do_not_mask"]
@@ -350,30 +353,33 @@ class TrainerBase(L.LightningModule):
             self.log(
                 "val/acc_token", acc_token, on_step=False, on_epoch=True, sync_dist=True
             )
+
+            # Logic for logging samples remains the same
             if self.trainer.global_rank == 0 and hasattr(
                 self.trainer.logger, "log_table"
             ):
-                # Log the last generated samples
-                text_samples = self.tokenizer.batch_decode(generated)
+                text_samples = self.tokenizer.batch_decode(
+                    generated, skip_special_tokens=True
+                )
                 text_samples = text_samples[: self.config.sampling.num_sample_log]
-                # print(f"text_samples: {text_samples}")
                 self.trainer.logger.log_table(
                     key=f"conditioned_samples@global_step{self.global_step}",
                     columns=["Solved Samples"],
                     data=[[s] for s in text_samples],
                 )
+
             return {"loss": losses.loss, "acc_exact": acc_exact, "acc_token": acc_token}
+
         return losses.loss
 
     def _extract_prompts_and_targets(self, input_ids, do_not_mask):
         """
         Splits input_ids into a prompt tensor and a target tensor using a boolean mask.
-
         - The prompt tensor contains the original tokens where the mask is True, and padding elsewhere.
-        - The target tensor contains the original tokens where the mask is False, and padding elsewhere.
+        - The target tensor contains the original tokens where the mask is False, and a specific
+          ignore_index (-100) elsewhere, which is standard practice for loss functions.
         """
-
-        ignore_index = -100
+        ignore_index = -100  # Standard ignore index for PyTorch loss functions
 
         targets = input_ids.clone()
         targets[do_not_mask] = ignore_index
@@ -384,26 +390,45 @@ class TrainerBase(L.LightningModule):
         return prompts, targets
 
     def _compute_accuracy(self, generated, targets, do_not_mask):
-        # Both are (batch, seq) tensors
-        # Ignore padding in targets
-        pad = self.tokenizer.pad_token_id
-        predictions = targets != pad & ~do_not_mask
-        exact = ((generated == targets) | ~predictions).all(dim=1).float().mean().item()
-        token = (
-            (generated == targets) & predictions
-        ).sum().item() / predictions.sum().item()
-        print(f"#correct: {((generated == targets) & predictions).sum().item()}")
-        print(f"#all: {predictions.sum().item()}")
+        """
+        Computes exact match and token-level accuracy.
+        """
+        # The ignore_index marks positions that are not part of the target (prompts and padding).
+        ignore_index = -100
+
+        # `target_mask` is True only for tokens that should be predicted.
+        target_mask = targets != ignore_index
+
+        # 1. Exact Match Accuracy: Percentage of sequences that are perfectly correct.
+        # For each sequence, check if all target tokens are correct.
+        # A token is considered correct if it matches the generated token OR it's not a target token.
+        is_correct_or_ignored = (generated == targets) | ~target_mask
+        exact_match = is_correct_or_ignored.all(dim=1)
+        acc_exact = exact_match.float().mean().item()
+
+        # 2. Token-level Accuracy: Percentage of all target tokens that are correct.
+        # Count correctly predicted tokens within the target mask.
+        num_correct_tokens = ((generated == targets) & target_mask).sum().item()
+        num_target_tokens = target_mask.sum().item()
+
+        # Avoid division by zero if there are no target tokens in the batch.
+        acc_token = (
+            num_correct_tokens / num_target_tokens if num_target_tokens > 0 else 0.0
+        )
+
+        print(f"#correct: {((generated == targets) & target_mask).sum().item()}")
+        print(f"#all: {target_mask.sum().item()}")
         for i in range(len(generated[:5])):
             print(f"Sample {i}:")
             print(f"  targets: {targets[i]}")
             print(f"  generated: {generated[i]}")
-            print(f"  predictions: {predictions[i]}")
+            print(f"  target_mask: {target_mask[i]}")
             print(
-                f"  #correct: {((generated[i] == targets[i]) & predictions[i]).sum().item()}"
+                f"  #correct: {((generated[i] == targets[i]) & target_mask[i]).sum().item()}"
             )
-            print(f"  #all: {predictions[i].sum().item()}")
-        return exact, token
+            print(f"  #all: {target_mask[i].sum().item()}")
+
+        return acc_exact, acc_token
 
     def generate_conditioned(self, prompts, mode="random", top_k=1):
         # Stub: implement in subclass or algo
