@@ -117,7 +117,10 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
         mask_token="[MASK]",
         **kwargs,
     ):
-        self.FORMAL_TOKENS = ["(", ")", "#", "|", "and", "or", "not", "T", "F"]
+        # Add variable tokens to the tokenizer vocabulary
+        self.FORMAL_TOKENS = ["(", ")", "#", "|", "and", "or", "not", "T", "F"] + [
+            f"x{i}" for i in range(1, 129)
+        ]  # Support up to x128
         vocab = {pad_token: 0, bos_token: 1, eos_token: 2, mask_token: 3}
         offset = 4
         for i, tok in enumerate(self.FORMAL_TOKENS):
@@ -137,17 +140,8 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
         return len(self._vocab_str_to_int)
 
     def _tokenize(self, text: str, **kwargs) -> typing.List[str]:
-        # Only allow (, ), |, and, or, not, T, F as tokens. All else raises an error.
-        allowed = set(self.FORMAL_TOKENS)
-        tokens = []
-        for part in text.strip().split():
-            if part in allowed:
-                tokens.append(part)
-            else:
-                raise ValueError(
-                    f"Invalid token '{part}' encountered in formal language input."
-                )
-        return tokens
+        # Split by space to handle multi-character tokens like 'and', 'or', 'not', 'x10'
+        return text.strip().split()
 
     def _convert_token_to_id(self, token: str) -> int:
         if token not in self._vocab_str_to_int:
@@ -160,7 +154,6 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
         return self._vocab_int_to_str[index]
 
     def convert_tokens_to_string(self, tokens):
-        # Join with space for readability
         return " ".join(tokens)
 
     def get_vocab(self) -> typing.Dict[str, int]:
@@ -485,10 +478,22 @@ def get_dataset(
     eos_tag = ""
     if not insert_eos:
         eos_tag = "_eosFalse"
-    if wrap:
-        filename = f"{dataset_name}_{mode}_bs{block_size}_wrapped{eos_tag}.dat"
+
+    if dataset_name == "formal":
+        # Create a descriptive filename for formal datasets based on generation parameters
+        formal_cfg = getattr(config.data, "formal", {})
+        num_vars = getattr(formal_cfg, "num_vars", 4)
+        max_depth = getattr(formal_cfg, "max_depth", 3)
+        format_str = getattr(formal_cfg, "format", "full_trace").replace("_", "-")
+
+        base_name = f"{dataset_name}_nv{num_vars}_md{max_depth}_f-{format_str}"
     else:
-        filename = f"{dataset_name}_{mode}_bs{block_size}_unwrapped{eos_tag}.dat"
+        base_name = dataset_name
+
+    if wrap:
+        filename = f"{base_name}_{mode}_bs{block_size}_wrapped{eos_tag}.dat"
+    else:
+        filename = f"{base_name}_{mode}_bs{block_size}_unwrapped{eos_tag}.dat"
     _path = os.path.join(cache_dir, filename)
 
     if utils.fsspec_exists(_path):
@@ -503,29 +508,31 @@ def get_dataset(
         block_size *= 2
 
     if dataset_name == "formal":
-        # Read formal dataset config
+        # Read formal dataset config and generate data
         formal_cfg = getattr(config.data, "formal", {})
-        formal_type = getattr(formal_cfg, "type", "nc1")
         if mode == "train":
             num_examples = getattr(formal_cfg, "num_examples_train", 50000)
             split_name = "train"
         else:
             num_examples = getattr(formal_cfg, "num_examples_valid", 5000)
             split_name = "validation"
-        if formal_type == "nc1":
-            num_vars = getattr(formal_cfg, "num_vars", 4)
-            evaluate = getattr(formal_cfg, "evaluate", True)
-            examples = formal_data.make_nc1_examples(
-                num_examples=num_examples, num_vars=num_vars, evaluate=evaluate
-            )
-        elif formal_type == "bfvp":
-            max_depth = getattr(formal_cfg, "max_depth", 4)
-            max_ops = getattr(formal_cfg, "max_ops", 8)
-            examples = formal_data.make_bfvp_examples(
-                num_examples=num_examples, max_depth=max_depth, max_ops=max_ops
-            )
-        else:
-            raise ValueError(f"Unknown formal dataset type: {formal_type}")
+
+        # Use new parameters for NC1 generation
+        num_vars = getattr(formal_cfg, "num_vars", 4)
+        max_depth = getattr(formal_cfg, "max_depth", 3)
+        format_mode = getattr(formal_cfg, "format", "full_trace")
+
+        LOGGER.info(
+            f"Generating '{split_name}' formal data with: max_depth={max_depth}, num_vars={num_vars}, format={format_mode}"
+        )
+
+        examples = formal_data.make_nc1_examples(
+            num_examples=num_examples,
+            max_depth=max_depth,
+            num_vars=num_vars,
+            mode=format_mode,
+        )
+
         dataset = datasets.DatasetDict(
             {split_name: datasets.Dataset.from_list(examples)}
         )

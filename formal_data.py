@@ -1,127 +1,120 @@
 import math
 import random
-from typing import Any, Dict, Set, Tuple
-
-import datasets
-
-# --- AST Generation ---
+from typing import Any, Dict, List, Set, Tuple
 
 
-def generate_nc1_formula_ast(num_vars: int) -> Dict[str, Any]:
+def generate_nc1_formula_tree(depth: int, num_vars: int) -> Dict[str, Any]:
     """
-    Generates an AST for a formula likely to be NC1-complete by creating
-    a balanced tree with logarithmic depth based on the number of variables.
+    Generates an expression tree for an NC1 formula by creating a full,
+    balanced binary tree of a specified depth. The length of the formula
+    (number of leaves) will be 2**depth.
     """
     if num_vars <= 0:
-        return {"const": random.choice(["T", "F"])}
-    target_depth = math.ceil(math.log2(num_vars))
+        raise ValueError("num_vars must be positive.")
+    if depth < 0:
+        raise ValueError("depth must be non-negative.")
+
     variables = [f"x{i}" for i in range(1, num_vars + 1)]
 
-    def gen(depth: int) -> Dict[str, Any]:
-        if depth <= 0:
+    def gen(current_depth: int) -> Dict[str, Any]:
+        # Base case: we've reached the desired depth, create a leaf node.
+        if current_depth <= 0:
             return {"var": random.choice(variables)}
+
+        # Recursive step: create a binary operation node.
         op = random.choice(["and", "or"])
-        left_child, right_child = gen(depth - 1), gen(depth - 1)
+        left_child = gen(current_depth - 1)
+        right_child = gen(current_depth - 1)
+
+        # Randomly add negations to children
         if random.random() < 0.25:
             left_child = {"op": "not", "child": left_child}
         if random.random() < 0.25:
             right_child = {"op": "not", "child": right_child}
+
         return {"op": op, "left": left_child, "right": right_child}
 
-    return gen(target_depth)
+    # Handle depth 0 case specifically, which is just a single variable.
+    if depth == 0:
+        return {"var": random.choice(variables)}
+
+    return gen(depth)
 
 
-def random_bfvp_ast(max_depth=3, max_ops=6) -> Dict[str, Any]:
-    """
-    Generates a random variable-free formula AST.
-    """
-    ops, constants = ["and", "or"], ["T", "F"]
-
-    def gen(depth, ops_left):
-        if (
-            depth <= 0
-            or ops_left <= 0
-            or (depth < max_depth and random.random() < 0.25)
-        ):
-            return {"const": random.choice(constants)}
-        op = random.choice(ops + ["not"])
-        if ops_left == 1 and op != "not":
-            op = "not"
-        if op == "not":
-            return {"op": "not", "child": gen(depth - 1, ops_left - 1)}
-        else:
-            remaining_ops = ops_left - 1
-            ops_for_left = random.randint(0, remaining_ops)
-            ops_for_right = remaining_ops - ops_for_left
-            return {
-                "op": op,
-                "left": gen(depth - 1, ops_for_left),
-                "right": gen(depth - 1, ops_for_right),
-            }
-
-    return gen(max_depth, max_ops)
-
-
-# --- AST Traversal and Evaluation ---
-
-
-def substitute_vars_in_ast(
+def substitute_vars_in_tree(
     node: Dict[str, Any], assignments: Dict[str, bool]
 ) -> Dict[str, Any]:
     """
-    Replaces all variable nodes in an AST with constant nodes based on an assignment map.
+    Replaces all variable nodes in an expression tree with constant nodes ('T'/'F').
     """
     if "const" in node:
         return node
     if "var" in node:
-        value = assignments.get(node["var"], False)
+        value = assignments.get(node["var"], False)  # Default to False
         return {"const": "T" if value else "F"}
     if node["op"] == "not":
         return {
             "op": "not",
-            "child": substitute_vars_in_ast(node["child"], assignments),
+            "child": substitute_vars_in_tree(node["child"], assignments),
         }
-    else:
+    else:  # 'and' or 'or'
         return {
             "op": node["op"],
-            "left": substitute_vars_in_ast(node["left"], assignments),
-            "right": substitute_vars_in_ast(node["right"], assignments),
+            "left": substitute_vars_in_tree(node["left"], assignments),
+            "right": substitute_vars_in_tree(node["right"], assignments),
         }
 
 
-def get_variables_from_ast(node: Dict[str, Any]) -> Set[str]:
+def get_variables_from_tree(node: Dict[str, Any]) -> Set[str]:
     """
-    Traverses an AST and returns a set of unique variable names.
+    Traverses an expression tree and returns a set of unique variable names.
     """
     if "var" in node:
         return {node["var"]}
     if "const" in node:
         return set()
     if node["op"] == "not":
-        return get_variables_from_ast(node["child"])
-    return get_variables_from_ast(node["left"]) | get_variables_from_ast(node["right"])
+        return get_variables_from_tree(node["child"])
+    return get_variables_from_tree(node["left"]) | get_variables_from_tree(
+        node["right"]
+    )
 
 
-def ast_to_str(ast: Dict[str, Any]) -> str:
+def expression_tree_to_str(tree: Dict[str, Any]) -> str:
     """
-    Converts an AST to its string representation.
+    Converts an expression tree to its parenthesized string representation.
     """
-    if "const" in ast:
-        return ast["const"]
-    if "var" in ast:
-        return ast["var"]
-    if ast["op"] == "not":
-        return f"not ( {ast_to_str(ast['child'])} )"
-    return f"( {ast_to_str(ast['left'])} {ast['op']} {ast_to_str(ast['right'])} )"
+    if "const" in tree:
+        return tree["const"]
+    if "var" in tree:
+        return tree["var"]
+    if tree["op"] == "not":
+        return f"not ( {expression_tree_to_str(tree['child'])} )"
+    return f"( {expression_tree_to_str(tree['left'])} {tree['op']} {expression_tree_to_str(tree['right'])} )"
 
 
-def reduce_ast_step(node: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
+def reduce_expression_tree_step(node: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
+    """
+    Performs one layer of reduction on a variable-free expression tree.
+    Returns the new tree and a boolean indicating if a reduction occurred.
+    """
     was_reduced = False
 
     def reducer(n: Dict[str, Any]) -> Dict[str, Any]:
         nonlocal was_reduced
-        if "const" in n:
+        if "const" in n or "var" in n:
             return n
+
+        if n["op"] == "not":
+            reduced_child = reducer(n["child"])
+            if reduced_child != n["child"]:
+                return {"op": "not", "child": reduced_child}
+        else:
+            reduced_left = reducer(n["left"])
+            reduced_right = reducer(n["right"])
+            if reduced_left != n["left"] or reduced_right != n["right"]:
+                return {"op": n["op"], "left": reduced_left, "right": reduced_right}
+
         is_reducible = (
             ("const" in n["child"])
             if n["op"] == "not"
@@ -142,144 +135,125 @@ def reduce_ast_step(node: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
                     else (left_val or right_val)
                 )
             return {"const": "T" if result else "F"}
-        else:
-            return (
-                {"op": n["op"], "child": reducer(n["child"])}
-                if n["op"] == "not"
-                else {
-                    "op": n["op"],
-                    "left": reducer(n["left"]),
-                    "right": reducer(n["right"]),
-                }
-            )
+
+        return n
 
     return reducer(node), was_reduced
 
 
-# --- Example Formatting ---
+def evaluate_expression_tree(start_tree: Dict[str, Any]) -> str:
+    """
+    Fully evaluates a variable-free expression tree to a single 'T' or 'F' constant.
+    """
+    current_tree = start_tree
+    while "op" in current_tree:
+        current_tree, reduced = reduce_expression_tree_step(current_tree)
+        if not reduced and "op" in current_tree:
+            raise ValueError("Expression tree could not be fully reduced.")
+    return current_tree.get("const", "ERROR")
 
 
-def get_reduction_trace(start_ast: Dict[str, Any]) -> str:
+def get_reduction_trace(start_tree: Dict[str, Any]) -> str:
     """
-    Takes a variable-free AST and returns the evaluation trace string.
+    Takes a variable-free expression tree and returns the full evaluation trace string.
     """
-    current_ast = start_ast
-    steps = [ast_to_str(current_ast)]
-    while "op" in current_ast:
-        current_ast, reduced = reduce_ast_step(current_ast)
+    current_tree = start_tree
+    steps = [expression_tree_to_str(current_tree)]
+    while "op" in current_tree:
+        current_tree, reduced = reduce_expression_tree_step(current_tree)
         if not reduced:
             break
-        steps.append(ast_to_str(current_ast))
+        steps.append(expression_tree_to_str(current_tree))
 
     if len(steps) <= 1:
         return steps[0]
-
-    # Separate the initial formula from the evaluation steps with a '#'
     return f"{steps[0]} # {' | '.join(steps[1:])}"
 
 
 def make_nc1_examples(
-    num_examples: int, num_vars: int, evaluate: bool
-) -> list[Dict[str, str]]:
+    num_examples: int, max_depth: int, num_vars: int, mode: str = "formula_only"
+) -> List[Dict[str, str]]:
     """
-    Generates NC1 formulas. If evaluate, the 'text' is the reduction trace.
+    Generates NC1 formulas based on the specified mode.
+
+    Args:
+        num_examples: The number of examples to generate.
+        max_depth: The maximum depth of the formula's expression tree.
+        num_vars: The number of unique variables available.
+        mode: The output format. One of 'formula_only', 'full_trace', 'final_value'.
     """
     examples = []
     for _ in range(num_examples):
-        ast_with_vars = generate_nc1_formula_ast(num_vars)
+        # For each example, choose a random depth between 1 and max_depth
+        current_depth = random.randint(1, max_depth)
+        expression_tree = generate_nc1_formula_tree(current_depth, num_vars)
 
-        if not evaluate:
-            examples.append({"text": ast_to_str(ast_with_vars)})
-        else:
-            variables = get_variables_from_ast(ast_with_vars)
-            assignments = {var: random.choice([True, False]) for var in variables}
-            substituted_ast = substitute_vars_in_ast(ast_with_vars, assignments)
-            trace = get_reduction_trace(substituted_ast)
+        if mode == "formula_only":
+            examples.append({"text": expression_tree_to_str(expression_tree)})
+            continue
+
+        variables = get_variables_from_tree(expression_tree)
+        assignments = {var: random.choice([True, False]) for var in variables}
+        substituted_tree = substitute_vars_in_tree(expression_tree, assignments)
+
+        if mode == "full_trace":
+            trace = get_reduction_trace(substituted_tree)
             examples.append({"text": trace})
+        elif mode == "final_value":
+            original_formula_str = expression_tree_to_str(expression_tree)
+            final_value = evaluate_expression_tree(substituted_tree)
+            text = f"{original_formula_str} # {final_value}"
+            examples.append({"text": text})
 
     return examples
 
 
-def make_bfvp_examples(
-    num_examples=1000, max_depth=3, max_ops=6
-) -> list[Dict[str, str]]:
-    """
-    Generates and evaluates variable-free formulas.
-    """
-    examples = []
-    for _ in range(num_examples):
-        ast = random_bfvp_ast(max_depth=max_depth, max_ops=max_ops)
-        trace = get_reduction_trace(ast)
-        examples.append({"text": trace})
-    return examples
-
-
-# --- Main Execution Block (for self-testing) ---
 if __name__ == "__main__":
     import argparse
-    import pprint
 
-    parser = argparse.ArgumentParser(description="Generate Boolean formulas.")
+    parser = argparse.ArgumentParser(description="Generate NC1 Boolean formulas.")
     parser.add_argument(
-        "--mode",
-        type=str,
-        default="bfvp",
-        choices=["bfvp", "nc1"],
-        help="Generation mode.",
+        "--max_depth",
+        type=int,
+        default=4,
+        help="The maximum depth of the formula tree.",
     )
     parser.add_argument(
-        "--num_examples", type=int, default=2, help="Number of examples to generate."
+        "--num_vars",
+        type=int,
+        default=4,
+        help="Number of unique variables to choose from.",
+    )
+    parser.add_argument(
+        "--format",
+        type=str,
+        default="formula_only",
+        choices=["formula_only", "full_trace", "final_value"],
+        help="The output format for the generated examples.",
+    )
+    parser.add_argument(
+        "--num_examples", type=int, default=5, help="Number of examples to generate."
     )
     parser.add_argument(
         "--show_examples", action="store_true", help="Print the generated examples."
     )
 
-    parser.add_argument(
-        "--num_vars", type=int, default=4, help="Number of variables for NC1 mode."
-    )
-    parser.add_argument(
-        "--evaluate",
-        action="store_true",
-        help="For NC1 mode, assign values and show full evaluation trace.",
-    )
-
-    parser.add_argument(
-        "--max_depth", type=int, default=4, help="Maximum formula depth for BFVP mode."
-    )
-    parser.add_argument(
-        "--max_ops", type=int, default=8, help="Maximum operations for BFVP mode."
-    )
     args = parser.parse_args()
 
-    print(f"Running in '{args.mode}' mode.")
+    print(
+        f"Generating {args.num_examples} NC1 examples with max tree depth {args.max_depth}."
+    )
+    print(f"Variable pool size: {args.num_vars}")
+    print(f"Output format: '{args.format}'")
 
-    if args.mode == "nc1":
-        if args.evaluate:
-            print(
-                f"Generating and evaluating {args.num_examples} formula(s) with approx. {args.num_vars} variables..."
-            )
-        else:
-            print(
-                f"Generating {args.num_examples} formula string(s) with approx. {args.num_vars} variables..."
-            )
-        examples = make_nc1_examples(args.num_examples, args.num_vars, args.evaluate)
+    examples = make_nc1_examples(
+        num_examples=args.num_examples,
+        max_depth=args.max_depth,
+        num_vars=args.num_vars,
+        mode=args.format,
+    )
 
-        if args.show_examples:
-            print("\n--- Generated NC1 Examples ---")
-            for i, ex in enumerate(examples):
-                print(f"--- Example {i+1} ---")
-                print(ex["text"])
-    elif args.mode == "bfvp":
-        config = {
-            "num_examples": args.num_examples,
-            "max_depth": args.max_depth,
-            "max_ops": args.max_ops,
-        }
-        print("\nGenerating BFVP dataset with config:")
-        pprint.pprint(config)
-        examples = make_bfvp_examples(**config)
-
-        if args.show_examples:
-            print("\n--- Generated BFVP Examples ---")
-            for ex in examples:
-                print(ex["text"])
+    if args.show_examples:
+        print("\n--- Generated Examples ---")
+        for i, ex in enumerate(examples):
+            print(f"[{i+1}] {ex['text']}")
