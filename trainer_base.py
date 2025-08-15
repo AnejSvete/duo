@@ -594,14 +594,12 @@ class Diffusion(TrainerBase):
             global_batch_size = self.config.loader.global_batch_size
             num_accum_steps = self.trainer.accumulate_grad_batches
 
-            # 1. Generate stratified random values for the entire global batch.
             _eps_t_global = torch.rand(global_batch_size, device=self.device)
             offset_global = (
                 torch.arange(global_batch_size, device=self.device) / global_batch_size
             )
             t_global = (_eps_t_global / global_batch_size + offset_global) % 1.0
 
-            # 2. Chunk the global tensor into pieces for each accumulation step.
             chunks = t_global.chunk(num_accum_steps)
 
             # Check for valid accumulation step to prevent index errors.
@@ -611,8 +609,6 @@ class Diffusion(TrainerBase):
 
             current_chunk = chunks[accum_step]
 
-            # 3. CRITICAL FIX: Trim the chunk to the size of the actual input batch `n`.
-            # This robustly handles the final, smaller batch of an epoch.
             sized_chunk = current_chunk[:n]
 
             t = (1 - self.sampling_eps) * sized_chunk + self.sampling_eps
@@ -699,7 +695,7 @@ class Diffusion(TrainerBase):
         # print("\n")
 
         log_x_theta = self.forward(xt, sigma=sigma)
-        print(log_x_theta[: self.config.sampling.num_sample_log])
+        # print(log_x_theta[: self.config.sampling.num_sample_log])
         # utils.print_nans(log_x_theta, "model_output") # Assuming utils is available
 
         return self.nll_per_token(
