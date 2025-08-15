@@ -15,11 +15,11 @@ source /cluster/home/asvete/duo/bin/activate
 
 srun python -u -m main \
   wandb.name="mdlm-nc1-$(date +%Y%m%d-%H%M%S)" \
-  loader.batch_size=256 \
-  loader.eval_batch_size=256 \
+  loader.batch_size=512 \
+  loader.eval_batch_size=512 \
   data=formal \
   model=nano \
   algo=mdlm \
-  model.length=64 \
+  model.length=256 \
   trainer.val_check_interval=100 \
   training.ground_truth_masking=false 
