@@ -171,7 +171,7 @@ def get_reduction_trace(start_tree: Dict[str, Any]) -> str:
 
 
 def make_nc1_examples(
-    num_examples: int, max_depth: int, num_vars: int, mode: str = "formula_only"
+    num_examples: int, max_depth: int, num_vars: int, mode: str
 ) -> List[Dict[str, str]]:
     """
     Generates NC1 formulas based on the specified mode.
@@ -180,17 +180,13 @@ def make_nc1_examples(
         num_examples: The number of examples to generate.
         max_depth: The maximum depth of the formula's expression tree.
         num_vars: The number of unique variables available.
-        mode: The output format. One of 'formula_only', 'full_trace', 'final_value'.
+        mode: The output format. One of 'full_trace' or 'final_value'.
     """
     examples = []
     for _ in range(num_examples):
         # For each example, choose a random depth between 1 and max_depth
         current_depth = random.randint(1, max_depth)
         expression_tree = generate_nc1_formula_tree(current_depth, num_vars)
-
-        if mode == "formula_only":
-            examples.append({"text": expression_tree_to_str(expression_tree)})
-            continue
 
         variables = get_variables_from_tree(expression_tree)
         assignments = {var: random.choice([True, False]) for var in variables}
@@ -200,9 +196,9 @@ def make_nc1_examples(
             trace = get_reduction_trace(substituted_tree)
             examples.append({"text": trace})
         elif mode == "final_value":
-            original_formula_str = expression_tree_to_str(expression_tree)
+            substituted_formula_str = expression_tree_to_str(substituted_tree)
             final_value = evaluate_expression_tree(substituted_tree)
-            text = f"{original_formula_str} # {final_value}"
+            text = f"{substituted_formula_str} # {final_value}"
             examples.append({"text": text})
 
     return examples
@@ -215,20 +211,20 @@ if __name__ == "__main__":
     parser.add_argument(
         "--max_depth",
         type=int,
-        default=4,
+        default=3,
         help="The maximum depth of the formula tree.",
     )
     parser.add_argument(
         "--num_vars",
         type=int,
-        default=4,
+        default=2,
         help="Number of unique variables to choose from.",
     )
     parser.add_argument(
         "--format",
         type=str,
-        default="formula_only",
-        choices=["formula_only", "full_trace", "final_value"],
+        default="full_trace",
+        choices=["full_trace", "final_value"],
         help="The output format for the generated examples.",
     )
     parser.add_argument(

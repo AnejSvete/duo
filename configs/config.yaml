@@ -28,7 +28,7 @@ sampling:
   noise_removal: ancestral  # 'ancestral', 'greedy', 'none'
   use_float64: True
   p_nucleus: 1.0
-  num_sample_batches: 2  # Total samples: `num_gpus` * `loader.eval_batch_size` * num_sample_batches
+  num_sample_batches: 5  # Total samples: `num_gpus` * `loader.eval_batch_size` * num_sample_batches
   num_sample_log: 2
   semi_ar: False
   stride_length: 1

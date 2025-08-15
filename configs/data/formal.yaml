@@ -11,4 +11,4 @@ formal:
   num_examples_valid: 10000
   num_vars: 4
   max_depth: 3  # Max depth for the formula tree; each formula's depth is chosen from 1..max_depth.
-  format: full_trace # Options: formula_only, full_trace, final_value
+  format: full_trace # Options: full_trace, final_value
