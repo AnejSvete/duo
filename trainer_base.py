@@ -338,7 +338,7 @@ class TrainerBase(L.LightningModule):
 
             # Generate completions conditioned on prompts
             gen_mode = getattr(self.config.eval, "generation_mode", "random")
-            for gen_mode in ["random", "top_k", "one_level", "all_at_once1"]:
+            for gen_mode in ["random", "top_k", "one_level", "all_at_once"]:
                 top_k = getattr(self.config.eval, "top_k", 1)
                 # Pass the `targets` tensor for shape compatibility, as required by the function signature.
                 generated = self.generate_conditioned(
