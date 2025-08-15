@@ -641,45 +641,72 @@ class Diffusion(TrainerBase):
         train_mode=False,
         ground_truth_masking=False,
     ):
+        """
+        Calculates the Negative Log-Likelihood loss for a batch.
+
+        If ground_truth_masking is True, the noise level `t` is derived from the
+        number of masked tokens. Otherwise, `t` is sampled randomly.
+        """
         del output_tokens
-        t = self._sample_t(x0.shape[0], current_accumulation_step)
-        assert t.shape[0] == x0.shape[0]
-        if self.T > 0:
-            t = (t * self.T).to(torch.int)
-            t = t / self.T
-            # t \in {1/T, 2/T, ..., 1}
-            t += 1 / self.T
 
-        dalpha_t, alpha_t = self.noise(t)
-        alpha_t = alpha_t.unsqueeze(-1)
-        assert alpha_t.ndim == 2
-        sigma = self._sigma_from_alphat(alpha_t)
+        if not ground_truth_masking:
+            # --- Standard Path: Sample t first, then create xt ---
+            t = self._sample_t(x0.shape[0], current_accumulation_step)
+            if self.T > 0:
+                t = (t * self.T).to(torch.int) / self.T + (1 / self.T)
 
-        xt = self.q_xt(x0, alpha_t, do_not_mask, ground_truth_masking)
+            dalpha_t, alpha_t = self.noise(t)
+            xt, _ = self.q_xt(
+                x0, alpha_t.unsqueeze(-1), do_not_mask, ground_truth_masking=False
+            )
+        else:
+            # --- Ground Truth Path: Create xt first, then derive t ---
+            # 1. Get the noisy sample and the number of masked tokens.
+            #    alpha_t is not used by this q_xt path, so we pass None.
+            xt, masked_counts = self.q_xt(
+                x0, alpha_t=None, do_not_mask=do_not_mask, ground_truth_masking=True
+            )
 
+            # 2. Calculate the actual mask ratio for each sequence.
+            num_maskable_tokens = (~do_not_mask).sum(dim=1)
+            num_maskable_tokens[num_maskable_tokens == 0] = (
+                1.0  # Avoid division by zero.
+            )
+            mask_ratio = (masked_counts / num_maskable_tokens).clamp(0.0, 1.0)
+
+            # 3. Derive t from the mask_ratio (linear schedule: t = mask_ratio).
+            #    Ensure t is in the valid range, e.g., [1/T, 1] if required by the schedule.
+            t = mask_ratio.clamp(min=1.0 / self.T if self.T > 0 else 1e-6)
+
+            # 4. Compute the noise schedule variables from the derived t.
+            dalpha_t, alpha_t = self.noise(t)
+
+        # --- Common Logic for both paths ---
+        alpha_t_unsqueezed = alpha_t.unsqueeze(-1)
+        sigma = self._sigma_from_alphat(alpha_t_unsqueezed)
+
+        # Logging for debugging purposes
         x0_text = self.tokenizer.batch_decode(
-            x0[: self.config.sampling.num_sample_log],
-            skip_special_tokens=False,
+            x0[: self.config.sampling.num_sample_log], skip_special_tokens=False
         )
         xt_text = self.tokenizer.batch_decode(
-            xt[: self.config.sampling.num_sample_log],
-            skip_special_tokens=False,
+            xt[: self.config.sampling.num_sample_log], skip_special_tokens=False
         )
         for i in range(len(x0_text)):
             print(f"x0[{i}]: {x0_text[i]}")
             print(f"xt[{i}]: {xt_text[i]}")
             print()
-        print()
-        print()
+        print("\n")
 
         log_x_theta = self.forward(xt, sigma=sigma)
-        # print(log_x_theta[: self.config.sampling.num_sample_log])
-        utils.print_nans(log_x_theta, "model_output")
+        print(log_x_theta[: self.config.sampling.num_sample_log])
+        # utils.print_nans(log_x_theta, "model_output") # Assuming utils is available
+
         return self.nll_per_token(
             log_x_theta=log_x_theta,
             xt=xt,
             x0=x0,
-            alpha_t=alpha_t,
+            alpha_t=alpha_t_unsqueezed,
             dalpha_t=dalpha_t,
             low_var=train_mode and self.loss_type == "low_var",
         )
@@ -822,22 +849,34 @@ class AbsorbingState(Diffusion):
             assert self.parameterization == "mean"
 
     def q_xt(self, x, alpha_t, do_not_mask, ground_truth_masking):
-        """Computes the noisy sample xt, protecting specified tokens.
-        ground_truth_masking: If True, uses ground truth masking.
+        """
+        Computes the noisy sample xt, protecting specified tokens.
+
+        If ground_truth_masking is True, it masks a specific segment defined by '|'
+        separators, pads the rest, and returns the count of masked tokens. Otherwise,
+        it performs standard probabilistic masking.
+
+        Returns:
+            A tuple of (xt, masked_counts), where masked_counts is a tensor of
+            counts for ground_truth_masking and None otherwise.
         """
         if not ground_truth_masking:
-            # Decide which tokens to potentially mask based on the noise schedule
+            # Standard probabilistic masking based on the noise schedule.
             potential_mask = torch.rand(*x.shape, device=x.device) < 1 - alpha_t
-            # Only mask tokens where potential_mask is True AND do_not_mask is False
             final_mask = potential_mask & ~do_not_mask
             xt = torch.where(final_mask, self.mask_index, x)
+
             if self.ignore_bos:
                 xt[:, 0] = x[:, 0]
-            return xt
+            # Return None for masked_counts in the standard case.
+            return xt, None
         else:
-            # Mask a segment INCLUDING the end pipe, and pad everything after.
+            # Ground truth masking: mask a segment, pad the rest, and count the masks.
             xt = x.clone()
             batch_size, seq_len = x.shape
+            masked_counts = torch.zeros(
+                batch_size, device=x.device, dtype=torch.float32
+            )
 
             pipe_token_id = self.tokenizer.convert_tokens_to_ids("|")
             pad_token_id = self.tokenizer.pad_token_id
@@ -854,36 +893,38 @@ class AbsorbingState(Diffusion):
                 if len(valid_start_pipes) == 0:
                     continue
 
+                # 1. Pick a random valid separator to start from.
                 start_pipe_pos = valid_start_pipes[
                     torch.randint(0, len(valid_start_pipes), (1,))
                 ].item()
-
                 start_pos = start_pipe_pos + 1
 
-                end_mask_pos = start_pos
+                # 2. Find the end of the segment (the next pipe).
+                end_mask_pos = seq_len
                 next_pipes = pipe_indices[pipe_indices > start_pipe_pos]
                 if len(next_pipes) > 0:
                     end_mask_pos = next_pipes[0].item()
 
-                # Stop if there's nothing to mask (e.g., two pipes are adjacent)
+                # Stop if there's nothing to mask (e.g., two pipes are adjacent).
                 if start_pos > end_mask_pos:
                     continue
 
-                # 3. Mask tokens WITHIN the segment, INCLUDING the end pipe
-                # CHANGE: Extend the range to include end_mask_pos
+                # 3. Mask tokens WITHIN the segment, INCLUDING the end pipe.
                 for j in range(start_pos, min(end_mask_pos + 1, seq_len)):
                     if not do_not_mask[i, j]:
                         xt[i, j] = self.mask_index
+                        masked_counts[i] += 1  # Increment the count.
 
-                # 4. Pad everything AFTER the now-masked end pipe
-                # CHANGE: Start padding at the next position
+                # 4. Pad everything AFTER the now-masked end pipe.
                 start_pad_pos = end_mask_pos + 1
                 if start_pad_pos < seq_len:
                     xt[i, start_pad_pos:] = pad_token_id
 
             if self.ignore_bos:
                 xt[:, 0] = x[:, 0]
-            return xt
+
+            # Return the modified sequence and the counts.
+            return xt, masked_counts
 
     def prior_sample(self, *batch_dims):
         return self.mask_index * torch.ones(
