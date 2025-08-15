@@ -379,7 +379,7 @@ class TrainerBase(L.LightningModule):
                 _all_generated_samples = []
                 for i in range(self.config.sampling.num_sample_log):
                     _all_generated_samples.append(
-                        (
+                        list(
                             all_generated_samples[_gen_mode][i]
                             for _gen_mode in all_generated_samples
                         )
