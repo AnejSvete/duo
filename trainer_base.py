@@ -871,7 +871,7 @@ class AbsorbingState(Diffusion):
 
                 # 3. Mask tokens WITHIN the segment, INCLUDING the end pipe
                 # CHANGE: Extend the range to include end_mask_pos
-                for j in range(start_pos, end_mask_pos + 1):
+                for j in range(start_pos, min(end_mask_pos + 1, seq_len)):
                     if not do_not_mask[i, j]:
                         xt[i, j] = self.mask_index
 
