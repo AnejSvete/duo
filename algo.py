@@ -267,32 +267,26 @@ class MDLM(trainer_base.AbsorbingState):
             elif mode == "top_k":
                 # For each unfinished sequence, fill the top_k most confident masked positions.
 
-                # 1. Get the confidence (max probability) for each position.
                 confidences, best_tokens = probs.max(dim=-1)
-                # 2. Ignore non-masked positions.
                 confidences[~mask_pos] = -1.0
 
-                # 3. Find the top `k` most confident positions and their values for each sequence.
-                # We need to handle cases where a sequence has fewer than `k` masks left.
                 num_masks_per_item = mask_pos.sum(dim=1)
                 k = min(top_k, confidences.shape[1])
                 actual_k = torch.min(torch.tensor(k, device=device), num_masks_per_item)
 
                 if actual_k.max() > 0:
-                    # `torch.topk` gives us the indices of the most confident positions.
                     _, topk_pos = torch.topk(confidences, k=k, dim=1)
-
-                    # Create a mask to only update valid top-k positions
-                    k_range = torch.arange(k, device=device)[None, :]
-                    topk_update_mask = (k_range < actual_k[:, None]) & unfinished_mask[
-                        :, None
-                    ]
-
-                    # Gather the best tokens for the top-k positions
                     tokens_to_insert = torch.gather(best_tokens, 1, topk_pos)
 
-                    # Use `torch.scatter_` for an efficient in-place update.
-                    x.scatter_(1, topk_pos, tokens_to_insert, src=topk_update_mask)
+                    # Only update valid top-k positions for unfinished sequences
+                    for i in range(batch_size):
+                        if not unfinished_mask[i]:
+                            continue
+                        num_valid = actual_k[i].item()
+                        if num_valid > 0:
+                            positions = topk_pos[i, :num_valid]
+                            values = tokens_to_insert[i, :num_valid]
+                            x[i, positions] = values
 
             elif mode == "one_level":
                 # This mode's logic is inherently sequential and per-item, making it
