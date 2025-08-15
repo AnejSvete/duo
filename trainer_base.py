@@ -686,17 +686,17 @@ class Diffusion(TrainerBase):
         sigma = self._sigma_from_alphat(alpha_t_unsqueezed)
 
         # Logging for debugging purposes
-        x0_text = self.tokenizer.batch_decode(
-            x0[: self.config.sampling.num_sample_log], skip_special_tokens=False
-        )
-        xt_text = self.tokenizer.batch_decode(
-            xt[: self.config.sampling.num_sample_log], skip_special_tokens=False
-        )
-        for i in range(len(x0_text)):
-            print(f"x0[{i}]: {x0_text[i]}")
-            print(f"xt[{i}]: {xt_text[i]}")
-            print()
-        print("\n")
+        # x0_text = self.tokenizer.batch_decode(
+        #     x0[: self.config.sampling.num_sample_log], skip_special_tokens=False
+        # )
+        # xt_text = self.tokenizer.batch_decode(
+        #     xt[: self.config.sampling.num_sample_log], skip_special_tokens=False
+        # )
+        # for i in range(len(x0_text)):
+        #     print(f"x0[{i}]: {x0_text[i]}")
+        #     print(f"xt[{i}]: {xt_text[i]}")
+        #     print()
+        # print("\n")
 
         log_x_theta = self.forward(xt, sigma=sigma)
         print(log_x_theta[: self.config.sampling.num_sample_log])

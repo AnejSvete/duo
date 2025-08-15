@@ -8,9 +8,9 @@ insert_train_eos: False
 insert_valid_eos: False
 formal:
   type: nc1   # nc1 or bfvp
-  num_examples_train: 500000
-  num_examples_valid: 20000
-  num_vars: 3   # for nc1
+  num_examples_train: 5000000
+  num_examples_valid: 50000
+  num_vars: 4   # for nc1
   evaluate: True
   max_depth: 3  # for bfvp
   max_ops: 8    # for bfvp
