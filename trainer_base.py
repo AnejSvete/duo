@@ -860,7 +860,7 @@ class AbsorbingState(Diffusion):
 
                 start_pos = start_pipe_pos + 1
 
-                end_mask_pos = seq_len
+                end_mask_pos = start_pos + 1
                 next_pipes = pipe_indices[pipe_indices > start_pipe_pos]
                 if len(next_pipes) > 0:
                     end_mask_pos = next_pipes[0].item()
