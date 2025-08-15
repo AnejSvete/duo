@@ -20,6 +20,6 @@ srun python -u -m main \
   data=formal \
   model=nano \
   algo=mdlm \
-  model.length=256 \
+  model.length=512 \
   trainer.val_check_interval=100 \
   training.ground_truth_masking=false 
