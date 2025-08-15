@@ -396,7 +396,7 @@ class TrainerBase(L.LightningModule):
                     ]
                     + ["Target"],
                     data=[
-                        s + t for s, t in zip(_all_generated_samples, target_samples)
+                        s + [t] for s, t in zip(_all_generated_samples, target_samples)
                     ],
                 )
             return {"loss": losses.loss, "acc_exact": acc_exact, "acc_token": acc_token}
@@ -712,23 +712,8 @@ class Diffusion(TrainerBase):
         alpha_t_unsqueezed = alpha_t.unsqueeze(-1)
         sigma = self._sigma_from_alphat(alpha_t_unsqueezed)
 
-        # Logging for debugging purposes
-        # x0_text = self.tokenizer.batch_decode(
-        #     x0[: self.config.sampling.num_sample_log], skip_special_tokens=False
-        # )
-        # xt_text = self.tokenizer.batch_decode(
-        #     xt[: self.config.sampling.num_sample_log], skip_special_tokens=False
-        # )
-        # for i in range(len(x0_text)):
-        #     print(f"x0[{i}]: {x0_text[i]}")
-        #     print(f"xt[{i}]: {xt_text[i]}")
-        #     print()
-        # print("\n")
-
         log_x_theta = self.forward(xt, sigma=sigma)
-        # print(log_x_theta[: self.config.sampling.num_sample_log])
-        # utils.print_nans(log_x_theta, "model_output") # Assuming utils is available
-
+        utils.print_nans(log_x_theta, "model_output")  # Assuming utils is available
         return self.nll_per_token(
             log_x_theta=log_x_theta,
             xt=xt,
