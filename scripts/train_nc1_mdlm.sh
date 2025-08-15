@@ -22,4 +22,4 @@ srun python -u -m main \
   algo=mdlm \
   model.length=64 \
   trainer.val_check_interval=100 \
-  training.ground_truth_masking=true 
+  training.ground_truth_masking=false 
