@@ -331,43 +331,74 @@ class TrainerBase(L.LightningModule):
         # --- Formal accuracy evaluation ---
         # Only run if formal dataset (do_not_mask is used)
         if batch["do_not_mask"].any():
+            all_generated_samples = dict()
             prompts, targets = self._extract_prompts_and_targets(
                 batch["input_ids"], batch["do_not_mask"]
             )
 
             # Generate completions conditioned on prompts
             gen_mode = getattr(self.config.eval, "generation_mode", "random")
-            top_k = getattr(self.config.eval, "top_k", 1)
-            # Pass the `targets` tensor for shape compatibility, as required by the function signature.
-            generated = self.generate_conditioned(prompts, mode=gen_mode, top_k=top_k)
+            for gen_mode in ["random", "top_k", "one_level", "all_at_once1"]:
+                top_k = getattr(self.config.eval, "top_k", 1)
+                # Pass the `targets` tensor for shape compatibility, as required by the function signature.
+                generated = self.generate_conditioned(
+                    prompts, mode=gen_mode, top_k=top_k
+                )
 
-            # Compute accuracy (exact match and token-level)
-            acc_exact, acc_token = self._compute_accuracy(generated, targets)
-            self.log(
-                "val/acc_exact", acc_exact, on_step=False, on_epoch=True, sync_dist=True
-            )
-            self.log(
-                "val/acc_token", acc_token, on_step=False, on_epoch=True, sync_dist=True
-            )
+                # Compute accuracy (exact match and token-level)
+                acc_exact, acc_token = self._compute_accuracy(generated, targets)
+                self.log(
+                    f"val/{gen_mode}_acc_exact",
+                    acc_exact,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=True,
+                )
+                self.log(
+                    f"val/{gen_mode}_acc_token",
+                    acc_token,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=True,
+                )
+
+                # Logic for logging samples remains the same
+                if self.trainer.global_rank == 0 and hasattr(
+                    self.trainer.logger, "log_table"
+                ):
+                    generated_samples = self.tokenizer.batch_decode(
+                        generated[: self.config.sampling.num_sample_log],
+                        skip_special_tokens=True,
+                    )
+                    all_generated_samples[gen_mode] = generated_samples
 
             # Logic for logging samples remains the same
             if self.trainer.global_rank == 0 and hasattr(
                 self.trainer.logger, "log_table"
             ):
-                generated_samples = self.tokenizer.batch_decode(
-                    generated[: self.config.sampling.num_sample_log],
-                    skip_special_tokens=True,
-                )
+                _all_generated_samples = []
+                for i in range(self.config.sampling.num_sample_log):
+                    _all_generated_samples.append(
+                        (
+                            all_generated_samples[_gen_mode][i]
+                            for _gen_mode in all_generated_samples
+                        )
+                    )
+
                 target_samples = self.tokenizer.batch_decode(
                     batch["input_ids"][: self.config.sampling.num_sample_log],
                     skip_special_tokens=True,
                 )
                 self.trainer.logger.log_table(
                     key=f"conditioned_generation@global_step{self.global_step}",
-                    columns=["Generated", "Target"],
-                    data=[[s, t] for s, t in zip(generated_samples, target_samples)],
+                    columns=[
+                        f"Generated {_gen_mode}" for _gen_mode in all_generated_samples
+                    ]
+                    + ["Target"],
+                    data=[
+                        s + t for s, t in zip(_all_generated_samples, target_samples)
+                    ],
                 )
-
             return {"loss": losses.loss, "acc_exact": acc_exact, "acc_token": acc_token}
 
         return losses.loss

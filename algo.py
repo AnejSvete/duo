@@ -320,6 +320,28 @@ class MDLM(trainer_base.AbsorbingState):
                             x[i, pos] = probs[i, pos].argmax().item()
                     prompt_lens[i] = end + 1
 
+            elif mode == "all_at_once":
+                # Unmask all symbols after the prompt until the last '|' symbol for each sequence
+                prompt_lens = (prompts != pad_id).sum(dim=1)
+                bar_token_id = self.tokenizer.convert_tokens_to_ids("|")
+                for i in range(batch_size):
+                    if finished[i]:
+                        continue
+                    start = prompt_lens[i].item()
+                    ids = x[i]
+                    # Find the last '|' symbol after the prompt
+                    bar_indices = (ids[start:] == bar_token_id).nonzero(as_tuple=True)
+                    if len(bar_indices[0]) > 0:
+                        end = start + bar_indices[0][-1].item()
+                    else:
+                        end = seq_len
+                    # Unmask all positions from start to end (exclusive of end)
+                    for pos in range(start, end):
+                        if x[i, pos] == mask_id:
+                            x[i, pos] = probs[i, pos].argmax().item()
+                    # Mark as finished if no masks remain
+                    if (x[i, start:end] == mask_id).sum() == 0:
+                        finished[i] = True
             else:
                 raise ValueError(f"Unknown generation mode: {mode}")
 
