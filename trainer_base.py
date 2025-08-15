@@ -665,7 +665,6 @@ class Diffusion(TrainerBase):
             xt[: self.config.sampling.num_sample_log],
             skip_special_tokens=False,
         )
-        print(len(x0_text))
         for i in range(len(x0_text)):
             print(f"x0[{i}]: {x0_text[i]}")
             print(f"xt[{i}]: {xt_text[i]}")
@@ -674,6 +673,7 @@ class Diffusion(TrainerBase):
         print()
 
         log_x_theta = self.forward(xt, sigma=sigma)
+        # print(log_x_theta[: self.config.sampling.num_sample_log])
         utils.print_nans(log_x_theta, "model_output")
         return self.nll_per_token(
             log_x_theta=log_x_theta,
@@ -860,7 +860,7 @@ class AbsorbingState(Diffusion):
 
                 start_pos = start_pipe_pos + 1
 
-                end_mask_pos = start_pos + 1
+                end_mask_pos = start_pos
                 next_pipes = pipe_indices[pipe_indices > start_pipe_pos]
                 if len(next_pipes) > 0:
                     end_mask_pos = next_pipes[0].item()
