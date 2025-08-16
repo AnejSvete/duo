@@ -21,5 +21,5 @@ srun python -u -m main \
   model=nano \
   algo=mdlm \
   model.length=512 \
-  trainer.val_check_interval=500 \
+  trainer.val_check_interval=400 \
   training.ground_truth_masking=false 
