@@ -713,7 +713,7 @@ class Diffusion(TrainerBase):
         sigma = self._sigma_from_alphat(alpha_t_unsqueezed)
 
         log_x_theta = self.forward(xt, sigma=sigma)
-        utils.print_nans(log_x_theta, "model_output")  # Assuming utils is available
+        # utils.print_nans(log_x_theta, "model_output")  # Assuming utils is available
         return self.nll_per_token(
             log_x_theta=log_x_theta,
             xt=xt,
