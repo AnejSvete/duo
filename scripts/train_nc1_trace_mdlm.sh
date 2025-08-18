@@ -14,7 +14,7 @@ module load stack/2024-06 python/3.12.8 eth_proxy
 source /cluster/home/asvete/duo/bin/activate
 
 srun python -u -m main \
-  wandb.name="mdlm-nc1-$(date +%Y%m%d-%H%M%S)" \
+  wandb.name="mdlm-nc1-trace-$(date +%Y%m%d-%H%M%S)" \
   loader.batch_size=256 \
   loader.eval_batch_size=256 \
   data=formal \
