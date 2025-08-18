@@ -15,11 +15,8 @@ source /cluster/home/asvete/duo/bin/activate
 
 srun python -u -m main \
   wandb.name="ar-nc1-single-$(date +%Y%m%d-%H%M%S)" \
-  loader.batch_size=256 \
-  loader.eval_batch_size=256 \
   data=formal \
   model=nano \
   algo=ar \
   model.length=128 \
-  trainer.val_check_interval=500 \
   data.formal.format=full_trace 

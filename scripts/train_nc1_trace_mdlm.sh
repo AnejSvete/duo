@@ -15,12 +15,9 @@ source /cluster/home/asvete/duo/bin/activate
 
 srun python -u -m main \
   wandb.name="mdlm-nc1-trace-$(date +%Y%m%d-%H%M%S)" \
-  loader.batch_size=256 \
-  loader.eval_batch_size=256 \
   data=formal \
   model=nano \
   algo=mdlm \
   model.length=128 \
-  trainer.val_check_interval=500 \
   training.ground_truth_masking=false \
   data.formal.format=full_trace 

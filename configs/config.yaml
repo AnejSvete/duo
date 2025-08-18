@@ -17,8 +17,8 @@ loader:
   global_batch_size: 512
   eval_global_batch_size: ${.global_batch_size}
   # Note: batch_size and eval_batch_size are **per machine**
-  batch_size: ${div_up:${.global_batch_size}, ${eval:${trainer.devices} * ${trainer.num_nodes}}}
-  eval_batch_size: ${div_up:${.eval_global_batch_size}, ${eval:${trainer.devices} * ${trainer.num_nodes}}}
+  batch_size: 512
+  eval_batch_size: 512
   num_workers: ${eval:"len(__import__('os').sched_getaffinity(0))"}
   pin_memory: True
 
@@ -57,7 +57,7 @@ eval:
 
 optim:
   weight_decay: 0
-  lr: 2e-4
+  lr: 2e-3
   beta1: 0.9
   beta2: 0.999
   eps: 1e-8
@@ -75,7 +75,7 @@ trainer:
   log_every_n_steps: 100
   limit_train_batches: 1.0   # train on full dataset, can be used to toggle quick run
   limit_val_batches: 1.0     # validate on full dataset, can be used to toggle quick run
-  val_check_interval: 50
+  val_check_interval: 500
 
 wandb:
   project: mdm-expressivity
