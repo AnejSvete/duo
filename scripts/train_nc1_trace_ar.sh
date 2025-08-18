@@ -22,4 +22,4 @@ srun python -u -m main \
   algo=ar \
   model.length=128 \
   trainer.val_check_interval=500 \
-  formal.format=full_trace 
+  data.formal.format=full_trace 

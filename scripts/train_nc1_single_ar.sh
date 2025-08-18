@@ -22,4 +22,4 @@ srun python -u -m main \
   algo=ar \
   model.length=64 \
   trainer.val_check_interval=500 \
-  formal.format=final_value 
+  data.formal.format=final_value 
