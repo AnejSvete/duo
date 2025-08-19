@@ -1,4 +1,5 @@
 import itertools
+import math
 from dataclasses import dataclass
 
 import hydra.utils
@@ -73,6 +74,12 @@ class TrainerBase(L.LightningModule):
         self.parameterization = self.config.algo.parameterization
         if self.config.algo.backbone == "dit":
             self.backbone = models.dit.DIT(self.config, vocab_size=self.vocab_size)
+        elif self.config.algo.backbone == "lt":
+            self.backbone = models.lt.LT(
+                self.config,
+                vocab_size=self.vocab_size,
+                loop_depth_function=lambda n: math.ceil(math.log2(n)),
+            )
         elif self.config.algo.backbone == "dimamba":
             self.backbone = models.dimamba.DiMamba(
                 self.config,
