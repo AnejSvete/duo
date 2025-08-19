@@ -118,7 +118,7 @@ class TrainerBase(L.LightningModule):
         self.fast_forward_batches = None
 
     def _validate_configuration(self):
-        assert self.config.algo.backbone in {"dit", "hf_dit"}
+        assert self.config.algo.backbone in {"dit", "hf_dit", "lt"}
         if self.config.algo.parameterization == "ar":
             assert not self.config.algo.time_conditioning
             assert self.config.prior.type == "none"
