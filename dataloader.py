@@ -900,7 +900,8 @@ def get_dataloaders(
             batch_size=config.loader.batch_size,
             num_workers=config.loader.num_workers,
             pin_memory=config.loader.pin_memory,
-            shuffle=not config.data.streaming,
+            # shuffle=not config.data.streaming,
+            shuffle=False,
             persistent_workers=True,
             collate_fn=collator,
         )
