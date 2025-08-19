@@ -18,6 +18,6 @@ srun python -u -m main \
   data=formal \
   model=nano \
   algo=mdlm \
-  model.length=64 \
+  model.length=128 \
   training.ground_truth_masking=false  \
   data.formal.format=final_value 

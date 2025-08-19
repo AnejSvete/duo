@@ -18,5 +18,5 @@ srun python -u -m main \
   data=formal \
   model=nano \
   algo=ar \
-  model.length=128 \
+  model.length=256 \
   data.formal.format=full_trace 
