@@ -1,4 +1,4 @@
-name: mdlm
+name: lt
 backbone: lt  # dit / dimamba / hf_dit / lt
 parameterization: subs
 time_conditioning: False
