@@ -505,6 +505,8 @@ class LT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         else:
             t_cond = F.silu(self.sigma_map(sigma))
 
+        print(t_cond)
+
         rotary_cos_sin = self.rotary_emb(x)
 
         # Get sequence length to calculate number of loops
