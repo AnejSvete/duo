@@ -484,9 +484,12 @@ def get_dataset(
         formal_cfg = getattr(config.data, "formal", {})
         num_vars = getattr(formal_cfg, "num_vars", 4)
         max_depth = getattr(formal_cfg, "max_depth", 3)
+        max_fan_in = getattr(formal_cfg, "max_fan_in", 4)
         format_str = getattr(formal_cfg, "format", "full_trace").replace("_", "-")
 
-        base_name = f"{dataset_name}_nv{num_vars}_md{max_depth}_f-{format_str}"
+        base_name = (
+            f"{dataset_name}_nv{num_vars}_md{max_depth}_fi{max_fan_in}_f-{format_str}"
+        )
     else:
         base_name = dataset_name
 
@@ -517,19 +520,22 @@ def get_dataset(
             num_examples = getattr(formal_cfg, "num_examples_valid", 5000)
             split_name = "validation"
 
-        # Use new parameters for NC1 generation
+        # Use new parameters for NC1 generation with variable fan-in
         num_vars = getattr(formal_cfg, "num_vars", 4)
         max_depth = getattr(formal_cfg, "max_depth", 3)
+        max_fan_in = getattr(formal_cfg, "max_fan_in", 4)
         format_mode = getattr(formal_cfg, "format", "full_trace")
 
         LOGGER.info(
-            f"Generating '{split_name}' formal data with: max_depth={max_depth}, num_vars={num_vars}, format={format_mode}"
+            f"Generating '{split_name}' formal data with: max_depth={max_depth}, "
+            f"num_vars={num_vars}, max_fan_in={max_fan_in}, format={format_mode}"
         )
 
         examples = formal_data.make_nc1_examples(
             num_examples=num_examples,
             max_depth=max_depth,
             num_vars=num_vars,
+            max_fan_in=max_fan_in,
             mode=format_mode,
         )
 
