@@ -363,7 +363,9 @@ class MDLM(trainer_base.AbsorbingState):
                         f"  Found '|' in targets at relative indices (from start): {bars[0].tolist()}"
                     )
 
-                    end = start + bars[0][0].item() if len(bars[0]) > 0 else start + 1
+                    end = (
+                        start + bars[0][0].item() + 1 if len(bars[0]) > 0 else start + 1
+                    )
                     print(f"  Calculated 'end' position: {end}")
 
                     # Check for invalid range before updating
