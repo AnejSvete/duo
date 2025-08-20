@@ -271,7 +271,6 @@ class TrainerBase(L.LightningModule):
 
     def forward(self, xt, sigma):
         sigma = self._process_sigma(sigma)
-        print(f"sigma = {sigma}")
         with torch.cuda.amp.autocast(dtype=torch.float32):
             model_output = self.backbone(xt, sigma)
         return self._process_model_output(model_output=model_output, xt=xt, sigma=sigma)
