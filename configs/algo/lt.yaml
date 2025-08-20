@@ -1,7 +1,8 @@
 name: ar
 backbone: lt  # dit / dimamba / hf_dit / lt
-parameterization: subs
+parameterization: ar
 time_conditioning: False
+looping_type: log
 T: 0  # 0 (continuous time) / 1000 
 subs_masking: False
 causal_attention: False
