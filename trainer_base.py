@@ -157,12 +157,12 @@ class TrainerBase(L.LightningModule):
             self.ema.load_state_dict(checkpoint["ema"])
         # Copied from:
         # https://github.com/Dao-AILab/flash-attention/blob/main/training/src/datamodules/language_modeling_hf.py#L41
-        self.fast_forward_epochs = checkpoint["loops"]["fit_loop"]["epoch_progress"][
-            "current"
-        ]["completed"]
-        self.fast_forward_batches = checkpoint["loops"]["fit_loop"][
-            "epoch_loop.batch_progress"
-        ]["current"]["completed"]
+        # self.fast_forward_epochs = checkpoint["loops"]["fit_loop"]["epoch_progress"][
+        #     "current"
+        # ]["completed"]
+        # self.fast_forward_batches = checkpoint["loops"]["fit_loop"][
+        #     "epoch_loop.batch_progress"
+        # ]["current"]["completed"]
 
     def on_save_checkpoint(self, checkpoint):
         if self.ema:
@@ -171,93 +171,51 @@ class TrainerBase(L.LightningModule):
         # https://github.com/Dao-AILab/flash-attention/blob/main/training/src/tasks/seq.py
         # ['epoch_loop.batch_progress']['total']['completed']
         # is 1 iteration behind, so we're using the optimizer's progress.
-        checkpoint["loops"]["fit_loop"]["epoch_loop.batch_progress"]["total"][
-            "completed"
-        ] = (
-            checkpoint["loops"]["fit_loop"][
-                "epoch_loop.automatic_optimization.optim_progress"
-            ]["optimizer"]["step"]["total"]["completed"]
-            * self.trainer.accumulate_grad_batches
-        )
-        checkpoint["loops"]["fit_loop"]["epoch_loop.batch_progress"]["current"][
-            "completed"
-        ] = (
-            checkpoint["loops"]["fit_loop"][
-                "epoch_loop.automatic_optimization.optim_progress"
-            ]["optimizer"]["step"]["current"]["completed"]
-            * self.trainer.accumulate_grad_batches
-        )
-        # _batches_that_stepped tracks the number of global steps,
-        # not the number of local steps, so we don't multiply with
-        # self.trainer.accumulate_grad_batches here.
-        checkpoint["loops"]["fit_loop"]["epoch_loop.state_dict"][
-            "_batches_that_stepped"
-        ] = checkpoint["loops"]["fit_loop"][
-            "epoch_loop.automatic_optimization.optim_progress"
-        ][
-            "optimizer"
-        ][
-            "step"
-        ][
-            "total"
-        ][
-            "completed"
-        ]
-        if "sampler" not in checkpoint.keys():
-            checkpoint["sampler"] = {}
-        if hasattr(self.trainer.train_dataloader.sampler, "state_dict"):
-            sampler_state_dict = self.trainer.train_dataloader.sampler.state_dict()
-            checkpoint["sampler"]["random_state"] = sampler_state_dict.get(
-                "random_state", None
-            )
-        else:
-            checkpoint["sampler"]["random_state"] = None
+        # checkpoint["loops"]["fit_loop"]["epoch_loop.batch_progress"]["total"][
+        #     "completed"
+        # ] = (
+        #     checkpoint["loops"]["fit_loop"][
+        #         "epoch_loop.automatic_optimization.optim_progress"
+        #     ]["optimizer"]["step"]["total"]["completed"]
+        #     * self.trainer.accumulate_grad_batches
+        # )
+        # checkpoint["loops"]["fit_loop"]["epoch_loop.batch_progress"]["current"][
+        #     "completed"
+        # ] = (
+        #     checkpoint["loops"]["fit_loop"][
+        #         "epoch_loop.automatic_optimization.optim_progress"
+        #     ]["optimizer"]["step"]["current"]["completed"]
+        #     * self.trainer.accumulate_grad_batches
+        # )
+        # # _batches_that_stepped tracks the number of global steps,
+        # # not the number of local steps, so we don't multiply with
+        # # self.trainer.accumulate_grad_batches here.
+        # checkpoint["loops"]["fit_loop"]["epoch_loop.state_dict"][
+        #     "_batches_that_stepped"
+        # ] = checkpoint["loops"]["fit_loop"][
+        #     "epoch_loop.automatic_optimization.optim_progress"
+        # ][
+        #     "optimizer"
+        # ][
+        #     "step"
+        # ][
+        #     "total"
+        # ][
+        #     "completed"
+        # ]
+        # if "sampler" not in checkpoint.keys():
+        #     checkpoint["sampler"] = {}
+        # if hasattr(self.trainer.train_dataloader.sampler, "state_dict"):
+        #     sampler_state_dict = self.trainer.train_dataloader.sampler.state_dict()
+        #     checkpoint["sampler"]["random_state"] = sampler_state_dict.get(
+        #         "random_state", None
+        #     )
+        # else:
+        #     checkpoint["sampler"]["random_state"] = None
 
     def on_train_start(self):
         if self.ema:
             self.ema.move_shadow_params_to_device(self.device)
-        # Adapted from:
-        # https://github.com/Dao-AILab/flash-attention/blob/main/training/src/datamodules/language_modeling_hf.py
-        distributed = (
-            self.trainer._accelerator_connector.use_distributed_sampler
-            and self.trainer._accelerator_connector.is_distributed
-        )
-        # if distributed:
-        #     sampler_cls = dataloader.FaultTolerantDistributedSampler
-        # else:
-        #     sampler_cls = dataloader.RandomFaultTolerantSampler
-        updated_dls = []
-        for dl in self.trainer.fit_loop._combined_loader.flattened:
-            # if hasattr(dl.sampler, "shuffle"):
-            #     dl_sampler = sampler_cls(dl.dataset, shuffle=dl.sampler.shuffle)
-            # else:
-            #     dl_sampler = sampler_cls(dl.dataset)
-            dl_sampler = torch.utils.data.RandomSampler(dl.dataset)
-            if (
-                distributed
-                and self.fast_forward_epochs is not None
-                and self.fast_forward_batches is not None
-            ):
-                dl_sampler.load_state_dict(
-                    {
-                        "epoch": self.fast_forward_epochs,
-                        "counter": (
-                            self.fast_forward_batches * self.config.loader.batch_size
-                        ),
-                    }
-                )
-            updated_dls.append(
-                torch.utils.data.DataLoader(
-                    dl.dataset,
-                    batch_size=self.config.loader.batch_size,
-                    num_workers=self.config.loader.num_workers,
-                    pin_memory=self.config.loader.pin_memory,
-                    sampler=dl_sampler,
-                    shuffle=False,
-                    persistent_workers=True,
-                )
-            )
-        self.trainer.fit_loop._combined_loader.flattened = updated_dls
 
     def optimizer_step(self, *args, **kwargs):
         super().optimizer_step(*args, **kwargs)
