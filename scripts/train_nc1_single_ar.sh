@@ -18,5 +18,4 @@ srun python -u -m main \
   data=formal \
   model=nano \
   algo=ar \
-  model.length=256 \
   data.formal.format=final_value 

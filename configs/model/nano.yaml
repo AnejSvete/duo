@@ -2,7 +2,7 @@ name: nano
 type: ddit
 hidden_size: 64
 cond_dim: 64
-length: 128
+length: 512
 n_blocks: 2
 n_heads: 4
 scale_by_sigma: True
