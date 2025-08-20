@@ -13,26 +13,26 @@ import utils
 
 
 class AR(trainer_base.TrainerBase):
-    def generate_conditioned(self, prompts, mode="random", top_k=1):
+    def generate_conditioned(self, prompts, targets, mode="random", top_k=1):
         """
         Generate completions conditioned on prompts using efficient, vectorized
         autoregressive decoding. This version uses a deterministic greedy strategy.
 
         prompts: (batch, seq) tensor (padded with pad_token_id)
+        targets: (batch, seq) tensor (padded with pad_token_id)
         Returns: (batch, seq) tensor containing the prompts and generated completions.
         """
-        pad_id = self.tokenizer.pad_token_id
-        batch_size, seq_len = prompts.shape
-        device = prompts.device
+        self.tokenizer.pad_token_id = self.tokenizer.pad_token_id
+        _, seq_len = prompts.shape
 
         # Start with the prompts. We will fill this tensor one token at a time.
         x = prompts.clone()
 
         # Pre-calculate the length of each prompt to know where generation starts.
-        prompt_lens = (prompts != pad_id).sum(dim=1)
+        prompt_lens = (prompts != self.tokenizer.pad_token_id).sum(dim=1)
 
         # Autoregressively generate tokens for each position in the sequence.
-        for t in range(1, seq_len):
+        for t in range(min(prompt_lens), seq_len):
             # A mask to determine which samples need a token generated at this step.
             mask_to_generate = t >= prompt_lens
 
@@ -48,15 +48,11 @@ class AR(trainer_base.TrainerBase):
                 # We only need the logits for the very last position in the sequence.
                 last_token_logits = logits[:, -1, :]  # Shape: (B, V)
 
-                # Prevent the model from generating the [MASK] token.
-                last_token_logits[:, self.mask_index] = -torch.inf
                 probs = last_token_logits.softmax(dim=-1)
 
-            # --- Simplified Generation ---
             # For AR generation, deterministically select the most likely token (greedy decoding).
             next_tok = probs.argmax(dim=-1)
 
-            # --- Vectorized Update ---
             # Place the newly generated token at position 't' for the active samples.
             x[mask_to_generate, t] = next_tok[mask_to_generate]
 
@@ -196,31 +192,28 @@ class MDLM(trainer_base.AbsorbingState):
         model_output[unmasked_indices, xt[unmasked_indices]] = 0
         return model_output
 
-    def generate_conditioned(self, prompts, mode="random", top_k=1):
+    def generate_conditioned(self, prompts, targets, mode="random", top_k=1):
         """
         Generate completions conditioned on prompts, using the specified unmasking mode.
         prompts: (batch, seq) tensor (padded)
+        targets: (batch, seq) tensor (padded)
         Returns: (batch, seq) tensor (same shape as prompts)
         """
-        pad_id = self.tokenizer.pad_token_id
-        mask_id = self.mask_index
         batch_size, seq_len = prompts.shape
-        device = prompts.device
 
-        # Vectorized Initialization: Start with the prompts and replace padding with masks.
-        # This is much cleaner than looping.
         x = prompts.clone()
-        x[x == pad_id] = mask_id
 
         # Tracks which sequences in the batch are complete.
-        finished = torch.zeros(batch_size, dtype=torch.bool, device=device)
+        finished = torch.zeros(batch_size, dtype=torch.bool, device=prompts.device)
 
-        prompt_lens = (prompts != pad_id).sum(dim=1)
+        prompt_lens = (
+            (prompts != self.tokenizer.pad_token_id) & (prompts != self.mask_index)
+        ).sum(dim=1)
 
         # The main generation loop continues as long as there are masks to fill.
         for _ in range(seq_len):
             # Identify mask positions for the entire batch.
-            mask_pos = x == mask_id
+            mask_pos = x == self.mask_index
 
             # If no masks are left anywhere in the batch, we can stop.
             if not mask_pos.any():
@@ -229,42 +222,64 @@ class MDLM(trainer_base.AbsorbingState):
             # Get model predictions for the entire batch.
             with torch.no_grad():
                 # Use sigma=0 for the standard denoising/generation step.
-                sigma = torch.zeros(batch_size, device=device)
+                sigma = torch.zeros(batch_size, device=prompts.device)
                 logits = self.backbone(x, sigma)
-                # Prevent the model from predicting the mask token itself.
-                logits[:, :, mask_id] = -torch.inf
                 probs = logits.softmax(dim=-1)
 
             # Create a mask for rows that are not yet finished.
             unfinished_mask = ~finished
 
             if mode == "random":
-                # For each unfinished sequence, pick one random masked position to fill.
+                # For each unfinished sequence, pick top_k random masked positions to fill.
 
                 # 1. Create random weights for all positions.
-                rand_weights = torch.rand(x.shape, device=device)
+                rand_weights = torch.rand(x.shape, device=prompts.device)
+
                 # 2. Ignore non-masked positions by setting their weights to a negative value.
                 rand_weights[~mask_pos] = -1.0
-                # 3. Find the index of the max random weight for each row. This is our chosen position.
-                chosen_pos = rand_weights.argmax(dim=1)
 
-                # 4. Gather the probability distributions at the chosen positions.
-                # `torch.gather` selects the probs from the `chosen_pos` for each batch item.
-                chosen_probs = torch.gather(
-                    probs, 1, chosen_pos.view(-1, 1, 1).expand(-1, 1, probs.shape[-1])
-                ).squeeze(1)
-
-                # 5. Sample a token for each sequence from its chosen distribution.
-                chosen_tokens = torch.multinomial(chosen_probs, num_samples=1).squeeze(
-                    1
+                # 3. Determine the actual number of positions to fill for each sequence.
+                # This is the minimum of top_k and the number of available masks.
+                num_masks_per_item = mask_pos.sum(dim=1)
+                # Ensure k is not larger than the sequence length to avoid errors with topk.
+                k = min(top_k, x.shape[1])
+                actual_k = torch.min(
+                    torch.tensor(k, device=prompts.device), num_masks_per_item
                 )
 
-                # 6. Place the new tokens into `x` at the chosen positions, only for unfinished sequences.
+                # 4. Find the indices of the top_k largest random weights for each row.
+                # These are our randomly chosen positions. We run topk with a fixed k
+                # and will only use the valid number of positions for each item later.
+                _, topk_pos = torch.topk(rand_weights, k=k, dim=1)
+
+                # 5. Gather the probability distributions at these k chosen positions.
+                # The result `gathered_probs` will have shape (batch_size, k, vocab_size).
+                gathered_probs = torch.gather(
+                    probs, 1, topk_pos.unsqueeze(-1).expand(-1, -1, probs.shape[-1])
+                )
+
+                # 6. Sample one token for each of the k chosen positions.
+                # We reshape for multinomial and then reshape back to (batch_size, k).
+                reshaped_probs = gathered_probs.view(-1, probs.shape[-1])
+                # Add a small epsilon to prevent errors if probabilities sum to zero.
+                sampled_indices = torch.multinomial(
+                    reshaped_probs + 1e-9, num_samples=1
+                )
+                chosen_tokens = sampled_indices.view(x.shape[0], k)
+
+                # 7. Place the new tokens into `x` at the chosen positions.
+                # We iterate because the number of tokens to update (actual_k) can vary
+                # for each sequence in the batch.
                 rows_to_update = unfinished_mask.nonzero(as_tuple=True)[0]
-                if rows_to_update.numel() > 0:
-                    x[rows_to_update, chosen_pos[rows_to_update]] = chosen_tokens[
-                        rows_to_update
-                    ]
+                for i in rows_to_update:
+                    # Get the number of valid positions to update for this specific sequence.
+                    num_valid = actual_k[i].item()
+                    if num_valid > 0:
+                        # Select the specific positions and tokens for this sequence.
+                        positions = topk_pos[i, :num_valid]
+                        values = chosen_tokens[i, :num_valid]
+                        # Update the main tensor `x` at the chosen positions.
+                        x[i, positions] = values
 
             elif mode == "top_k":
                 # For each unfinished sequence, fill the top_k most confident masked positions.
@@ -274,7 +289,9 @@ class MDLM(trainer_base.AbsorbingState):
 
                 num_masks_per_item = mask_pos.sum(dim=1)
                 k = min(top_k, confidences.shape[1])
-                actual_k = torch.min(torch.tensor(k, device=device), num_masks_per_item)
+                actual_k = torch.min(
+                    torch.tensor(k, device=prompts.device), num_masks_per_item
+                )
 
                 if actual_k.max() > 0:
                     _, topk_pos = torch.topk(confidences, k=k, dim=1)
@@ -291,57 +308,46 @@ class MDLM(trainer_base.AbsorbingState):
                             x[i, positions] = values
 
             elif mode == "one_level":
-                # This mode's logic is inherently sequential and per-item, making it
-                # difficult to vectorize without overly complex code.
-                # It is kept as a loop for clarity and correctness.
 
                 for i in range(batch_size):
+
                     if finished[i]:
                         continue
+
                     start = prompt_lens[i].item()
-                    ids = x[i]
-                    next_bar = (
-                        ids[start:] == self.tokenizer.convert_tokens_to_ids("|")
+
+                    bars = (
+                        targets[i][start:] == self.tokenizer.convert_tokens_to_ids("|")
                     ).nonzero(as_tuple=True)
-                    end = (
-                        start + next_bar[0][0].item()
-                        if len(next_bar[0]) > 0
-                        else seq_len
-                    )
+                    end = start + bars[0][0].item() if len(bars[0]) > 0 else start + 1
 
-                    for pos in range(start, end):
-                        if x[i, pos] == mask_id:
-                            x[i, pos] = probs[i, pos].argmax().item()
+                    x[i, start:end] = probs[i, start:end].argmax(dim=-1)
 
-                    # This update is now effective because prompt_lens is not reset
                     prompt_lens[i] = end + 1
 
             elif mode == "all_at_once":
-                # Unmask all symbols after the prompt until the last '|' symbol for each sequence
-                bar_token_id = self.tokenizer.convert_tokens_to_ids("|")
+
                 for i in range(batch_size):
+
                     if finished[i]:
                         continue
+
                     start = prompt_lens[i].item()
-                    ids = x[i]
-                    # Find the last '|' symbol after the prompt
-                    bar_indices = (ids[start:] == bar_token_id).nonzero(as_tuple=True)
-                    if len(bar_indices[0]) > 0:
-                        end = start + bar_indices[0][-1].item()
-                    else:
-                        end = min(start + 1, len(ids) - 1)  # TODO
-                    # Unmask all positions from start to end (exclusive of end)
-                    for pos in range(start, end):
-                        if x[i, pos] == mask_id:
-                            x[i, pos] = probs[i, pos].argmax().item()
-                    # Mark as finished if no masks remain
-                    if (x[i, start:end] == mask_id).sum() == 0:
-                        finished[i] = True
+
+                    bars = (
+                        targets[i][start:] == self.tokenizer.convert_tokens_to_ids("|")
+                    ).nonzero(as_tuple=True)
+                    end = start + bars[0][-1].item() if len(bars[0]) > 0 else start + 1
+
+                    x[i, start:end] = probs[i, start:end].argmax(dim=-1)
+
+                    prompt_lens[i] = end + 1
+
             else:
                 raise ValueError(f"Unknown generation mode: {mode}")
 
             # Update the finished status for any sequences that no longer have masks.
-            finished |= (x != mask_id).all(dim=1)
+            finished |= (x != self.mask_index).all(dim=1)
             if finished.all():
                 break
 

@@ -349,7 +349,7 @@ class TrainerBase(L.LightningModule):
             for gen_mode in ["one_level"]:
                 # Pass the `targets` tensor for shape compatibility, as required by the function signature.
                 generated = self.generate_conditioned(
-                    prompts, mode=gen_mode, top_k=top_k
+                    prompts, targets, mode=gen_mode, top_k=top_k
                 )
 
                 # Compute accuracy (exact match and token-level)
@@ -422,7 +422,9 @@ class TrainerBase(L.LightningModule):
         targets[do_not_mask] = self.tokenizer.pad_token_id
 
         prompts = input_ids.clone()
-        prompts[~do_not_mask] = self.tokenizer.pad_token_id
+        prompts[~do_not_mask & (input_ids != self.tokenizer.pad_token_id)] = (
+            self.tokenizer.mask_token_id
+        )
 
         return prompts, targets
 
