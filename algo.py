@@ -309,21 +309,90 @@ class MDLM(trainer_base.AbsorbingState):
 
             elif mode == "one_level":
 
+                # for i in range(batch_size):
+
+                #     if finished[i]:
+                #         continue
+
+                #     start = prompt_lens[i].item()
+
+                #     bars = (
+                #         targets[i][start:] == self.tokenizer.convert_tokens_to_ids("|")
+                #     ).nonzero(as_tuple=True)
+                #     end = start + bars[0][0].item() if len(bars[0]) > 0 else start + 1
+
+                #     x[i, start:end] = probs[i, start:end].argmax(dim=-1)
+
+                #     prompt_lens[i] = end + 1
+
+                # This block adds detailed print statements to inspect the variables.
+                print("\n" + "=" * 50)
+                print(f"DEBUGGING LOOP - Step starts")
+                print("=" * 50)
+
                 for i in range(batch_size):
+                    print(f"\n--- Processing Batch Item: {i} ---")
 
                     if finished[i]:
+                        print("Status: FINISHED. Skipping.")
                         continue
 
-                    start = prompt_lens[i].item()
+                    print(f"Status: In Progress.")
+
+                    # Print initial state for this item
+                    initial_prompt_len = prompt_lens[i].item()
+                    print(f"  Initial prompt_lens[{i}]: {initial_prompt_len}")
+                    print(
+                        f"  Current x[{i}]    : {self.tokenizer.convert_ids_to_tokens(x[i].tolist())}"
+                    )
+                    print(
+                        f"  Target targets[{i}]: {self.tokenizer.convert_ids_to_tokens(targets[i].tolist())}"
+                    )
+
+                    # Calculate start and end positions
+                    start = initial_prompt_len
+                    print(f"  Calculated 'start' position: {start}")
 
                     bars = (
                         targets[i][start:] == self.tokenizer.convert_tokens_to_ids("|")
                     ).nonzero(as_tuple=True)
+                    print(
+                        f"  Found '|' in targets at relative indices (from start): {bars[0].tolist()}"
+                    )
+
                     end = start + bars[0][0].item() if len(bars[0]) > 0 else start + 1
+                    print(f"  Calculated 'end' position: {end}")
 
-                    x[i, start:end] = probs[i, start:end].argmax(dim=-1)
+                    # Check for invalid range before updating
+                    if start >= end:
+                        print(
+                            "  WARNING: 'start' >= 'end'. The update slice is empty or invalid."
+                        )
+                    else:
+                        # Show what is about to be updated
+                        predicted_tokens_for_slice = probs[i, start:end].argmax(dim=-1)
+                        print(f"  Slice to update is [{start}:{end}]")
+                        print(
+                            f"    - Original tokens in x[{i}][{start}:{end}]: {self.tokenizer.convert_ids_to_tokens(x[i, start:end].tolist())}"
+                        )
+                        print(
+                            f"    - Predicted tokens for slice:      {self.tokenizer.convert_ids_to_tokens(predicted_tokens_for_slice.tolist())}"
+                        )
 
-                    prompt_lens[i] = end + 1
+                        # Perform the update
+                        x[i, start:end] = predicted_tokens_for_slice
+                        print(
+                            f"  Updated x[{i}]      : {self.tokenizer.convert_ids_to_tokens(x[i].tolist())}"
+                        )
+
+                    # Update and show the new prompt_len
+                    new_prompt_len = end + 1
+                    prompt_lens[i] = new_prompt_len
+                    print(f"  New prompt_lens[{i}] is now: {new_prompt_len}")
+
+                print("\n" + "=" * 50)
+                print(f"DEBUGGING LOOP - Step finished")
+                print("=" * 50 + "\n")
 
             elif mode == "all_at_once":
 
