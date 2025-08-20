@@ -226,13 +226,13 @@ class TrainerBase(L.LightningModule):
         #     sampler_cls = dataloader.FaultTolerantDistributedSampler
         # else:
         #     sampler_cls = dataloader.RandomFaultTolerantSampler
-        sampler_cls = torch.utils.data.RandomSampler
         updated_dls = []
         for dl in self.trainer.fit_loop._combined_loader.flattened:
-            if hasattr(dl.sampler, "shuffle"):
-                dl_sampler = sampler_cls(dl.dataset, shuffle=dl.sampler.shuffle)
-            else:
-                dl_sampler = sampler_cls(dl.dataset)
+            # if hasattr(dl.sampler, "shuffle"):
+            #     dl_sampler = sampler_cls(dl.dataset, shuffle=dl.sampler.shuffle)
+            # else:
+            #     dl_sampler = sampler_cls(dl.dataset)
+            dl_sampler = torch.utils.data.RandomSampler(dl.dataset)
             if (
                 distributed
                 and self.fast_forward_epochs is not None

@@ -328,8 +328,7 @@ class MDLM(trainer_base.AbsorbingState):
 
                     # Only perform the update if the slice is valid.
                     if start < end:
-                        predicted_tokens_for_slice = probs[i, start:end].argmax(dim=-1)
-                        x[i, start:end] = predicted_tokens_for_slice
+                        x[i, start:end] = probs[i, start:end].argmax(dim=-1)
 
                     prompt_lens[i] = end
 
@@ -354,8 +353,7 @@ class MDLM(trainer_base.AbsorbingState):
 
                     # Only perform the update if the slice is valid.
                     if start < end:
-                        predicted_tokens_for_slice = probs[i, start:end].argmax(dim=-1)
-                        x[i, start:end] = predicted_tokens_for_slice
+                        x[i, start:end] = probs[i, start:end].argmax(dim=-1)
 
                     prompt_lens[i] = end
 
