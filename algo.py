@@ -215,6 +215,8 @@ class MDLM(trainer_base.AbsorbingState):
         # Tracks which sequences in the batch are complete.
         finished = torch.zeros(batch_size, dtype=torch.bool, device=device)
 
+        prompt_lens = (prompts != pad_id).sum(dim=1)
+
         # The main generation loop continues as long as there are masks to fill.
         for _ in range(seq_len):
             # Identify mask positions for the entire batch.
@@ -293,8 +295,6 @@ class MDLM(trainer_base.AbsorbingState):
                 # difficult to vectorize without overly complex code.
                 # It is kept as a loop for clarity and correctness.
 
-                # Recalculate for this specific logic
-                prompt_lens = (prompts != pad_id).sum(dim=1)
                 for i in range(batch_size):
                     if finished[i]:
                         continue
@@ -306,16 +306,18 @@ class MDLM(trainer_base.AbsorbingState):
                     end = (
                         start + next_bar[0][0].item()
                         if len(next_bar[0]) > 0
-                        else min(start + 1, len(ids) - 1)  # TODO
+                        else seq_len
                     )
 
                     for pos in range(start, end):
                         if x[i, pos] == mask_id:
                             x[i, pos] = probs[i, pos].argmax().item()
 
+                    # This update is now effective because prompt_lens is not reset
+                    prompt_lens[i] = end + 1
+
             elif mode == "all_at_once":
                 # Unmask all symbols after the prompt until the last '|' symbol for each sequence
-                prompt_lens = (prompts != pad_id).sum(dim=1)
                 bar_token_id = self.tokenizer.convert_tokens_to_ids("|")
                 for i in range(batch_size):
                     if finished[i]:
