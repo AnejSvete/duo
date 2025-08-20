@@ -225,8 +225,8 @@ class MDLM(trainer_base.AbsorbingState):
                 sigma = torch.zeros(batch_size, device=prompts.device)
                 logits = self.backbone(x, sigma)
                 # Do not predict mask or padding tokens
-                logits[:, self.mask_index] = -float("inf")
-                logits[:, self.tokenizer.pad_token_id] = -float("inf")
+                logits[:, :, self.mask_index] = -torch.inf
+                logits[:, :, self.tokenizer.pad_token_id] = -torch.inf
                 probs = logits.softmax(dim=-1)
 
             # Create a mask for rows that are not yet finished.
@@ -391,7 +391,7 @@ class MDLM(trainer_base.AbsorbingState):
                         )
 
                     # Update and show the new prompt_len
-                    new_prompt_len = end + 1
+                    new_prompt_len = end
                     prompt_lens[i] = new_prompt_len
                     print(f"  New prompt_lens[{i}] is now: {new_prompt_len}")
 
