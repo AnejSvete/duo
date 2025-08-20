@@ -306,7 +306,7 @@ class MDLM(trainer_base.AbsorbingState):
                     end = (
                         start + next_bar[0][0].item()
                         if len(next_bar[0]) > 0
-                        else start + 1
+                        else min(start + 1, len(ids) - 1)  # TODO
                     )
 
                     for pos in range(start, end):
@@ -327,7 +327,7 @@ class MDLM(trainer_base.AbsorbingState):
                     if len(bar_indices[0]) > 0:
                         end = start + bar_indices[0][-1].item()
                     else:
-                        end = start + 1
+                        end = min(start + 1, len(ids) - 1)  # TODO
                     # Unmask all positions from start to end (exclusive of end)
                     for pos in range(start, end):
                         if x[i, pos] == mask_id:
