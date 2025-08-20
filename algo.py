@@ -211,7 +211,7 @@ class MDLM(trainer_base.AbsorbingState):
         ).sum(dim=1)
 
         # The main generation loop continues as long as there are masks to fill.
-        for _ in range(seq_len):
+        for tstep in range(seq_len):
             # Identify mask positions for the entire batch.
             mask_pos = x == self.mask_index
 
@@ -224,6 +224,9 @@ class MDLM(trainer_base.AbsorbingState):
                 # Use sigma=0 for the standard denoising/generation step.
                 sigma = torch.zeros(batch_size, device=prompts.device)
                 logits = self.backbone(x, sigma)
+                # Do not predict mask or padding tokens
+                logits[:, self.mask_index] = -float("inf")
+                logits[:, self.tokenizer.pad_token_id] = -float("inf")
                 probs = logits.softmax(dim=-1)
 
             # Create a mask for rows that are not yet finished.
@@ -331,7 +334,7 @@ class MDLM(trainer_base.AbsorbingState):
                 print("=" * 50)
 
                 for i in range(batch_size):
-                    print(f"\n--- Processing Batch Item: {i} ---")
+                    print(f"\n--- Processing Batch Item: {i} at time step {tstep} ---")
 
                     if finished[i]:
                         print("Status: FINISHED. Skipping.")

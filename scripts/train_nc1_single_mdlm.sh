@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J nc1_mdlm                  # Job name
+#SBATCH -J nc1_mdlm_single                  # Job name
 #SBATCH -o watch_folder/%x_%j.out     # output file (%j expands to jobID)
 #SBATCH --mem-per-cpu=32000                   # server memory requested (per node)
 #SBATCH -t 04:00:00                  # Time limit (hh:mm:ss)
