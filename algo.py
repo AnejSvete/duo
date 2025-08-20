@@ -306,13 +306,12 @@ class MDLM(trainer_base.AbsorbingState):
                     end = (
                         start + next_bar[0][0].item()
                         if len(next_bar[0]) > 0
-                        else seq_len
+                        else start + 1
                     )
 
                     for pos in range(start, end):
                         if x[i, pos] == mask_id:
                             x[i, pos] = probs[i, pos].argmax().item()
-                    prompt_lens[i] = end + 1
 
             elif mode == "all_at_once":
                 # Unmask all symbols after the prompt until the last '|' symbol for each sequence
@@ -328,7 +327,7 @@ class MDLM(trainer_base.AbsorbingState):
                     if len(bar_indices[0]) > 0:
                         end = start + bar_indices[0][-1].item()
                     else:
-                        end = seq_len
+                        end = start + 1
                     # Unmask all positions from start to end (exclusive of end)
                     for pos in range(start, end):
                         if x[i, pos] == mask_id:
