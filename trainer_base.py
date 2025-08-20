@@ -222,10 +222,11 @@ class TrainerBase(L.LightningModule):
             self.trainer._accelerator_connector.use_distributed_sampler
             and self.trainer._accelerator_connector.is_distributed
         )
-        if distributed:
-            sampler_cls = dataloader.FaultTolerantDistributedSampler
-        else:
-            sampler_cls = dataloader.RandomFaultTolerantSampler
+        # if distributed:
+        #     sampler_cls = dataloader.FaultTolerantDistributedSampler
+        # else:
+        #     sampler_cls = dataloader.RandomFaultTolerantSampler
+        sampler_cls = torch.utils.data.RandomSampler
         updated_dls = []
         for dl in self.trainer.fit_loop._combined_loader.flattened:
             if hasattr(dl.sampler, "shuffle"):
