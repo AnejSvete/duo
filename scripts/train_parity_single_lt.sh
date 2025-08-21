@@ -18,5 +18,6 @@ srun python -u -m main \
   data=parity \
   model=nano \
   algo=lt \
+  algo.looping_type=constant \
   model.length=128 \
   data.properties.format=final_value
