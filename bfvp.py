@@ -3,14 +3,9 @@ import random
 from typing import Any, Dict, List, Set, Tuple
 
 
-def generate_formula_tree(
-    depth: int, num_vars: int, fan_in: int, leaf_fan_in: int
-) -> Dict[str, Any]:
+def generate_formula_tree(depth: int, num_vars: int, fan_in: int) -> Dict[str, Any]:
     """
-    Generates an expression tree for a formula with constant fan-ins.
-
-    Intermediate nodes (depth > 1) have a fixed fan-in.
-    Nodes at depth 1 (connected to leaves) have a fixed fan-in.
+    Generates an expression tree for a formula with a single, constant fan-in.
     """
     if num_vars <= 0:
         raise ValueError("num_vars must be positive.")
@@ -18,10 +13,10 @@ def generate_formula_tree(
         raise ValueError("depth must be non-negative.")
     if fan_in < 2:
         raise ValueError("fan_in must be at least 2.")
-    if leaf_fan_in < 1:
-        raise ValueError("leaf_fan_in must be at least 1.")
-    if leaf_fan_in > num_vars:
-        raise ValueError("leaf_fan_in cannot be greater than num_vars.")
+    if fan_in > num_vars:
+        raise ValueError(
+            "fan_in cannot be greater than the number of unique variables."
+        )
 
     variables = [f"x{i}" for i in range(1, num_vars + 1)]
 
@@ -32,13 +27,13 @@ def generate_formula_tree(
 
         op = random.choice(["and", "or"])
 
-        # Determine children based on depth using fixed fan-in values.
+        # Determine children based on depth using the single fixed fan_in value.
         if current_depth == 1:
-            # Nodes connected to leaves: use leaf_fan_in.
-            leaf_vars = random.sample(variables, leaf_fan_in)
+            # Nodes connected to leaves sample unique variables.
+            leaf_vars = random.sample(variables, fan_in)
             children = [{"var": var} for var in leaf_vars]
         else:
-            # Intermediate nodes: use fan_in.
+            # Intermediate nodes recurse.
             children = [gen(current_depth - 1) for _ in range(fan_in)]
 
         # Randomly add negations to children.
@@ -192,7 +187,6 @@ def make_examples(
     max_depth: int,
     num_vars: int,
     fan_in: int,
-    leaf_fan_in: int,
     mode: str,
 ) -> List[Dict[str, str]]:
     """
@@ -202,9 +196,7 @@ def make_examples(
     for _ in range(num_examples):
         # For each example, choose a random depth between 1 and max_depth
         current_depth = random.randint(1, max_depth)
-        expression_tree = generate_formula_tree(
-            current_depth, num_vars, fan_in, leaf_fan_in
-        )
+        expression_tree = generate_formula_tree(current_depth, num_vars, fan_in)
 
         variables = get_variables_from_tree(expression_tree)
         assignments = {var: random.choice([True, False]) for var in variables}
@@ -244,15 +236,8 @@ if __name__ == "__main__":
         "--fan_in",
         type=int,
         default=2,
-        help="Fixed fan-in for intermediate nodes.",
+        help="Fixed fan-in for all nodes.",
     )
-    parser.add_argument(
-        "--leaf_fan_in",
-        type=int,
-        default=2,
-        help="Fixed fan-in for nodes connected to leaves.",
-    )
-    # Re-introduced the format option
     parser.add_argument(
         "--format",
         type=str,
@@ -273,8 +258,7 @@ if __name__ == "__main__":
         f"Generating {args.num_examples} examples with max tree depth {args.max_depth}."
     )
     print(f"Variable pool size: {args.num_vars}")
-    print(f"Intermediate fan-in: {args.fan_in}")
-    print(f"Leaf fan-in: {args.leaf_fan_in}")
+    print(f"Fan-in: {args.fan_in}")
     print(f"Output format: '{args.format}'")
 
     examples = make_examples(
@@ -282,7 +266,6 @@ if __name__ == "__main__":
         max_depth=args.max_depth,
         num_vars=args.num_vars,
         fan_in=args.fan_in,
-        leaf_fan_in=args.leaf_fan_in,
         mode=args.format,
     )
 

@@ -59,17 +59,16 @@ def make_parity_examples(
         binary_string = generate_power_of_two_binary_string(max_log_len)
         trace_levels = get_parallel_parity_trace(binary_string)
 
-        # NEW: Create a space-separated version of the input string for the output.
-        space_separated_string = " ".join(binary_string)
+        initial_string_repr = trace_levels[0]
 
         if mode == "trace":
-            # Join all computation levels with a separator.
-            # The first level of the trace is the original string, so we can just use the trace.
-            text = f"{' | '.join(trace_levels)}"
+            # Separate the initial string from the reduction steps with '#'.
+            reduction_steps = " | ".join(trace_levels[1:])
+            text = f"{initial_string_repr} # {reduction_steps}"
         elif mode == "final_value":
             # The final value is the last (and only) element of the last level.
             final_value = trace_levels[-1]
-            text = f"{space_separated_string} # {final_value}"
+            text = f"{initial_string_repr} # {final_value}"
         else:
             raise ValueError(f"Unknown format mode: {mode}")
 

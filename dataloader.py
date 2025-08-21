@@ -486,10 +486,11 @@ def get_dataset(
         num_vars = getattr(bfvp_cfg, "num_vars", 4)
         max_depth = getattr(bfvp_cfg, "max_depth", 3)
         fan_in = getattr(bfvp_cfg, "fan_in", 2)
-        leaf_fan_in = getattr(bfvp_cfg, "leaf_fan_in", 2)
         format_str = getattr(bfvp_cfg, "format", "trace").replace("_", "-")
 
-        base_name = f"{dataset_name}_nv{num_vars}_md{max_depth}_fi{fan_in}_lfi{leaf_fan_in}_f-{format_str}"
+        base_name = (
+            f"{dataset_name}_nv{num_vars}_md{max_depth}_fi{fan_in}_f-{format_str}"
+        )
     elif dataset_name == "parity":
         parity_cfg = getattr(config.data, "parity", {})
         max_log_len = getattr(parity_cfg, "max_log_len", 4)
@@ -529,12 +530,11 @@ def get_dataset(
         num_vars = getattr(bfvp_cfg, "num_vars", 4)
         max_depth = getattr(bfvp_cfg, "max_depth", 3)
         fan_in = getattr(bfvp_cfg, "fan_in", 2)
-        leaf_fan_in = getattr(bfvp_cfg, "leaf_fan_in", 2)
         format_mode = getattr(bfvp_cfg, "format", "trace")
 
         LOGGER.info(
             f"Generating '{split_name}' bfvp data with: max_depth={max_depth}, "
-            f"num_vars={num_vars}, fan_in={fan_in}, leaf_fan_in={leaf_fan_in}, format={format_mode}"
+            f"num_vars={num_vars}, fan_in={fan_in}, format={format_mode}"
         )
 
         examples = bfvp.make_examples(
@@ -542,7 +542,6 @@ def get_dataset(
             max_depth=max_depth,
             num_vars=num_vars,
             fan_in=fan_in,
-            leaf_fan_in=leaf_fan_in,
             mode=format_mode,
         )
 
