@@ -181,7 +181,7 @@ class LT(trainer_base.TrainerBase):
         assert self.config.prior.type == "none"
 
     def _process_model_input(self, x0, valid_tokens):
-        return x0, None, valid_tokens
+        return x0, x0, valid_tokens
 
     def nll(
         self,
