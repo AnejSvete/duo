@@ -18,5 +18,5 @@ srun python -u -m main \
   data=parity \
   model=nano \
   algo=mdlm \
-  training.ground_truth_masking=false \
+  model.length=128 \
   data.properties.format=trace

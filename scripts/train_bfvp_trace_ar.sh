@@ -18,4 +18,5 @@ srun python -u -m main \
   data=bfvp \
   model=nano \
   algo=ar \
+  model.length=512 \
   data.properties.format=trace

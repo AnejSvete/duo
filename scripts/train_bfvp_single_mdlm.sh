@@ -18,5 +18,5 @@ srun python -u -m main \
   data=bfvp \
   model=nano \
   algo=mdlm \
-  training.ground_truth_masking=false  \
+  model.length=512 \
   data.properties.format=final_value

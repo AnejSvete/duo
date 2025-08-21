@@ -18,4 +18,5 @@ srun python -u -m main \
   data=parity \
   model=nano \
   algo=ar \
+  model.length=128 \
   data.properties.format=trace
