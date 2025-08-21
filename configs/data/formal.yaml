@@ -7,9 +7,9 @@ streaming: False
 insert_train_eos: False
 insert_valid_eos: False
 formal:
-  num_examples_train: 100000
+  num_examples_train: 1000000
   num_examples_valid: 10000
-  num_vars: 2
-  max_depth: 4      # Max depth for the formula tree; each formula's depth is chosen from 1..max_depth.
-  max_fan_in: 2     # Max number of children for intermediate AND/OR nodes.
+  num_vars: 3
+  max_depth: 5      # Max depth for the formula tree; each formula's depth is chosen from 1..max_depth.
+  max_fan_in: 3     # Max number of children for intermediate AND/OR nodes.
   format: full_trace # Options: full_trace, final_value

@@ -322,7 +322,9 @@ class TrainerBase(L.LightningModule):
                 )
 
                 # Compute accuracy (exact match and token-level)
-                acc_exact, acc_token = self._compute_accuracy(generated, targets)
+                acc_exact, acc_token, correct_prediction = self._compute_accuracy(
+                    generated, targets
+                )
                 self.log(
                     f"val/{gen_mode}_acc_exact",
                     acc_exact,
@@ -333,6 +335,13 @@ class TrainerBase(L.LightningModule):
                 self.log(
                     f"val/{gen_mode}_acc_token",
                     acc_token,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=True,
+                )
+                self.log(
+                    f"val/{gen_mode}_correct_prediction",
+                    correct_prediction,
                     on_step=False,
                     on_epoch=True,
                     sync_dist=True,
@@ -421,7 +430,23 @@ class TrainerBase(L.LightningModule):
             num_correct_tokens / num_target_tokens if num_target_tokens > 0 else 0.0
         )
 
-        return acc_exact, acc_token
+        # 3. Last Prompt Token Accuracy: Is the prediction correct at the last non-padding token in the prompt?
+        # Find the last index that is True in target_mask for each sequence.
+        last_prompt_indices = target_mask.float().cumsum(dim=1).argmax(dim=1)
+        # Clamp indices to valid range
+        last_prompt_indices = torch.clamp(last_prompt_indices, 0, targets.shape[1] - 1)
+        # Only consider if there is at least one target token
+        has_prompt = target_mask.any(dim=1)
+        last_prompt_targets = targets[
+            torch.arange(targets.shape[0]), last_prompt_indices
+        ]
+        last_prompt_preds = generated[
+            torch.arange(generated.shape[0]), last_prompt_indices
+        ]
+        last_prompt_correct = (last_prompt_preds == last_prompt_targets) & has_prompt
+        correct_prediction = last_prompt_correct.float().mean().item()
+
+        return acc_exact, acc_token, correct_prediction
 
     def generate_conditioned(self, prompts, mode="random", top_k=1):
         # Stub: implement in subclass or algo
