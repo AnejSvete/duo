@@ -820,7 +820,7 @@ def get_dataset(
 def get_tokenizer(config):
 
     if config.data.tokenizer_name_or_path == "formal":
-        tokenizer = FormalTokenizer(language=config.data.name)
+        tokenizer = FormalTokenizer(language=config.data.train)
     elif config.data.tokenizer_name_or_path == "text8":
         tokenizer = Text8Tokenizer()
     elif config.data.tokenizer_name_or_path == "bert-base-uncased":
