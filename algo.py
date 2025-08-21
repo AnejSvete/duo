@@ -22,7 +22,6 @@ class AR(trainer_base.TrainerBase):
         targets: (batch, seq) tensor (padded with pad_token_id)
         Returns: (batch, seq) tensor containing the prompts and generated completions.
         """
-        self.tokenizer.pad_token_id = self.tokenizer.pad_token_id
         _, seq_len = prompts.shape
 
         # Start with the prompts. We will fill this tensor one token at a time.
@@ -117,6 +116,88 @@ class AR(trainer_base.TrainerBase):
             y = (output[:, -1, :] + noise[:, i, :]).argmax(-1)
             x[:, i + 1] = y
         return x
+
+    def _process_sigma(self, sigma):
+        del sigma
+        return None
+
+
+class LT(trainer_base.TrainerBase):
+    def generate_conditioned(self, prompts, targets=None, **kwargs):
+        """
+        Generate symbols for all masked positions at once using a deterministic
+        greedy decoding strategy. This is a non-autoregressive, single-step process.
+
+        Args:
+            prompts (torch.Tensor): A (batch, seq) tensor with masked positions
+                                    indicated by `self.mask_index`.
+            targets (torch.Tensor, optional): This parameter is ignored.
+            **kwargs: Any additional keyword arguments (like 'mode' or 'top_k') are ignored.
+
+        Returns:
+            torch.Tensor: A (batch, seq) tensor with the masked positions filled in.
+        """
+        # Clone the input to avoid modifying the original tensor.
+        filled_sequence = prompts.clone()
+        mask_to_generate = prompts == self.mask_index
+
+        # Return early if there are no masks to fill.
+        if not mask_to_generate.any():
+            return filled_sequence
+
+        # Perform a single forward pass to get predictions for all token positions.
+        with torch.no_grad():
+            logits = self.backbone(filled_sequence, None)
+
+        # Deterministically select the most likely token for every position.
+        predicted_tokens = torch.argmax(logits, dim=-1)
+
+        # Fill the masked positions with the corresponding predictions.
+        filled_sequence[mask_to_generate] = predicted_tokens[mask_to_generate]
+
+        return filled_sequence
+
+    def __init__(self, config, tokenizer):
+        vocab_size = tokenizer.vocab_size
+        if not hasattr(tokenizer, "mask_token") or tokenizer.mask_token is None:
+            self.mask_index = vocab_size
+            vocab_size += 1
+        else:
+            self.mask_index = tokenizer.mask_token_id
+        # The base class __init__ needs to be called.
+        # Using placeholder values for config and backbone for this example.
+        super().__init__(config, tokenizer, vocab_size=vocab_size)
+        self.save_hyperparameters()
+        self._validate_configuration()
+
+    def _validate_configuration(self):
+        super()._validate_configuration()
+        # Mocking config attributes for demonstration
+        if not hasattr(self.config, "algo"):
+            self.config.algo = type("obj", (object,), {"time_conditioning": False})()
+        if not hasattr(self.config, "prior"):
+            self.config.prior = type("obj", (object,), {"type": "none"})()
+        assert not self.config.algo.time_conditioning
+        assert self.config.prior.type == "none"
+
+    def _process_model_input(self, x0, valid_tokens):
+        return x0, None, valid_tokens
+
+    def nll(
+        self,
+        input_tokens,
+        output_tokens,
+        do_not_mask,
+        current_accumulation_step,
+        train_mode,
+        ground_truth_masking,
+    ):
+        del current_accumulation_step
+        output = self.backbone(input_tokens, None)
+        output[:, :, self.mask_index] = self.neg_infinity
+        output[:, :, self.tokenizer.pad_token_id] = self.neg_infinity
+        output = output.log_softmax(-1)
+        return -output.gather(-1, output_tokens[:, :, None])[:, :, 0]
 
     def _process_sigma(self, sigma):
         del sigma

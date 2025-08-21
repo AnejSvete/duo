@@ -1,6 +1,6 @@
-name: ar
+name: lt
 backbone: lt  # dit / dimamba / hf_dit / lt
-parameterization: ar
+parameterization: lt
 time_conditioning: False
 looping_type: log
 T: 0  # 0 (continuous time) / 1000 

@@ -218,6 +218,8 @@ def main(config):
     tokenizer = dataloader.get_tokenizer(config)
     if config.algo.name == "ar":
         diffusion_model = algo.AR
+    elif config.algo.name == "lt":
+        diffusion_model = algo.LT
     elif config.algo.name == "mdlm":
         diffusion_model = algo.MDLM
     elif config.algo.name == "duo_base":
