@@ -9,7 +9,7 @@ insert_valid_eos: False
 properties:
   num_examples_train: 1000000
   num_examples_valid: 10000
-  num_vars: 3
-  max_depth: 4      # Max depth for the formula tree; each formula's depth is chosen from 1..max_depth.
-  fan_in: 3         # Fixed fan-in.
+  num_vars: 2
+  max_depth: 6      # Max depth for the formula tree; each formula's depth is chosen from 1..max_depth.
+  fan_in: 2         # Fixed fan-in.
   format: trace     # Options: trace, final_value
