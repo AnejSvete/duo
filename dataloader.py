@@ -482,7 +482,7 @@ def get_dataset(
 
     if dataset_name == "bfvp":
         # Create a descriptive filename for bfvp datasets based on generation parameters
-        bfvp_cfg = getattr(config.data, "bfvp", {})
+        bfvp_cfg = getattr(config.data, "properties", {})
         num_vars = getattr(bfvp_cfg, "num_vars", 4)
         max_depth = getattr(bfvp_cfg, "max_depth", 3)
         fan_in = getattr(bfvp_cfg, "fan_in", 2)
@@ -492,7 +492,7 @@ def get_dataset(
             f"{dataset_name}_nv{num_vars}_md{max_depth}_fi{fan_in}_f-{format_str}"
         )
     elif dataset_name == "parity":
-        parity_cfg = getattr(config.data, "parity", {})
+        parity_cfg = getattr(config.data, "properties", {})
         max_log_len = getattr(parity_cfg, "max_log_len", 4)
         format_str = getattr(parity_cfg, "format", "trace").replace("_", "-")
         base_name = f"{dataset_name}_mll{max_log_len}_f-{format_str}"
@@ -518,7 +518,7 @@ def get_dataset(
 
     if dataset_name == "bfvp":
         # Read bfvp dataset config and generate data
-        bfvp_cfg = getattr(config.data, "bfvp", {})
+        bfvp_cfg = getattr(config.data, "properties", {})
         if mode == "train":
             num_examples = getattr(bfvp_cfg, "num_examples_train", 50000)
             split_name = "train"
@@ -549,7 +549,7 @@ def get_dataset(
             {split_name: datasets.Dataset.from_list(examples)}
         )
     elif dataset_name == "parity":
-        parity_cfg = getattr(config.data, "parity", {})
+        parity_cfg = getattr(config.data, "properties", {})
         if mode == "train":
             num_examples = getattr(parity_cfg, "num_examples_train", 50000)
             split_name = "train"
