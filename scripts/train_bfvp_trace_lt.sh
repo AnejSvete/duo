@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J nc1_lt_single                  # Job name
+#SBATCH -J bfvp_lt_trace                  # Job name
 #SBATCH -o watch_folder/%x_%j.out     # output file (%j expands to jobID)
 #SBATCH --mem-per-cpu=32000                   # server memory requested (per node)
 #SBATCH -t 24:00:00                  # Time limit (hh:mm:ss)
@@ -14,9 +14,9 @@ module load stack/2024-06 python/3.12.8 eth_proxy
 source /cluster/home/asvete/duo/bin/activate
 
 srun python -u -m main \
-  wandb.name="lt-nc1-single-$(date +%Y%m%d-%H%M%S)" \
-  data=formal \
+  wandb.name="lt-bfvp-trace-$(date +%Y%m%d-%H%M%S)" \
+  data=bfvp \
   model=nano \
   algo=lt \
-  training.ground_truth_masking=false  \
-  data.formal.format=final_value 
+  training.ground_truth_masking=false \
+  data.properties.format=trace

@@ -18,8 +18,8 @@ import tokenizers
 import torch
 import transformers
 
-# For artificial/formal language data generation
-import formal_data
+import bfvp
+import parity
 import utils
 from masked_formal_collator import MaskedFormalCollator
 
@@ -115,12 +115,13 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
         bos_token="[BOS]",
         eos_token="[EOS]",
         mask_token="[MASK]",
+        language="bfvp",
         **kwargs,
     ):
-        # Add variable tokens to the tokenizer vocabulary
-        self.FORMAL_TOKENS = ["(", ")", "#", "|", "and", "or", "not", "T", "F"] + [
-            f"x{i}" for i in range(1, 129)
-        ]  # Support up to x128
+        if language == "bfvp":
+            self.FORMAL_TOKENS = ["#", "|", "and", "or", "not", "T", "F"]
+        elif language == "parity":
+            self.FORMAL_TOKENS = ["#", "|", "0", "1"]
         vocab = {pad_token: 0, bos_token: 1, eos_token: 2, mask_token: 3}
         offset = 4
         for i, tok in enumerate(self.FORMAL_TOKENS):
@@ -479,17 +480,21 @@ def get_dataset(
     if not insert_eos:
         eos_tag = "_eosFalse"
 
-    if dataset_name == "formal":
-        # Create a descriptive filename for formal datasets based on generation parameters
-        formal_cfg = getattr(config.data, "formal", {})
-        num_vars = getattr(formal_cfg, "num_vars", 4)
-        max_depth = getattr(formal_cfg, "max_depth", 3)
-        max_fan_in = getattr(formal_cfg, "max_fan_in", 4)
-        format_str = getattr(formal_cfg, "format", "full_trace").replace("_", "-")
+    if dataset_name == "bfvp":
+        # Create a descriptive filename for bfvp datasets based on generation parameters
+        bfvp_cfg = getattr(config.data, "bfvp", {})
+        num_vars = getattr(bfvp_cfg, "num_vars", 4)
+        max_depth = getattr(bfvp_cfg, "max_depth", 3)
+        fan_in = getattr(bfvp_cfg, "fan_in", 2)
+        leaf_fan_in = getattr(bfvp_cfg, "leaf_fan_in", 2)
+        format_str = getattr(bfvp_cfg, "format", "trace").replace("_", "-")
 
-        base_name = (
-            f"{dataset_name}_nv{num_vars}_md{max_depth}_fi{max_fan_in}_f-{format_str}"
-        )
+        base_name = f"{dataset_name}_nv{num_vars}_md{max_depth}_fi{fan_in}_lfi{leaf_fan_in}_f-{format_str}"
+    elif dataset_name == "parity":
+        parity_cfg = getattr(config.data, "parity", {})
+        max_log_len = getattr(parity_cfg, "max_log_len", 4)
+        format_str = getattr(parity_cfg, "format", "trace").replace("_", "-")
+        base_name = f"{dataset_name}_mll{max_log_len}_f-{format_str}"
     else:
         base_name = dataset_name
 
@@ -510,35 +515,62 @@ def get_dataset(
         # double block size for sub-sampling
         block_size *= 2
 
-    if dataset_name == "formal":
-        # Read formal dataset config and generate data
-        formal_cfg = getattr(config.data, "formal", {})
+    if dataset_name == "bfvp":
+        # Read bfvp dataset config and generate data
+        bfvp_cfg = getattr(config.data, "bfvp", {})
         if mode == "train":
-            num_examples = getattr(formal_cfg, "num_examples_train", 50000)
+            num_examples = getattr(bfvp_cfg, "num_examples_train", 50000)
             split_name = "train"
         else:
-            num_examples = getattr(formal_cfg, "num_examples_valid", 5000)
+            num_examples = getattr(bfvp_cfg, "num_examples_valid", 5000)
             split_name = "validation"
 
-        # Use new parameters for NC1 generation with variable fan-in
-        num_vars = getattr(formal_cfg, "num_vars", 4)
-        max_depth = getattr(formal_cfg, "max_depth", 3)
-        max_fan_in = getattr(formal_cfg, "max_fan_in", 4)
-        format_mode = getattr(formal_cfg, "format", "full_trace")
+        # Use new parameters for NC1 generation with constant fan-in
+        num_vars = getattr(bfvp_cfg, "num_vars", 4)
+        max_depth = getattr(bfvp_cfg, "max_depth", 3)
+        fan_in = getattr(bfvp_cfg, "fan_in", 2)
+        leaf_fan_in = getattr(bfvp_cfg, "leaf_fan_in", 2)
+        format_mode = getattr(bfvp_cfg, "format", "trace")
 
         LOGGER.info(
-            f"Generating '{split_name}' formal data with: max_depth={max_depth}, "
-            f"num_vars={num_vars}, max_fan_in={max_fan_in}, format={format_mode}"
+            f"Generating '{split_name}' bfvp data with: max_depth={max_depth}, "
+            f"num_vars={num_vars}, fan_in={fan_in}, leaf_fan_in={leaf_fan_in}, format={format_mode}"
         )
 
-        examples = formal_data.make_nc1_examples(
+        examples = bfvp.make_examples(
             num_examples=num_examples,
             max_depth=max_depth,
             num_vars=num_vars,
-            max_fan_in=max_fan_in,
+            fan_in=fan_in,
+            leaf_fan_in=leaf_fan_in,
             mode=format_mode,
         )
 
+        dataset = datasets.DatasetDict(
+            {split_name: datasets.Dataset.from_list(examples)}
+        )
+    elif dataset_name == "parity":
+        parity_cfg = getattr(config.data, "parity", {})
+        if mode == "train":
+            num_examples = getattr(parity_cfg, "num_examples_train", 50000)
+            split_name = "train"
+        else:
+            num_examples = getattr(parity_cfg, "num_examples_valid", 5000)
+            split_name = "validation"
+
+        max_log_len = getattr(parity_cfg, "max_log_len", 4)
+        format_mode = getattr(parity_cfg, "format", "trace")
+
+        LOGGER.info(
+            f"Generating '{split_name}' parity data with: max_log_len={max_log_len}, "
+            f"format={format_mode}"
+        )
+
+        examples = parity.make_parity_examples(
+            num_examples=num_examples,
+            max_log_len=max_log_len,
+            mode=format_mode,
+        )
         dataset = datasets.DatasetDict(
             {split_name: datasets.Dataset.from_list(examples)}
         )
@@ -706,7 +738,7 @@ def get_dataset(
         )
     elif dataset_name == "ag_news":
         tokenized_dataset = tokenized_dataset.remove_columns(["text", "label"])
-    elif dataset_name == "formal":
+    elif dataset_name == "bfvp" or dataset_name == "parity":
         # Remove 'text' if present, will re-add below
         if "text" in tokenized_dataset.column_names:
             tokenized_dataset = tokenized_dataset.remove_columns("text")
@@ -714,8 +746,8 @@ def get_dataset(
         tokenized_dataset = tokenized_dataset.remove_columns("text")
 
     if not wrap:
-        # For formal dataset, add 'text' column before saving
-        if dataset_name == "formal":
+        # For bfvp dataset, add 'text' column before saving
+        if dataset_name == "bfvp" or dataset_name == "parity":
             # Get the original text examples
             if isinstance(data, datasets.Dataset):
                 original_texts = data["text"]
@@ -731,10 +763,12 @@ def get_dataset(
             tokenized_dataset = tokenized_dataset.add_column("text", original_texts)
         if not streaming:
             tokenized_dataset.save_to_disk(_path)
-        # After loading, check for 'text' column if formal
-        if dataset_name == "formal" and "text" not in tokenized_dataset.column_names:
+        # After loading, check for 'text' column if bfvp
+        if (
+            dataset_name == "bfvp" or dataset_name == "parity"
+        ) and "text" not in tokenized_dataset.column_names:
             raise RuntimeError(
-                "'text' column missing from tokenized formal dataset after saving. Please check data pipeline."
+                "'text' column missing from tokenized bfvp/parity dataset after saving. Please check data pipeline."
             )
         return tokenized_dataset.with_format("torch")
 
@@ -752,8 +786,8 @@ def get_dataset(
             desc="Grouping",
         )
 
-    # If this is the formal dataset, add the original text field for the collator
-    if dataset_name == "formal":
+    # If this is a FL dataset, add the original text field for the collator
+    if dataset_name == "bfvp" or dataset_name == "parity":
         # Get the original text examples
         if isinstance(data, datasets.Dataset):
             original_texts = data["text"]
@@ -773,7 +807,7 @@ def get_dataset(
         # After adding, check for 'text' column
         if "text" not in chunked_dataset.column_names:
             raise RuntimeError(
-                "'text' column missing from chunked formal dataset after adding. Please check data pipeline."
+                "'text' column missing from chunked FL dataset after adding. Please check data pipeline."
             )
 
     if not streaming:
@@ -786,7 +820,7 @@ def get_dataset(
 def get_tokenizer(config):
 
     if config.data.tokenizer_name_or_path == "formal":
-        tokenizer = FormalTokenizer()
+        tokenizer = FormalTokenizer(language=config.data.name)
     elif config.data.tokenizer_name_or_path == "text8":
         tokenizer = Text8Tokenizer()
     elif config.data.tokenizer_name_or_path == "bert-base-uncased":

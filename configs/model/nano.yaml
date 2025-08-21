@@ -1,7 +1,7 @@
 name: nano
 type: ddit
-hidden_size: 128
-cond_dim: 128
+hidden_size: 256
+cond_dim: 256
 length: 1024
 n_blocks: 2
 n_heads: 4

@@ -1,0 +1,13 @@
+train: parity
+valid: parity
+tokenizer_name_or_path: formal
+cache_dir: /cluster/scratch/asvete/duo
+wrap: False
+streaming: False
+insert_train_eos: False
+insert_valid_eos: False
+properties:
+  num_examples_train: 1000000
+  num_examples_valid: 10000
+  max_log_len: 5    # Max length will be 2^5 = 32
+  format: trace     # Options: trace, final_value
