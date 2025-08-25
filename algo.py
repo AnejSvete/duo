@@ -159,6 +159,8 @@ class LT(trainer_base.TrainerBase):
         # Perform a single forward pass to get predictions for all token positions.
         with torch.no_grad():
             logits = self.backbone(filled_sequence, None)
+            logits[:, :, self.mask_index] = self.neg_infinity
+            logits[:, :, self.tokenizer.pad_token_id] = self.neg_infinity
 
         # Deterministically select the most likely token for every position.
         predicted_tokens = torch.argmax(logits, dim=-1)
