@@ -151,7 +151,6 @@ class LT(trainer_base.TrainerBase):
         print("-------------------------")
         print(f"prompts: {prompts[:4]}")
         print(f"mask_to_generate: {mask_to_generate[:4]}")
-        print("-------------------------")
 
         # Return early if there are no masks to fill.
         if not mask_to_generate.any():
@@ -166,6 +165,10 @@ class LT(trainer_base.TrainerBase):
 
         # Fill the masked positions with the corresponding predictions.
         filled_sequence[mask_to_generate] = predicted_tokens[mask_to_generate]
+
+        print(f"predicted_tokens: {predicted_tokens[:4]}")
+        print(f"filled_sequence: {filled_sequence[:4]}")
+        print("-------------------------")
 
         return filled_sequence
 
