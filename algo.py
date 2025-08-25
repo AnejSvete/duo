@@ -29,9 +29,12 @@ class AR(trainer_base.TrainerBase):
 
         # Pre-calculate the length of each prompt to know where generation starts.
         prompt_lens = (prompts != self.tokenizer.pad_token_id).sum(dim=1)
+        print(f"prompts: {prompts[:4]}")
+        print(f"prompt_lens: {prompt_lens[:4]}")
 
         # Autoregressively generate tokens for each position in the sequence.
         for t in range(min(prompt_lens), seq_len):
+            print(f"Generating token at position {t} / {seq_len}")
             # A mask to determine which samples need a token generated at this step.
             mask_to_generate = t >= prompt_lens
 
