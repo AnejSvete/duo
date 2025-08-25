@@ -76,7 +76,7 @@ class TrainerBase(L.LightningModule):
             self.backbone = models.dit.DIT(self.config, vocab_size=self.vocab_size)
         elif self.config.algo.backbone == "lt":
             if self.config.algo.looping_type == "log":
-                loop_depth_function = lambda n: math.ceil(math.log2(n))
+                loop_depth_function = lambda n: math.ceil(math.log2(n) / 2)
             elif self.config.algo.looping_type == "linear":
                 loop_depth_function = lambda n: n
             elif self.config.algo.looping_type == "constant":

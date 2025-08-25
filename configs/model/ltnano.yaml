@@ -1,4 +1,4 @@
-name: nano
+name: ltnano
 type: ddit
 hidden_size: 256
 cond_dim: 256

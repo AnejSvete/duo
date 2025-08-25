@@ -16,7 +16,7 @@ source /cluster/home/asvete/duo/bin/activate
 srun python -u -m main \
   wandb.name="lt-parity-single-log-$(date +%Y%m%d-%H%M%S)" \
   data=parity \
-  model=nano \
+  model=ltnano \
   algo=lt \
   algo.looping_type=log \
   model.length=128 \

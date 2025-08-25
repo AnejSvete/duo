@@ -557,7 +557,13 @@ def get_dataset(
             num_examples = getattr(parity_cfg, "num_examples_valid", 5000)
             split_name = "validation"
 
-        max_log_len = getattr(parity_cfg, "max_log_len", 4)
+        if mode == "train":
+            min_log_len = getattr(parity_cfg, "min_log_len_train", 2)
+            max_log_len = getattr(parity_cfg, "max_log_len_train", 4)
+        else:
+            min_log_len = getattr(parity_cfg, "min_log_len_valid", 2)
+            max_log_len = getattr(parity_cfg, "max_log_len_valid", 4)
+
         format_mode = getattr(parity_cfg, "format", "trace")
 
         LOGGER.info(
@@ -567,6 +573,7 @@ def get_dataset(
 
         examples = parity.make_parity_examples(
             num_examples=num_examples,
+            min_log_len=min_log_len,
             max_log_len=max_log_len,
             mode=format_mode,
         )

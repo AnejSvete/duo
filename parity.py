@@ -3,14 +3,14 @@ import random
 from typing import Dict, List
 
 
-def generate_power_of_two_binary_string(max_log_len: int) -> str:
+def generate_power_of_two_binary_string(min_log_len: int, max_log_len: int) -> str:
     """
     Generates a random binary string with a length that is a power of two.
     """
-    if max_log_len <= 0:
+    if max_log_len <= 0 or min_log_len < 0:
         raise ValueError("max_log_len must be positive.")
     # Choose a random exponent to get a length like 2, 4, 8, etc.
-    log_len = random.randint(1, max_log_len)
+    log_len = random.randint(min_log_len, max_log_len)
     length = 2**log_len
     return "".join(random.choice(["0", "1"]) for _ in range(length))
 
@@ -49,14 +49,14 @@ def get_parallel_parity_trace(binary_string: str) -> List[str]:
 
 
 def make_parity_examples(
-    num_examples: int, max_log_len: int, mode: str
+    num_examples: int, min_log_len: int, max_log_len: int, mode: str
 ) -> List[Dict[str, str]]:
     """
     Generates examples for the parity language based on the specified mode.
     """
     examples = []
     for _ in range(num_examples):
-        binary_string = generate_power_of_two_binary_string(max_log_len)
+        binary_string = generate_power_of_two_binary_string(min_log_len, max_log_len)
         trace_levels = get_parallel_parity_trace(binary_string)
 
         initial_string_repr = trace_levels[0]
