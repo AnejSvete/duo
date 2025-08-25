@@ -58,6 +58,8 @@ class AR(trainer_base.TrainerBase):
             # Place the newly generated token at position 't' for the active samples.
             x[mask_to_generate, t] = next_tok[mask_to_generate]
 
+        print(f"x: {x[:4]}")
+
         return x
 
     def __init__(self, config, tokenizer):
