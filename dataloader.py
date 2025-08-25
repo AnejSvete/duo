@@ -493,9 +493,16 @@ def get_dataset(
         )
     elif dataset_name == "parity":
         parity_cfg = getattr(config.data, "properties", {})
-        max_log_len = getattr(parity_cfg, "max_log_len", 4)
+        if mode == "train":
+            min_log_len = getattr(parity_cfg, "min_log_len_train", 2)
+            max_log_len = getattr(parity_cfg, "max_log_len_train", 4)
+        else:
+            min_log_len = getattr(parity_cfg, "min_log_len_valid", 2)
+            max_log_len = getattr(parity_cfg, "max_log_len_valid", 4)
         format_str = getattr(parity_cfg, "format", "trace").replace("_", "-")
-        base_name = f"{dataset_name}_mll{max_log_len}_f-{format_str}"
+        base_name = (
+            f"{dataset_name}_minll{min_log_len}_maxll{max_log_len}_f-{format_str}"
+        )
     else:
         base_name = dataset_name
 
