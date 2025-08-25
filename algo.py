@@ -28,7 +28,14 @@ class AR(trainer_base.TrainerBase):
         x = prompts.clone()
 
         # Pre-calculate the length of each prompt to know where generation starts.
-        prompt_lens = (prompts != self.mask_index).sum(dim=1)
+        # Find the index of the first occurrence of the mask token in each sequence.
+        # If no mask token is present, set to seq_len (i.e., generate nothing).
+        mask_positions = prompts == self.mask_index
+        prompt_lens = torch.where(
+            mask_positions.any(dim=1),
+            mask_positions.float().argmax(dim=1),
+            torch.full((prompts.shape[0],), seq_len, device=prompts.device),
+        )
         print(f"prompts: {prompts[:4]}")
         print(f"prompt_lens: {prompt_lens[:4]}")
 
