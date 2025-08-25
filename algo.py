@@ -36,12 +36,9 @@ class AR(trainer_base.TrainerBase):
             mask_positions.float().argmax(dim=1),
             torch.full((prompts.shape[0],), seq_len, device=prompts.device),
         )
-        print(f"prompts: {prompts[:4]}")
-        print(f"prompt_lens: {prompt_lens[:4]}")
 
         # Autoregressively generate tokens for each position in the sequence.
         for t in range(min(prompt_lens), seq_len):
-            print(f"Generating token at position {t} / {seq_len}")
             # A mask to determine which samples need a token generated at this step.
             mask_to_generate = t >= prompt_lens
 
@@ -64,8 +61,6 @@ class AR(trainer_base.TrainerBase):
 
             # Place the newly generated token at position 't' for the active samples.
             x[mask_to_generate, t] = next_tok[mask_to_generate]
-
-        print(f"x: {x[:4]}")
 
         return x
 
