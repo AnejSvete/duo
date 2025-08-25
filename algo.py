@@ -28,7 +28,7 @@ class AR(trainer_base.TrainerBase):
         x = prompts.clone()
 
         # Pre-calculate the length of each prompt to know where generation starts.
-        prompt_lens = (prompts != self.tokenizer.pad_token_id).sum(dim=1)
+        prompt_lens = (prompts != self.mask_index).sum(dim=1)
         print(f"prompts: {prompts[:4]}")
         print(f"prompt_lens: {prompt_lens[:4]}")
 
