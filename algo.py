@@ -148,6 +148,11 @@ class LT(trainer_base.TrainerBase):
         filled_sequence = prompts.clone()
         mask_to_generate = prompts == self.mask_index
 
+        print("-------------------------")
+        print(f"prompts: {prompts[:4]}")
+        print(f"mask_to_generate: {mask_to_generate[:4]}")
+        print("-------------------------")
+
         # Return early if there are no masks to fill.
         if not mask_to_generate.any():
             return filled_sequence
