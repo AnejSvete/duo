@@ -1,0 +1,27 @@
+train: regular
+valid: regular
+tokenizer_name_or_path: formal # The formal tokenizer includes all needed symbols
+cache_dir: /cluster/scratch/asvete/duo
+wrap: False
+streaming: False
+insert_train_eos: False
+insert_valid_eos: False
+
+regular:
+  num_examples_train: 1000000
+  num_examples_valid: 10000
+  
+  # --- FSA Configuration ---
+  # Options: random, a5, parity, ab_star, mod_3, same_start_end
+  fsa_type: ab_star 
+  
+  # --- String Generation ---
+  max_log_len: 4     # Max length will be 2^4 = 16. Lengths are chosen from {2, 4, 8, 16}
+
+  # --- Output Format ---
+  # Options: trace, final_value
+  format: trace      
+  
+  # --- Parameters for 'random' fsa_type ONLY ---
+  num_states: 4
+  alphabet_size: 2
