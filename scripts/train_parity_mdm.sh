@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J parity_mdlm_trace                  # Job name
+#SBATCH -J parity_mdm                  # Job name
 #SBATCH -o watch_folder/%x_%j.out     # output file (%j expands to jobID)
 #SBATCH --mem-per-cpu=64000                   # server memory requested (per node)
 #SBATCH -t 24:00:00                  # Time limit (hh:mm:ss)
@@ -14,7 +14,7 @@ module load stack/2024-06 python/3.12.8 eth_proxy
 source /cluster/home/asvete/duo/bin/activate
 
 srun python -u -m main \
-  wandb.name="mdlm-parity-trace-$(date +%Y%m%d-%H%M%S)" \
+  wandb.name="parity-mdm-$(date +%Y%m%d-%H%M%S)" \
   data=parity \
   model=nano \
   algo=mdlm \
