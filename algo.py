@@ -198,7 +198,55 @@ class LT(trainer_base.TrainerBase):
         assert self.config.prior.type == "none"
 
     def _process_model_input(self, x0, valid_tokens):
-        return x0, x0, valid_tokens
+        """
+        Prepares the model input by masking a specific region.
+
+        This function takes the original sequence `x0` and creates the `input_tokens`
+        by replacing all tokens between the '#' character and the first padding
+        token with the `mask_index`. The original `x0` is returned as the target.
+        """
+        # Create a copy of the input to modify, preserving the original `x0` as the target.
+        input_tokens = x0.clone()
+
+        # Get the integer IDs for our special tokens from the tokenizer.
+        try:
+            hash_token_id = self.tokenizer.convert_tokens_to_ids("#")
+        except KeyError:
+            # Handle cases where '#' might not be in the vocabulary.
+            # In this scenario, no masking will occur.
+            return input_tokens, x0, valid_tokens
+
+        pad_token_id = self.tokenizer.pad_token_id
+
+        # Iterate over each sequence in the batch to apply the custom masking logic.
+        for i in range(input_tokens.shape[0]):
+            sequence = input_tokens[i]
+
+            # Find the position of the '#' token.
+            # .nonzero() returns the indices of all non-zero elements (i.e., where the condition is True).
+            hash_indices = (sequence == hash_token_id).nonzero(as_tuple=True)[0]
+
+            # Proceed only if the '#' token was actually found in the sequence.
+            if hash_indices.numel() > 0:
+                # The region to mask starts at the position *after* the '#' token.
+                start_idx = hash_indices[0] + 1
+
+                # Find the position of the *first* padding token.
+                pad_indices = (sequence == pad_token_id).nonzero(as_tuple=True)[0]
+
+                if pad_indices.numel() > 0:
+                    # If padding exists, the masked region ends right before it.
+                    end_idx = pad_indices[0]
+                else:
+                    # If there's no padding, the masked region extends to the end of the sequence.
+                    end_idx = len(sequence)
+
+                # Perform the replacement, ensuring the start index is before the end index.
+                if start_idx < end_idx:
+                    sequence[start_idx:end_idx] = self.mask_index
+
+        # Return the modified input, the original target, and the valid token mask.
+        return input_tokens, x0, valid_tokens
 
     def nll(
         self,
@@ -245,12 +293,12 @@ class LT(trainer_base.TrainerBase):
         masked_nll = nll_per_token * final_loss_mask
 
         print("-------------------------")
-        print(f"output: {output[:4, :32]}")
+        # print(f"output: {output[:4, :32]}")
         print(f"input_tokens: {input_tokens[:4]}")
         print(f"output_tokens: {output_tokens[:4]}")
-        print(
-            f"gather result: {-output.gather(-1, output_tokens[:, :, None])[:, :, 0]}"
-        )
+        # print(
+        #     f"gather result: {-output.gather(-1, output_tokens[:, :, None])[:, :, 0]}"
+        # )
         print("-------------------------")
 
         return masked_nll
