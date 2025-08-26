@@ -18,5 +18,5 @@ srun python -u -m main \
   data=parity \
   model=nano \
   algo=mdlm \
-  model.length=96 \
+  model.length=192 \
   data.properties.format=trace
