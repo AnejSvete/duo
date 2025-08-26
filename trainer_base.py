@@ -580,12 +580,15 @@ class TrainerBase(L.LightningModule):
             loss[:, 1:] = loss[:, 1:]
             valid_tokens[:, 1:] = valid_tokens[:, 1:]
 
-        # nlls = (loss * valid_tokens).sum()
-        # num_tokens = valid_tokens.sum()
-        # token_nll = nlls / num_tokens
-        nlls = loss.sum()
-        num_tokens = (input_tokens == self.tokenizer.mask_token_id).sum()
-        token_nll = nlls / num_tokens
+        if output_tokens:
+            nlls = loss.sum()
+            num_tokens = (input_tokens == self.tokenizer.mask_token_id).sum()
+            token_nll = nlls / num_tokens
+        else:  # MDM case
+            nlls = (loss * valid_tokens).sum()
+            num_tokens = valid_tokens.sum()
+            token_nll = nlls / num_tokens
+
         return Loss(loss=token_nll, nlls=nlls, prior_loss=0.0, num_tokens=num_tokens)
 
 
