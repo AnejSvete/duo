@@ -580,9 +580,11 @@ class TrainerBase(L.LightningModule):
             loss[:, 1:] = loss[:, 1:]
             valid_tokens[:, 1:] = valid_tokens[:, 1:]
 
-        if output_tokens is not None:
+        if output_tokens is not None:  # LT or AR case
             nlls = loss.sum()
             num_tokens = (input_tokens == self.tokenizer.mask_token_id).sum()
+            if num_tokens == 0:
+                num_tokens = len(loss)  # TODO: Hack...
             token_nll = nlls / num_tokens
         else:  # MDM case
             nlls = (loss * valid_tokens).sum()
