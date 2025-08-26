@@ -313,9 +313,9 @@ class TrainerBase(L.LightningModule):
             )
 
             # Generate completions conditioned on prompts
-            # for gen_mode in ["random", "top_k", "one_level", "all_at_once"]:
             top_k = getattr(self.config.eval, "top_k", 1)
-            for gen_mode in ["one_level"]:
+            # for gen_mode in ["one_level"]:
+            for gen_mode in ["random", "top_k", "one_level", "all_at_once"]:
                 # Pass the `targets` tensor for shape compatibility, as required by the function signature.
                 generated = self.generate_conditioned(
                     prompts, targets, mode=gen_mode, top_k=top_k
@@ -584,7 +584,26 @@ class TrainerBase(L.LightningModule):
             nlls = loss.sum()
             num_tokens = (input_tokens == self.tokenizer.mask_token_id).sum()
             if num_tokens == 0:
-                num_tokens = len(loss)  # TODO: Hack...
+                # Find the location of the first '#' and last '|' in each sequence
+                hash_token_id = self.tokenizer.convert_tokens_to_ids("#")
+                pipe_token_id = self.tokenizer.convert_tokens_to_ids("|")
+                # If not found, fallback to hack
+                if (
+                    hash_token_id == self.tokenizer.unk_token_id
+                    or pipe_token_id == self.tokenizer.unk_token_id
+                ):
+                    num_tokens = len(loss)  # fallback hack
+                else:
+                    # Compute per sequence
+                    first_hash = (input_tokens == hash_token_id).float().argmax(dim=1)
+                    last_pipe = (input_tokens == pipe_token_id).float().cumsum(dim=1)
+                    last_pipe = (
+                        (last_pipe == last_pipe.max(dim=1, keepdim=True)[0])
+                        .float()
+                        .argmax(dim=1)
+                    )
+                    # Clamp to valid range
+                    num_tokens = (last_pipe - first_hash).clamp(min=0).sum().item()
             token_nll = nlls / num_tokens
         else:  # MDM case
             nlls = (loss * valid_tokens).sum()
