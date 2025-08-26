@@ -284,18 +284,16 @@ class LT(trainer_base.TrainerBase):
         # input token was the special mask token.
         mlm_mask = input_tokens == self.mask_index
 
-        # --- UPDATED: Combine the MLM mask with the padding mask ---
-        # The final loss is computed ONLY where the input was a mask token
-        # AND the position is not padding. We multiply the two masks together.
-        final_loss_mask = mlm_mask.to(do_not_mask.dtype) * do_not_mask
-
         # Apply the final combined mask to zero out the loss for all other tokens
-        masked_nll = nll_per_token * final_loss_mask
+        masked_nll = nll_per_token * mlm_mask
 
         print("-------------------------")
-        # print(f"output: {output[:4, :32]}")
+        print(f"output: {output[:4]}")
         print(f"input_tokens: {input_tokens[:4]}")
         print(f"output_tokens: {output_tokens[:4]}")
+        print(f"nll_per_token: {nll_per_token[:4]}")
+        print(f"mlm_mask: {mlm_mask[:4]}")
+        print(f"masked_nll: {masked_nll[:4]}")
         # print(
         #     f"gather result: {-output.gather(-1, output_tokens[:, :, None])[:, :, 0]}"
         # )
