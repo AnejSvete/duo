@@ -10,7 +10,7 @@ properties:
   num_examples_train: 1000000
   num_examples_valid: 10000
   min_log_len_train: 2    
-  max_log_len_train: 4    
-  min_log_len_valid: 3    
-  max_log_len_valid: 4    
+  max_log_len_train: 5    
+  min_log_len_valid: 4    
+  max_log_len_valid: 5    
   format: trace     # Options: trace, final_value

@@ -19,5 +19,5 @@ srun python -u -m main \
   model=ltnano \
   algo=lt \
   algo.looping_type=log \
-  model.length=64 \
+  model.length=96 \
   data.properties.format=trace
