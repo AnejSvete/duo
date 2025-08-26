@@ -214,6 +214,10 @@ class LT(trainer_base.TrainerBase):
         output[:, :, self.mask_index] = self.neg_infinity
         output[:, :, self.tokenizer.pad_token_id] = self.neg_infinity
         output = output.log_softmax(-1)
+        print("-------------------------")
+        print(f"output: {output[:4]}")
+        print(f"output_tokens: {output_tokens[:4]}")
+        print("-------------------------")
         return -output.gather(-1, output_tokens[:, :, None])[:, :, 0]
 
     def _process_sigma(self, sigma):
