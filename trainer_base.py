@@ -589,7 +589,16 @@ class TrainerBase(L.LightningModule):
         nlls = (loss * valid_tokens).sum()
         num_tokens = valid_tokens.sum()
         token_nll = nlls / num_tokens
-
+        print()
+        print()
+        print()
+        print(f"nlls: {nlls[:4]}")
+        print(f"token_nll: {token_nll[:4]}")
+        print(f"valid_tokens: {valid_tokens[:4]}")
+        print(f"num_tokens: {num_tokens}")
+        print()
+        print()
+        print()
         return Loss(loss=token_nll, nlls=nlls, prior_loss=0.0, num_tokens=num_tokens)
 
 
