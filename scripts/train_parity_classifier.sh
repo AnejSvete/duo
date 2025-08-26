@@ -14,7 +14,7 @@ module load stack/2024-06 python/3.12.8 eth_proxy
 source /cluster/home/asvete/duo/bin/activate
 
 srun python -u -m main \
-  wandb.name="lt-parity-single-const-$(date +%Y%m%d-%H%M%S)" \
+  wandb.name="parity-classifier-$(date +%Y%m%d-%H%M%S)" \
   data=parity \
   model=nano \
   algo=lt \
