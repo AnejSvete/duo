@@ -148,10 +148,6 @@ class LT(trainer_base.TrainerBase):
         filled_sequence = prompts.clone()
         mask_to_generate = prompts == self.mask_index
 
-        print("-------------------------")
-        print(f"prompts: {prompts[:4]}")
-        print(f"mask_to_generate: {mask_to_generate[:4]}")
-
         # Return early if there are no masks to fill.
         if not mask_to_generate.any():
             return filled_sequence
@@ -167,10 +163,6 @@ class LT(trainer_base.TrainerBase):
 
         # Fill the masked positions with the corresponding predictions.
         filled_sequence[mask_to_generate] = predicted_tokens[mask_to_generate]
-
-        print(f"predicted_tokens: {predicted_tokens[:4]}")
-        print(f"filled_sequence: {filled_sequence[:4]}")
-        print("-------------------------")
 
         return filled_sequence
 
@@ -257,47 +249,15 @@ class LT(trainer_base.TrainerBase):
         train_mode,
         ground_truth_masking,
     ):
-        # del current_accumulation_step
-        # output = self.backbone(input_tokens, None)
-        # output[:, :, self.mask_index] = self.neg_infinity
-        # output[:, :, self.tokenizer.pad_token_id] = self.neg_infinity
-        # output = output.log_softmax(-1)
-        # print("-------------------------")
-        # print(f"output: {output[:4, :32]}")
-        # print(f"output_tokens: {output_tokens[:4]}")
-        # print(
-        #     f"gather result: {-output.gather(-1, output_tokens[:, :, None])[:, :, 0]}"
-        # )
-        # print("-------------------------")
-        # return -output.gather(-1, output_tokens[:, :, None])[:, :, 0]
         del current_accumulation_step
         output = self.backbone(input_tokens, None)
-        # output[:, :, self.mask_index] = self.neg_infinity
-        # output[:, :, self.tokenizer.pad_token_id] = self.neg_infinity
         output = output.log_softmax(-1)
 
-        # Calculate the NLL for every token in the sequence
         nll_per_token = -output.gather(-1, output_tokens[:, :, None])[:, :, 0]
 
-        # --- NEW: Create a mask for only the masked input positions ---
-        # This creates a boolean tensor that is `True` only where the
-        # input token was the special mask token.
         mlm_mask = input_tokens == self.mask_index
 
-        # Apply the final combined mask to zero out the loss for all other tokens
         masked_nll = nll_per_token * mlm_mask
-
-        print("-------------------------")
-        print(f"output: {output[:4]}")
-        print(f"input_tokens: {input_tokens[:4]}")
-        print(f"output_tokens: {output_tokens[:4]}")
-        print(f"nll_per_token: {nll_per_token[:4]}")
-        print(f"mlm_mask: {mlm_mask[:4]}")
-        print(f"masked_nll: {masked_nll[:4]}")
-        # print(
-        #     f"gather result: {-output.gather(-1, output_tokens[:, :, None])[:, :, 0]}"
-        # )
-        print("-------------------------")
 
         return masked_nll
 

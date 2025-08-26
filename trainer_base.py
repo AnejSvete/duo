@@ -413,12 +413,6 @@ class TrainerBase(L.LightningModule):
         # `target_mask` is True only for tokens that should be predicted.
         target_mask = targets != self.tokenizer.pad_token_id
 
-        print("-------------------------")
-        print(f"generated: {generated[:4]}")
-        print(f"targets: {targets[:4]}")
-        print(f"target_mask: {target_mask[:4]}")
-        print("-------------------------")
-
         # 1. Exact Match Accuracy: Percentage of sequences that are perfectly correct.
         # For each sequence, check if all target tokens are correct.
         # A token is considered correct if it matches the generated token OR it's not a target token.
@@ -592,16 +586,6 @@ class TrainerBase(L.LightningModule):
         nlls = loss.sum()
         num_tokens = (input_tokens == self.tokenizer.mask_token_id).sum()
         token_nll = nlls / num_tokens
-        print()
-        print()
-        print()
-        print(f"nlls: {nlls}")
-        print(f"token_nll: {token_nll}")
-        print(f"num_tokens: {num_tokens}")
-        print(f"valid_tokens: {valid_tokens[:4]}")
-        print()
-        print()
-        print()
         return Loss(loss=token_nll, nlls=nlls, prior_loss=0.0, num_tokens=num_tokens)
 
 
