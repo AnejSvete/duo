@@ -272,8 +272,8 @@ class LT(trainer_base.TrainerBase):
         # return -output.gather(-1, output_tokens[:, :, None])[:, :, 0]
         del current_accumulation_step
         output = self.backbone(input_tokens, None)
-        output[:, :, self.mask_index] = self.neg_infinity
-        output[:, :, self.tokenizer.pad_token_id] = self.neg_infinity
+        # output[:, :, self.mask_index] = self.neg_infinity
+        # output[:, :, self.tokenizer.pad_token_id] = self.neg_infinity
         output = output.log_softmax(-1)
 
         # Calculate the NLL for every token in the sequence
