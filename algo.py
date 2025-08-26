@@ -209,16 +209,51 @@ class LT(trainer_base.TrainerBase):
         train_mode,
         ground_truth_masking,
     ):
+        # del current_accumulation_step
+        # output = self.backbone(input_tokens, None)
+        # output[:, :, self.mask_index] = self.neg_infinity
+        # output[:, :, self.tokenizer.pad_token_id] = self.neg_infinity
+        # output = output.log_softmax(-1)
+        # print("-------------------------")
+        # print(f"output: {output[:4, :32]}")
+        # print(f"output_tokens: {output_tokens[:4]}")
+        # print(
+        #     f"gather result: {-output.gather(-1, output_tokens[:, :, None])[:, :, 0]}"
+        # )
+        # print("-------------------------")
+        # return -output.gather(-1, output_tokens[:, :, None])[:, :, 0]
         del current_accumulation_step
         output = self.backbone(input_tokens, None)
         output[:, :, self.mask_index] = self.neg_infinity
         output[:, :, self.tokenizer.pad_token_id] = self.neg_infinity
         output = output.log_softmax(-1)
+
+        # Calculate the NLL for every token in the sequence
+        nll_per_token = -output.gather(-1, output_tokens[:, :, None])[:, :, 0]
+
+        # --- NEW: Create a mask for only the masked input positions ---
+        # This creates a boolean tensor that is `True` only where the
+        # input token was the special mask token.
+        mlm_mask = input_tokens == self.mask_index
+
+        # --- UPDATED: Combine the MLM mask with the padding mask ---
+        # The final loss is computed ONLY where the input was a mask token
+        # AND the position is not padding. We multiply the two masks together.
+        final_loss_mask = mlm_mask.to(do_not_mask.dtype) * do_not_mask
+
+        # Apply the final combined mask to zero out the loss for all other tokens
+        masked_nll = nll_per_token * final_loss_mask
+
         print("-------------------------")
-        print(f"output: {output[:4]}")
+        print(f"output: {output[:4, :32]}")
+        print(f"input_tokens: {input_tokens[:4]}")
         print(f"output_tokens: {output_tokens[:4]}")
+        print(
+            f"gather result: {-output.gather(-1, output_tokens[:, :, None])[:, :, 0]}"
+        )
         print("-------------------------")
-        return -output.gather(-1, output_tokens[:, :, None])[:, :, 0]
+
+        return masked_nll
 
     def _process_sigma(self, sigma):
         del sigma
