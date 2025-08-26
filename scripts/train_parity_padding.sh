@@ -19,5 +19,5 @@ srun python -u -m main \
   model=nano \
   algo=lt \
   algo.looping_type=constant \
-  model.length=192 \
+  model.length=96 \
   data.properties.format=trace

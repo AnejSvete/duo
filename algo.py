@@ -475,6 +475,27 @@ class MDLM(trainer_base.AbsorbingState):
 
                     prompt_lens[i] = end
 
+            elif mode == "one_at_a_time":
+                # For each unfinished sequence, fill the single, left-most masked position.
+
+                # Get the indices of sequences that still have masks.
+                rows_to_update = unfinished_mask.nonzero(as_tuple=True)[0]
+
+                if rows_to_update.numel() > 0:
+                    # Find the position of the first mask for each of these active sequences.
+                    first_mask_indices = (
+                        (x[rows_to_update] == self.mask_index).float().argmax(dim=1)
+                    )
+
+                    # Get the probability distributions at these specific positions.
+                    probs_to_use = probs[rows_to_update, first_mask_indices, :]
+
+                    # Select the most likely token for each position (greedy decoding).
+                    next_tokens = probs_to_use.argmax(dim=-1)
+
+                    # Place the newly generated tokens into the correct positions in `x`.
+                    x[rows_to_update, first_mask_indices] = next_tokens
+
             elif mode == "all_at_once":
 
                 for i in range(batch_size):
