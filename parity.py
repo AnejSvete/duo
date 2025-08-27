@@ -65,6 +65,9 @@ def make_parity_examples(
             # Separate the initial string from the reduction steps with '#'.
             reduction_steps = " | ".join(trace_levels[1:])
             text = f"{initial_string_repr} # {reduction_steps}"
+        elif mode == "empty_trace":
+            reduction_steps = " | ".join(trace_levels[1:])
+            text = f"{initial_string_repr} # {('|' * (len(reduction_steps) - 1))} {reduction_steps[-1]}"
         elif mode == "final_value":
             # The final value is the last (and only) element of the last level.
             final_value = trace_levels[-1]
@@ -91,8 +94,8 @@ if __name__ == "__main__":
         "--format",
         type=str,
         default="trace",
-        choices=["trace", "final_value"],
-        help="Output format: 'trace' for full reduction, 'final_value' for the result only.",
+        choices=["trace", "final_value", "empty_trace"],
+        help="Output format: 'trace' for full reduction, 'empty_trace' for pause tokens, 'final_value' for the result only.",
     )
     parser.add_argument(
         "--num_examples", type=int, default=10, help="Number of examples to generate."
@@ -108,9 +111,17 @@ if __name__ == "__main__":
     )
     print(f"Output format: '{args.format}'")
 
+    if args.mode == "train":
+        min_log_len = getattr(args, "min_log_len_train", 2)
+        max_log_len = getattr(args, "max_log_len_train", 4)
+    else:
+        min_log_len = getattr(args, "min_log_len_valid", 2)
+        max_log_len = getattr(args, "max_log_len_valid", 4)
+
     examples = make_parity_examples(
         num_examples=args.num_examples,
-        max_log_len=args.max_log_len,
+        min_log_len=min_log_len,
+        max_log_len=max_log_len,
         mode=args.format,
     )
 
