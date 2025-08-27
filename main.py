@@ -64,7 +64,7 @@ def _print_config(
 
 
 @L.pytorch.utilities.rank_zero_only
-def _print_batch(train_ds, valid_ds, tokenizer, k=64):
+def _print_batch(train_ds, valid_ds, tokenizer, k=128):
     for dl_type, dl in [("train", train_ds), ("valid", valid_ds)]:
         print(f"Printing {dl_type} dataloader batch.")
         batch = next(iter(dl))

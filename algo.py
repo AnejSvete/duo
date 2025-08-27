@@ -191,11 +191,12 @@ class LT(trainer_base.TrainerBase):
 
     def _process_model_input(self, x0, valid_tokens):
         """
-        Prepares the model input by masking a specific region.
+        Prepares the model input by masking the label region.
 
-        This function takes the original sequence `x0` and creates the `input_tokens`
-        by replacing all tokens between the '#' character and the first padding
-        token with the `mask_index`. The original `x0` is returned as the target.
+        This function takes an original sequence `x0` and creates `input_tokens`
+        by replacing all tokens between the '#' character and the next padding
+        token with the `mask_index`. This supports formats where padding tokens
+        may appear before the '#' delimiter. The original `x0` is returned as the target.
         """
         # Create a copy of the input to modify, preserving the original `x0` as the target.
         input_tokens = x0.clone()
@@ -223,15 +224,22 @@ class LT(trainer_base.TrainerBase):
                 # The region to mask starts at the position *after* the '#' token.
                 start_idx = hash_indices[0] + 1
 
-                # Find the position of the *first* padding token.
-                pad_indices = (sequence == pad_token_id).nonzero(as_tuple=True)[0]
+                # --- MODIFIED LOGIC ---
+                # Find the position of the *first* padding token that appears *after* the '#' token.
+                # We search within the slice of the sequence that starts after the delimiter.
+                sequence_after_hash = sequence[start_idx:]
+                pad_indices_after_hash = (sequence_after_hash == pad_token_id).nonzero(
+                    as_tuple=True
+                )[0]
 
-                if pad_indices.numel() > 0:
-                    # If padding exists, the masked region ends right before it.
-                    end_idx = pad_indices[0]
+                if pad_indices_after_hash.numel() > 0:
+                    # If padding exists after '#', the masked region ends right before it.
+                    # The found index is relative to the slice, so we add start_idx to get the absolute position.
+                    end_idx = start_idx + pad_indices_after_hash[0]
                 else:
-                    # If there's no padding, the masked region extends to the end of the sequence.
+                    # If there's no padding after '#', the masked region extends to the end of the sequence.
                     end_idx = len(sequence)
+                # --- END OF MODIFIED LOGIC ---
 
                 # Perform the replacement, ensuring the start index is before the end index.
                 if start_idx < end_idx:
