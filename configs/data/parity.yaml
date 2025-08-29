@@ -1,16 +1,25 @@
 train: parity
 valid: parity
-tokenizer_name_or_path: formal
+tokenizer_name_or_path: formal # The formal tokenizer includes all needed symbols
 cache_dir: /cluster/scratch/asvete/duo
 wrap: False
 streaming: False
 insert_train_eos: False
 insert_valid_eos: False
+
 properties:
   num_examples_train: 200000
   num_examples_valid: 20000
+  fsa_type: parity
   min_log_len_train: 5    
   max_log_len_train: 5    
   min_log_len_valid: 5    
-  max_log_len_valid: 5    
-  format: trace     # Options: trace, final_value
+  max_log_len_valid: 5   
+
+  # --- Output Format ---
+  # Options: trace, final_value
+  format: trace      
+  
+  # --- Parameters for 'random' fsa_type ONLY ---
+  num_states: 4
+  alphabet_size: 2

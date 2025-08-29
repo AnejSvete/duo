@@ -19,7 +19,6 @@ import torch
 import transformers
 
 import bfvp
-import parity
 import utils
 from masked_formal_collator import MaskedFormalCollator
 from regular import FSA_CREATORS, get_monoid_size, make_fsa_examples
@@ -127,8 +126,6 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
 
         if language == "bfvp":
             self.FORMAL_TOKENS = ["#", "|", "and", "or", "not", "T", "F"]
-        elif language == "parity":
-            self.FORMAL_TOKENS = ["#", "|", "0", "1"]
         elif language in FSA_CREATORS:
             if monoid_size is None:
                 raise ValueError("monoid_size must be provided for FSA languages.")
@@ -440,7 +437,7 @@ def get_dataset(
         base_name = (
             f"{dataset_name}_nv{num_vars}_md{max_depth}_fi{fan_in}_f-{format_str}"
         )
-    elif dataset_name == "parity" or dataset_name in FSA_CREATORS:
+    elif dataset_name in FSA_CREATORS:
         lang_cfg = getattr(config.data, "properties", {})
         if mode == "train":
             min_log_len, max_log_len = getattr(
@@ -498,7 +495,7 @@ def get_dataset(
         dataset = datasets.DatasetDict(
             {split_name: datasets.Dataset.from_list(examples)}
         )
-    elif dataset_name == "parity" or dataset_name in FSA_CREATORS:
+    elif dataset_name in FSA_CREATORS:
         lang_cfg = getattr(config.data, "properties", {})
         num_examples = (
             getattr(lang_cfg, "num_examples_train", 50000)
@@ -516,31 +513,21 @@ def get_dataset(
             ), getattr(lang_cfg, "max_log_len_valid", 6)
         format_mode = getattr(lang_cfg, "format", "trace")
         LOGGER.info(f"Generating '{split_name}' {dataset_name} data...")
-        if dataset_name == "parity":
-            examples = parity.make_parity_examples(
-                num_examples=num_examples,
-                min_log_len=min_log_len,
-                max_log_len=max_log_len,
-                mode=format_mode,
-            )
-        else:
-            fsa = FSA_CREATORS[dataset_name]()
-            symbol_map, mult_table, identity_id, monoid_size, id_to_transform = (
-                fsa.compute_syntactic_monoid()
-            )
-            monoid_details = {
-                "symbol_map": symbol_map,
-                "mult_table": mult_table,
-                "identity_id": identity_id,
-            }
-            examples = make_fsa_examples(
-                fsa,
-                monoid_details,
-                num_examples,
-                min_log_len,
-                max_log_len,
-                format_mode,
-            )
+        fsa = FSA_CREATORS[dataset_name]()
+        symbol_map, mult_table, identity_id, _, _ = fsa.compute_syntactic_monoid()
+        monoid_details = {
+            "symbol_map": symbol_map,
+            "mult_table": mult_table,
+            "identity_id": identity_id,
+        }
+        examples = make_fsa_examples(
+            fsa,
+            monoid_details,
+            num_examples,
+            min_log_len,
+            max_log_len,
+            format_mode,
+        )
         dataset = datasets.DatasetDict(
             {split_name: datasets.Dataset.from_list(examples)}
         )
@@ -687,7 +674,7 @@ def get_dataset(
         remove_cols = ["article", "abstract", "section_names"]
     elif dataset_name == "ag_news":
         remove_cols = ["text", "label"]
-    elif dataset_name in ["bfvp", "parity"] or dataset_name in FSA_CREATORS:
+    elif dataset_name in ["bfvp"] or dataset_name in FSA_CREATORS:
         remove_cols = ["text"] if "text" in tokenized_dataset.column_names else []
     else:
         remove_cols = ["text"]
@@ -695,7 +682,7 @@ def get_dataset(
         tokenized_dataset = tokenized_dataset.remove_columns(remove_cols)
 
     if not wrap:
-        if dataset_name in ["bfvp", "parity"] or dataset_name in FSA_CREATORS:
+        if dataset_name in ["bfvp"] or dataset_name in FSA_CREATORS:
             original_texts = (
                 data["text"]
                 if isinstance(data, datasets.Dataset)
@@ -722,7 +709,7 @@ def get_dataset(
         desc="Grouping",
     )
 
-    if dataset_name in ["bfvp", "parity"] or dataset_name in FSA_CREATORS:
+    if dataset_name in ["bfvp"] or dataset_name in FSA_CREATORS:
         original_texts = (
             data["text"] if isinstance(data, datasets.Dataset) else data[mode]["text"]
         )
