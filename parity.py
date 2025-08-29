@@ -67,10 +67,7 @@ def make_parity_examples(
             text = f"{initial_string_repr} # {reduction_steps}"
         elif mode == "empty_trace":
             reduction_steps = " | ".join(trace_levels[1:])
-            print(f"reduction_steps[:32]: {reduction_steps[:32]}")
-            print(f"reduction_steps[-32:]: {reduction_steps[-32:]}")
             text = f"{initial_string_repr} # {(' [PAD] ' * (len(reduction_steps) - 1))} {reduction_steps[-1]}"
-            print(f"text: {text}")
         elif mode == "final_value":
             # The final value is the last (and only) element of the last level.
             final_value = trace_levels[-1]

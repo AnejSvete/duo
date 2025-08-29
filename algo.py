@@ -191,61 +191,64 @@ class LT(trainer_base.TrainerBase):
 
     def _process_model_input(self, x0, valid_tokens):
         """
-        Prepares the model input by masking the label region.
+        Prepares model input by masking the label region in a vectorized way.
 
-        This function takes an original sequence `x0` and creates `input_tokens`
-        by replacing all tokens between the '#' character and the next padding
-        token with the `mask_index`. This supports formats where padding tokens
-        may appear before the '#' delimiter. The original `x0` is returned as the target.
+        This function identifies a label region in each sequence and replaces all
+        *non-padding* tokens within that region with a mask token.
+        The label region is defined as the tokens between the '#' delimiter and
+        the start of the final contiguous block of padding tokens.
+
+        This approach robustly handles formats like:
+        1. ... X X # Y Y Y [PAD] [PAD]       -> Masks 'Y Y Y'
+        2. ... X X # [PAD] Y [PAD] [PAD]   -> Masks only 'Y', leaves [PAD]
         """
-        # Create a copy of the input to modify, preserving the original `x0` as the target.
+        # Create a copy to modify for the input, keeping x0 as the target.
         input_tokens = x0.clone()
 
-        # Get the integer IDs for our special tokens from the tokenizer.
+        # Get special token IDs.
         try:
             hash_token_id = self.tokenizer.convert_tokens_to_ids("#")
         except KeyError:
-            # Handle cases where '#' might not be in the vocabulary.
-            # In this scenario, no masking will occur.
+            # If '#' is not in the vocabulary, no masking can be done.
             return input_tokens, x0, valid_tokens
 
         pad_token_id = self.tokenizer.pad_token_id
+        seq_len = x0.shape[1]
 
-        # Iterate over each sequence in the batch to apply the custom masking logic.
-        for i in range(input_tokens.shape[0]):
-            sequence = input_tokens[i]
+        # --- Vectorized Masking Logic ---
 
-            # Find the position of the '#' token.
-            # .nonzero() returns the indices of all non-zero elements (i.e., where the condition is True).
-            hash_indices = (sequence == hash_token_id).nonzero(as_tuple=True)[0]
+        # 1. Identify sequences that contain the '#' delimiter.
+        is_hash = x0 == hash_token_id
+        has_hash = is_hash.any(dim=1)
 
-            # Proceed only if the '#' token was actually found in the sequence.
-            if hash_indices.numel() > 0:
-                # The region to mask starts at the position *after* the '#' token.
-                start_idx = hash_indices[0] + 1
+        if not has_hash.any():
+            return input_tokens, x0, valid_tokens
 
-                # --- MODIFIED LOGIC ---
-                # Find the position of the *first* padding token that appears *after* the '#' token.
-                # We search within the slice of the sequence that starts after the delimiter.
-                sequence_after_hash = sequence[start_idx:]
-                pad_indices_after_hash = (sequence_after_hash == pad_token_id).nonzero(
-                    as_tuple=True
-                )[0]
+        # 2. Find the start and end boundaries for the label region.
+        hash_indices = torch.argmax(is_hash.int(), dim=1)
+        is_not_pad = x0 != pad_token_id
+        last_non_pad_indices = (
+            seq_len - 1 - torch.argmax(torch.flip(is_not_pad, dims=[1]).int(), dim=1)
+        )
 
-                if pad_indices_after_hash.numel() > 0:
-                    # If padding exists after '#', the masked region ends right before it.
-                    # The found index is relative to the slice, so we add start_idx to get the absolute position.
-                    end_idx = start_idx + pad_indices_after_hash[0]
-                else:
-                    # If there's no padding after '#', the masked region extends to the end of the sequence.
-                    end_idx = len(sequence)
-                # --- END OF MODIFIED LOGIC ---
+        # 3. Build the boolean mask for tokens to be replaced.
+        col_indices = torch.arange(seq_len, device=x0.device).expand_as(x0)
 
-                # Perform the replacement, ensuring the start index is before the end index.
-                if start_idx < end_idx:
-                    sequence[start_idx:end_idx] = self.mask_index
+        # A token is masked if it's:
+        # (A) in a sequence that has a '#'
+        # (B) located *after* the '#'
+        # (C) located *at or before* the last non-padding token
+        # (D) AND is not a padding token itself
+        final_mask = (
+            has_hash.unsqueeze(1)
+            & (col_indices > hash_indices.unsqueeze(1))
+            & (col_indices <= last_non_pad_indices.unsqueeze(1))
+            & (x0 != pad_token_id)  # <-- This is the new condition
+        )
 
-        # Return the modified input, the original target, and the valid token mask.
+        # 4. Apply the mask to replace the target tokens with the mask index.
+        input_tokens[final_mask] = self.mask_index
+
         return input_tokens, x0, valid_tokens
 
     def nll(
