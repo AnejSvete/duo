@@ -453,7 +453,7 @@ def get_monoid_size(fsa_type: str) -> int:
     if fsa_type not in FSA_CREATORS:
         raise ValueError(f"Unknown FSA type: {fsa_type}")
     fsa = FSA_CREATORS[fsa_type]()
-    _, _, _, monoid_size = fsa.compute_syntactic_monoid()
+    _, _, _, monoid_size, _ = fsa.compute_syntactic_monoid()
     return monoid_size
 
 
