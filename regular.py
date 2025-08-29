@@ -435,8 +435,8 @@ def make_fsa_examples(
                     num_values = len(step.split())
                     padded_steps.append(" ".join(["[PAD]"] * num_values))
                 if padded_steps:
-                    padded_trace = " | ".join(padded_steps)
-                    text = f"{initial_repr} # {padded_trace} | {final_value}"
+                    padded_trace = " [PAD] ".join(padded_steps)
+                    text = f"{initial_repr} # {padded_trace} [PAD] {final_value}"
                 else:
                     text = f"{initial_repr} # {final_value}"
             else:
