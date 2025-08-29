@@ -1,3 +1,4 @@
+import argparse
 import random
 from typing import Dict, List, Tuple
 
@@ -42,7 +43,7 @@ class FiniteStateAutomaton:
 
     def compute_syntactic_monoid(
         self,
-    ) -> Tuple[Dict[str, int], List[List[int]], int, int]:
+    ) -> Tuple[Dict[str, int], List[List[int]], int, int, Dict[int, tuple]]:
         """Computes the syntactic monoid and returns its components and size."""
         initial_transforms = {}
         for symbol in self.alphabet:
@@ -71,6 +72,7 @@ class FiniteStateAutomaton:
 
         sorted_elements = sorted(list(monoid_elements))
         transform_to_id = {t: i for i, t in enumerate(sorted_elements)}
+        id_to_transform = {i: t for t, i in transform_to_id.items()}
         identity_id = transform_to_id[identity_transform]
         symbol_to_monoid_id = {
             s: transform_to_id[t] for s, t in initial_transforms.items()
@@ -84,7 +86,13 @@ class FiniteStateAutomaton:
                 composed = tuple(t_i[state] for state in t_j)
                 mult_table[i][j] = transform_to_id[composed]
 
-        return symbol_to_monoid_id, mult_table, identity_id, num_elements
+        return (
+            symbol_to_monoid_id,
+            mult_table,
+            identity_id,
+            num_elements,
+            id_to_transform,
+        )
 
 
 def get_monoid_trace(input_string, symbol_to_monoid_id, mult_table, identity_id):
@@ -158,8 +166,8 @@ def create_same_start_end_fsa():
 
 
 def create_a5_fsa():
-    gen_a = (1, 2, 0, 3, 4)  # This was gen0
-    gen_b = (1, 2, 3, 4, 0)  # This was gen1
+    gen_a = (1, 2, 0, 3, 4)
+    gen_b = (1, 2, 3, 4, 0)
     compose = lambda p1, p2: tuple(p1[p2[i]] for i in range(len(p2)))
     identity = tuple(range(5))
     elements = {identity}
@@ -265,7 +273,7 @@ FSA_CREATORS = {
     "contains_a": create_contains_a_fsa,
     "contains_ab": create_contains_ab_fsa,
     "a5": create_a5_fsa,
-    "parity_fsa": create_parity_fsa,
+    "parity": create_parity_fsa,
     "ab_star": create_ab_star_fsa,
     "mod_3": create_mod_3_fsa,
     "same_start_end": create_same_start_end_fsa,
@@ -273,10 +281,18 @@ FSA_CREATORS = {
 
 
 def make_fsa_examples(
-    fsa_type, num_examples, min_log_len, max_log_len, mode
-) -> Tuple[List[Dict[str, str]], int]:
-    fsa = FSA_CREATORS[fsa_type]()
-    symbol_map, mult_table, identity_id, monoid_size = fsa.compute_syntactic_monoid()
+    fsa: FiniteStateAutomaton,
+    monoid_details: dict,
+    num_examples: int,
+    min_log_len: int,
+    max_log_len: int,
+    mode: str,
+) -> List[Dict[str, str]]:
+    """Generates examples for a given FSA and its computed monoid."""
+    symbol_map = monoid_details["symbol_map"]
+    mult_table = monoid_details["mult_table"]
+    identity_id = monoid_details["identity_id"]
+
     fsa_complement = fsa.complement()
     examples = []
 
@@ -324,20 +340,132 @@ def make_fsa_examples(
         examples.append({"text": text})
 
     random.shuffle(examples)
-    return examples, monoid_size
+    return examples
 
 
-def get_monoid_size(fsa_type: str) -> int:
-    if fsa_type not in FSA_CREATORS:
-        raise ValueError(f"Unknown FSA type: {fsa_type}")
-    fsa = FSA_CREATORS[fsa_type]()
-    _, _, _, monoid_size = fsa.compute_syntactic_monoid()
-    return monoid_size
+def main():
+    """Main function for running the FSA script from the command line."""
+    parser = argparse.ArgumentParser(
+        description="Generate examples from Finite State Automata syntactic monoids.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    parser.add_argument(
+        "--fsa-type",
+        type=str,
+        required=True,
+        choices=sorted(FSA_CREATORS.keys()),
+        help="The type of Finite State Automaton to use.",
+    )
+
+    parser.add_argument(
+        "--num-examples",
+        type=int,
+        default=10,
+        help="Total number of examples to generate.",
+    )
+
+    parser.add_argument(
+        "--min-log-len",
+        type=int,
+        default=3,
+        help="Minimum log2 of the input string length (e.g., 3 means length 2^3=8).",
+    )
+
+    parser.add_argument(
+        "--max-log-len",
+        type=int,
+        default=3,
+        help="Maximum log2 of the input string length (e.g., 5 means length 2^5=32).",
+    )
+
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="trace",
+        choices=["trace", "final_value", "empty_trace"],
+        help="Output format mode for the monoid reduction.",
+    )
+
+    parser.add_argument(
+        "--debug-monoid",
+        action="store_true",
+        help="Print detailed information about the syntactic monoid's elements.",
+    )
+
+    args = parser.parse_args()
+
+    print(f"--- 🚀 Running FSA: {args.fsa_type} 🚀 ---")
+
+    try:
+        # Create FSA and compute monoid details ONCE for efficiency
+        fsa = FSA_CREATORS[args.fsa_type]()
+        (
+            symbol_map,
+            mult_table,
+            identity_id,
+            monoid_size,
+            id_to_transform,
+        ) = fsa.compute_syntactic_monoid()
+
+        print(f"Syntactic Monoid Size: {monoid_size}")
+        print(f"Alphabet: {fsa.alphabet}")
+
+        # --- New Debug Section ---
+        if args.debug_monoid:
+            print("\n--- 🔍 Monoid Details ---")
+            print(
+                f"Identity Element ID: {identity_id} -> {id_to_transform[identity_id]}"
+            )
+            print("\nAlphabet Symbol -> Monoid ID:")
+            for symbol, monoid_id in sorted(symbol_map.items()):
+                transform = id_to_transform[monoid_id]
+                print(f"  '{symbol}' -> ID {monoid_id} {transform}")
+
+            print("\nMonoid Elements (ID -> State Transformation):")
+            # A transformation (t0, t1, ..) means state 0->t0, 1->t1, etc.
+            header = " ".join([f"s{i}" for i in fsa.states])
+            print(f"  ID | maps state to -> ({header})")
+            print(f"  ---|------------------------")
+            for elem_id, transform in sorted(id_to_transform.items()):
+                transform_str = ", ".join(map(str, transform))
+                print(f"  {elem_id:<2} | ({transform_str})")
+            print("--------------------------")
+        # -------------------------
+
+        monoid_details = {
+            "symbol_map": symbol_map,
+            "mult_table": mult_table,
+            "identity_id": identity_id,
+        }
+
+        print(
+            f"\nGenerating {args.num_examples} examples "
+            f"(length 2^{args.min_log_len} to 2^{args.max_log_len}) "
+            f"with mode '{args.mode}'..."
+        )
+
+        examples = make_fsa_examples(
+            fsa,
+            monoid_details,
+            args.num_examples,
+            args.min_log_len,
+            args.max_log_len,
+            args.mode,
+        )
+
+        print("\n--- Generated Examples ---")
+        for i, example in enumerate(examples):
+            print(f"[{i+1}] {example['text']}")
+        print("--------------------------")
+
+    except (ValueError, RuntimeError) as e:
+        print(f"\n--- ❌ Error ❌ ---")
+        print(f"An error occurred: {e}")
+
+    print("\n--- ✅ Script complete ---")
 
 
-def get_alphabet(fsa_type: str) -> List[str]:
-    """Returns the alphabet for a given FSA type."""
-    if fsa_type not in FSA_CREATORS:
-        raise ValueError(f"Unknown FSA type: {fsa_type}")
-    fsa = FSA_CREATORS[fsa_type]()
-    return fsa.alphabet
+# --- Script Entry Point ---
+if __name__ == "__main__":
+    main()
