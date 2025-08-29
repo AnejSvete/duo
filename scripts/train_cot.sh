@@ -15,7 +15,6 @@ TASK=$1
 srun python -u -m main \
   wandb.name="$TASK-cot-$(date +%Y%m%d-%H%M%S)" \
   data=$TASK \
-  data.language=$TASK \
   model=nano \
   algo=ar \
   model.length=96 \
