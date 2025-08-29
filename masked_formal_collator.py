@@ -77,12 +77,6 @@ class MaskedFormalCollator:
         col_indices = torch.arange(input_ids.shape[1], device=input_ids.device)
         do_not_mask = col_indices <= cutoff_indices.unsqueeze(1)
 
-        # --- Debugging Print Statements ---
-        print(f"Text: {texts[:3]}")
-        print(f"Input IDs: {input_ids[:3]}")
-        print(f"Attention Mask: {attention_mask[:3]}")
-        print(f"Do Not Mask: {do_not_mask[:3]}")
-
         return {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
