@@ -272,18 +272,117 @@ def create_contains_ab_fsa():
     return fsa
 
 
+def create_z60_fsa():
+    """Creates an FSA representing the cyclic group Z_60."""
+    num_elements = 60
+    fsa = FiniteStateAutomaton(num_elements, ["a", "b"])
+
+    # Let 'a' represent +1 mod 60 and 'b' represent +2 mod 60.
+    # +1 is a generator, so the group is fully connected.
+    gen_a_op = 1
+    gen_b_op = 2
+
+    for i in range(num_elements):
+        # State i transitions to (i + op) % 60
+        fsa.set_transition(i, "a", (i + gen_a_op) % num_elements)
+        fsa.set_transition(i, "b", (i + gen_b_op) % num_elements)
+
+    # Initial state corresponds to the identity element 0
+    fsa.initial_state = 0
+
+    # For modeling the group structure, all states are considered "accepting"
+    for i in range(num_elements):
+        fsa.set_accepting_state(i)
+
+    return fsa
+
+
+def create_a4_x_z5_fsa():
+    """Creates an FSA representing the direct product group A4 x Z5."""
+    # --- Part 1: Generate A4 (the alternating group on 4 elements) ---
+    # Generators for A4: s = (0 1 2), t = (0 1)(2 3)
+    gen_s = (1, 2, 0, 3)  # s(0)=1, s(1)=2, s(2)=0, s(3)=3
+    gen_t = (1, 0, 3, 2)  # t(0)=1, t(1)=0, t(2)=3, t(3)=2
+
+    # Permutation composition (p1 after p2, i.e., p1 o p2)
+    # This corresponds to right multiplication: new_state = old_state * generator
+    compose = lambda p1, p2: tuple(p1[p2[i]] for i in range(len(p2)))
+
+    identity_a4 = tuple(range(4))
+    elements_a4 = {identity_a4}
+    queue = [identity_a4]
+    head = 0
+    while head < len(queue):
+        curr = queue[head]
+        head += 1
+        for g in [gen_s, gen_t]:
+            neighbor = compose(curr, g)
+            if neighbor not in elements_a4:
+                elements_a4.add(neighbor)
+                queue.append(neighbor)
+
+    if len(elements_a4) != 12:
+        raise RuntimeError(f"Failed to generate A4. Generated {len(elements_a4)}.")
+
+    sorted_elements_a4 = sorted(list(elements_a4))
+    perm_to_id_a4 = {p: i for i, p in enumerate(sorted_elements_a4)}
+    id_to_perm_a4 = {i: p for p, i in perm_to_id_a4.items()}
+
+    # --- Part 2: Define the FSA for the direct product A4 x Z5 ---
+    num_states = 12 * 5
+    fsa = FiniteStateAutomaton(num_states, ["a", "b"])
+
+    # Generators for A4 x Z5 are formed by pairing generators from A4 and Z5.
+    # Let input 'a' correspond to group operation (*gen_s, +1)
+    # Let input 'b' correspond to group operation (*gen_t, +2)
+    gen_a_z5_op = 1
+    gen_b_z5_op = 2
+
+    for i in range(num_states):
+        # Deconstruct state i into its A4 and Z5 components
+        id_a4 = i // 5
+        id_z5 = i % 5
+        perm_a4 = id_to_perm_a4[id_a4]
+
+        # --- Transition for input 'a' ---
+        next_perm_a4_a = compose(perm_a4, gen_s)
+        next_id_z5_a = (id_z5 + gen_a_z5_op) % 5
+        # Reconstruct the next state's single integer ID
+        next_state_id_a = perm_to_id_a4[next_perm_a4_a] * 5 + next_id_z5_a
+        fsa.set_transition(i, "a", next_state_id_a)
+
+        # --- Transition for input 'b' ---
+        next_perm_a4_b = compose(perm_a4, gen_t)
+        next_id_z5_b = (id_z5 + gen_b_z5_op) % 5
+        # Reconstruct the next state's single integer ID
+        next_state_id_b = perm_to_id_a4[next_perm_a4_b] * 5 + next_id_z5_b
+        fsa.set_transition(i, "b", next_state_id_b)
+
+    # Initial state corresponds to the identity element (identity_a4, 0)
+    initial_id_a4 = perm_to_id_a4[identity_a4]
+    fsa.initial_state = initial_id_a4 * 5 + 0
+
+    # For modeling the group structure, all states are "accepting"
+    for i in range(num_states):
+        fsa.set_accepting_state(i)
+
+    return fsa
+
+
 FSA_CREATORS = {
+    "a4_x_z5": create_a4_x_z5_fsa,
+    "a5": create_a5_fsa,
+    "ab_star": create_ab_star_fsa,
+    "contains_a": create_contains_a_fsa,
+    "contains_ab": create_contains_ab_fsa,
     "first_a": create_first_a_fsa,
     "first_aa": create_first_aa_fsa,
     "last_a": create_last_a_fsa,
     "last_aa": create_last_aa_fsa,
-    "contains_a": create_contains_a_fsa,
-    "contains_ab": create_contains_ab_fsa,
-    "a5": create_a5_fsa,
-    "parity": create_parity_fsa,
-    "ab_star": create_ab_star_fsa,
     "mod_3": create_mod_3_fsa,
+    "parity": create_parity_fsa,
     "same_start_end": create_same_start_end_fsa,
+    "z60": create_z60_fsa,
 }
 
 
