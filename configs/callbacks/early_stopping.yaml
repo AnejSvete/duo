@@ -1,0 +1,7 @@
+  early_stopping:
+    _target_: lightning.pytorch.callbacks.EarlyStopping
+    monitor: "val/acc_token"      # The name of the metric to monitor.
+    patience: 3             # Stop after 3 epochs with no improvement.
+    min_delta: 0.001 
+    mode: "max"             # Stop when the monitored metric stops increasing.
+    verbose: True           # Log when stopping.

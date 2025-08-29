@@ -353,6 +353,15 @@ class TrainerBase(L.LightningModule):
                     sync_dist=True,
                 )
 
+                if gen_mode in ["default", "one_at_a_time"]:
+                    self.log(
+                        "val/acc_token",
+                        acc_token,
+                        on_step=False,
+                        on_epoch=True,
+                        sync_dist=True,
+                    )
+
                 # Logic for logging samples remains the same
                 if self.trainer.global_rank == 0 and hasattr(
                     self.trainer.logger, "log_table"
