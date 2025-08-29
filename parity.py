@@ -1,5 +1,6 @@
 import argparse
 import random
+from math import ceil, log2
 from typing import Dict, List
 
 
@@ -67,7 +68,7 @@ def make_parity_examples(
             text = f"{initial_string_repr} # {reduction_steps}"
         elif mode == "empty_trace":
             reduction_steps = " | ".join(trace_levels[1:])
-            text = f"{initial_string_repr} #{(' #' * (len(reduction_steps) - 1))} {reduction_steps[-1]} #"
+            text = f"{initial_string_repr} # {(' [PAD] ' * (len(binary_string) + ceil(log2(len(binary_string)))))} {reduction_steps[-1]}"
         elif mode == "final_value":
             # The final value is the last (and only) element of the last level.
             final_value = trace_levels[-1]

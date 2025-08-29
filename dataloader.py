@@ -141,7 +141,6 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
         return len(self._vocab_str_to_int)
 
     def _tokenize(self, text: str, **kwargs) -> typing.List[str]:
-        # Split by space to handle multi-character tokens like 'and', 'or', 'not', 'x10'
         return text.strip().split()
 
     def _convert_token_to_id(self, token: str) -> int:

@@ -43,40 +43,30 @@ class MaskedFormalCollator:
 
         input_ids = tokenized_output["input_ids"]
         attention_mask = tokenized_output["attention_mask"]
-        pad_token_id = self.tokenizer.pad_token_id
 
-        # 1. Create a boolean mask for all '#' tokens in the batch
-        # Shape: (batch_size, seq_len)
+        # --- Logic for 'do_not_mask' ---
+
+        # 1. Create a boolean mask for all '#' tokens
         is_hash = input_ids == self.hash_token_id
 
-        # 2. Use cumsum to count hashes row-wise. A subsequent '#' will have a count > 1.
-        # This creates a tensor where each element is the number of hashes seen so far in its row.
+        # 2. Use cumsum to find the *first* '#' in each row
         hash_counts = is_hash.cumsum(dim=1)
-
-        # 3. Create a mask for tokens that are a '#' AND have a count > 1
-        mask_to_replace = is_hash & (hash_counts > 1)
-
-        # 4. Apply the mask to replace subsequent '#' tokens and update the attention mask
-        print(f"Text: {texts[:3]}")
-        print(f"Input IDs before: {input_ids[:3]}")
-        print(f"Is hash: {is_hash[:3]}")
-        print(f"Hash counts: {hash_counts[:3]}")
-        print(f"Mask to replace: {mask_to_replace[:3]}")
-        input_ids[mask_to_replace] = pad_token_id
-        print(f"Input IDs after: {input_ids[:3]}")
-        attention_mask[mask_to_replace] = 0
-
-        # 5. Create the 'do_not_mask' tensor in a vectorized way
-        # Find the first '#' in each row. argmax returns the *first* True index.
         is_first_hash = is_hash & (hash_counts == 1)
+
+        # 3. Create the 'do_not_mask' tensor
         cutoff_indices = torch.argmax(is_first_hash.int(), dim=1)
-
-        # Create a range tensor [0, 1, 2, ...] to compare against the cutoff indices
         col_indices = torch.arange(input_ids.shape[1], device=input_ids.device)
-
-        # Create the mask by broadcasting. This is True for all positions up to the cutoff.
         do_not_mask = col_indices <= cutoff_indices.unsqueeze(1)
 
+        # 4. Handle the important edge case where a row has no '#' tokens at all
+        has_no_hash = ~is_hash.any(dim=1)
+        do_not_mask[has_no_hash] = True
+
+        # --- Debugging Print Statements ---
+        print(f"Text: {texts[:3]}")
+        print(f"Input IDs: {input_ids[:3]}")
+        print(f"Is hash: {is_hash[:3]}")
+        print(f"Hash counts: {hash_counts[:3]}")
         print(f"Attention Mask: {attention_mask[:3]}")
         print(f"Do Not Mask: {do_not_mask[:3]}")
 
