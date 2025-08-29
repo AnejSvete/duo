@@ -524,12 +524,22 @@ def get_dataset(
                 mode=format_mode,
             )
         else:
-            examples, _ = make_fsa_examples(
-                fsa_type=dataset_name,
-                num_examples=num_examples,
-                min_log_len=min_log_len,
-                max_log_len=max_log_len,
-                mode=format_mode,
+            fsa = FSA_CREATORS[dataset_name]()
+            symbol_map, mult_table, identity_id, monoid_size, id_to_transform = (
+                fsa.compute_syntactic_monoid()
+            )
+            monoid_details = {
+                "symbol_map": symbol_map,
+                "mult_table": mult_table,
+                "identity_id": identity_id,
+            }
+            examples = make_fsa_examples(
+                fsa,
+                monoid_details,
+                num_examples,
+                min_log_len,
+                max_log_len,
+                format_mode,
             )
         dataset = datasets.DatasetDict(
             {split_name: datasets.Dataset.from_list(examples)}
