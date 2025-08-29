@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J parity_mdm                  # Job name
+#SBATCH -J mdm                  # Job name
 #SBATCH -o watch_folder/%x_%j.out     # output file (%j expands to jobID)
 #SBATCH --mem-per-cpu=64000                   # server memory requested (per node)
 #SBATCH -t 24:00:00                  # Time limit (hh:mm:ss)
@@ -7,15 +7,15 @@
 #SBATCH --open-mode=append            # Do not overwrite logs
 #SBATCH --requeue                     # Requeue upon pre-emption
 
-# To enable preemption re-loading, set `hydra.run.dir` or 
-# `checkpointing.save_dir` explicitly.
-
 module load stack/2024-06 python/3.12.8 eth_proxy
 source /cluster/home/asvete/duo/bin/activate
 
+TASK=$1
+
 srun python -u -m main \
-  wandb.name="parity-mdm-$(date +%Y%m%d-%H%M%S)" \
-  data=parity \
+  wandb.name="$TASK-mdm-$(date +%Y%m%d-%H%M%S)" \
+  data=$TASK \
+  data.language=$TASK \
   model=nano \
   algo=mdlm \
   model.length=96 \
