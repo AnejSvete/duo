@@ -117,9 +117,14 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
         eos_token="[EOS]",
         mask_token="[MASK]",
         language="bfvp",
-        monoid_size: Optional[int] = None,  # New parameter
+        monoid_size: Optional[int] = None,
         **kwargs,
     ):
+        print(f"language = {language}")
+        print(f"monoid_size = {monoid_size}")
+        print(f"FSA_CREATORS = {FSA_CREATORS}")
+        print(f"language in FSA_CREATORS = {language in FSA_CREATORS}")
+
         if language == "bfvp":
             self.FORMAL_TOKENS = ["#", "|", "and", "or", "not", "T", "F"]
         elif language == "parity":
