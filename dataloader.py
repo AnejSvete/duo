@@ -22,7 +22,7 @@ import bfvp
 import parity
 import utils
 from masked_formal_collator import MaskedFormalCollator
-from regular import FSA_LANGUAGES, get_monoid_size, make_fsa_examples
+from regular import FSA_CREATORS, get_monoid_size, make_fsa_examples
 
 LOGGER = utils.get_logger(__name__)
 
@@ -124,7 +124,7 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
             self.FORMAL_TOKENS = ["#", "|", "and", "or", "not", "T", "F"]
         elif language == "parity":
             self.FORMAL_TOKENS = ["#", "|", "0", "1"]
-        elif language in FSA_LANGUAGES:
+        elif language in FSA_CREATORS:
             if monoid_size is None:
                 raise ValueError("monoid_size must be provided for FSA languages.")
             # Dynamically create vocab for the exact number of monoid elements
@@ -435,7 +435,7 @@ def get_dataset(
         base_name = (
             f"{dataset_name}_nv{num_vars}_md{max_depth}_fi{fan_in}_f-{format_str}"
         )
-    elif dataset_name == "parity" or dataset_name in FSA_LANGUAGES:
+    elif dataset_name == "parity" or dataset_name in FSA_CREATORS:
         lang_cfg = getattr(config.data, "properties", {})
         if mode == "train":
             min_log_len, max_log_len = getattr(
@@ -493,7 +493,7 @@ def get_dataset(
         dataset = datasets.DatasetDict(
             {split_name: datasets.Dataset.from_list(examples)}
         )
-    elif dataset_name == "parity" or dataset_name in FSA_LANGUAGES:
+    elif dataset_name == "parity" or dataset_name in FSA_CREATORS:
         lang_cfg = getattr(config.data, "properties", {})
         num_examples = (
             getattr(lang_cfg, "num_examples_train", 50000)
@@ -672,7 +672,7 @@ def get_dataset(
         remove_cols = ["article", "abstract", "section_names"]
     elif dataset_name == "ag_news":
         remove_cols = ["text", "label"]
-    elif dataset_name in ["bfvp", "parity"] or dataset_name in FSA_LANGUAGES:
+    elif dataset_name in ["bfvp", "parity"] or dataset_name in FSA_CREATORS:
         remove_cols = ["text"] if "text" in tokenized_dataset.column_names else []
     else:
         remove_cols = ["text"]
@@ -680,7 +680,7 @@ def get_dataset(
         tokenized_dataset = tokenized_dataset.remove_columns(remove_cols)
 
     if not wrap:
-        if dataset_name in ["bfvp", "parity"] or dataset_name in FSA_LANGUAGES:
+        if dataset_name in ["bfvp", "parity"] or dataset_name in FSA_CREATORS:
             original_texts = (
                 data["text"]
                 if isinstance(data, datasets.Dataset)
@@ -707,7 +707,7 @@ def get_dataset(
         desc="Grouping",
     )
 
-    if dataset_name in ["bfvp", "parity"] or dataset_name in FSA_LANGUAGES:
+    if dataset_name in ["bfvp", "parity"] or dataset_name in FSA_CREATORS:
         original_texts = (
             data["text"] if isinstance(data, datasets.Dataset) else data[mode]["text"]
         )
@@ -728,7 +728,7 @@ def get_tokenizer(config):
         language = config.data.train
         monoid_size = None
         # Pre-compute monoid size for relevant languages
-        if language in FSA_LANGUAGES:
+        if language in FSA_CREATORS:
             monoid_size = get_monoid_size(language)
             LOGGER.info(
                 f"Language '{language}' requires a monoid of size {monoid_size}. Creating dynamic tokenizer."
