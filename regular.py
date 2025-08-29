@@ -40,7 +40,6 @@ class FiniteStateAutomaton:
         comp.accepting_states = set(self.states) - self.accepting_states
         return comp
 
-    # MODIFIED: Now returns the number of monoid elements (num_elements)
     def compute_syntactic_monoid(
         self,
     ) -> Tuple[Dict[str, int], List[List[int]], int, int]:
@@ -220,6 +219,28 @@ def make_fsa_examples(
             text = f"{initial_repr} # {' | '.join(trace_levels[1:])}"
         elif mode == "final_value":
             text = f"{initial_repr} # {trace_levels[-1]}"
+        # START MODIFICATION: Restored empty_trace functionality
+        elif mode == "empty_trace":
+            if len(trace_levels) > 1:
+                reduction_steps_list = trace_levels[1:]
+                final_value = reduction_steps_list[-1]
+                padded_steps = []
+                # Replace intermediate steps with [PAD] tokens
+                for step in reduction_steps_list[:-1]:
+                    num_values = len(step.split())
+                    padded_steps.append(" ".join(["[PAD]"] * num_values))
+
+                if padded_steps:
+                    # Join padded steps with the separator, then add the final value
+                    padded_trace = " | ".join(padded_steps)
+                    text = f"{initial_repr} # {padded_trace} | {final_value}"
+                else:
+                    # This case handles inputs so short they reduce in one step
+                    text = f"{initial_repr} # {final_value}"
+            else:
+                # This case handles single-character inputs
+                text = f"{initial_repr} # {trace_levels[0]}"
+        # END MODIFICATION
         else:
             raise ValueError(f"Unknown format mode: {mode}")
         examples.append({"text": text})
