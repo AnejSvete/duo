@@ -11,12 +11,14 @@ import zipfile
 from typing import Optional
 
 import datasets
+import fsa_languages
 import fsspec
 import numpy as np
 import requests
 import tokenizers
 import torch
 import transformers
+from fsa_languages import FSA_LANGUAGES, get_monoid_size
 
 import bfvp
 import parity
@@ -116,12 +118,20 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
         eos_token="[EOS]",
         mask_token="[MASK]",
         language="bfvp",
+        monoid_size: Optional[int] = None,  # New parameter
         **kwargs,
     ):
         if language == "bfvp":
             self.FORMAL_TOKENS = ["#", "|", "and", "or", "not", "T", "F"]
         elif language == "parity":
             self.FORMAL_TOKENS = ["#", "|", "0", "1"]
+        elif language in FSA_LANGUAGES:
+            if monoid_size is None:
+                raise ValueError("monoid_size must be provided for FSA languages.")
+            # Dynamically create vocab for the exact number of monoid elements
+            monoid_tokens = [str(i) for i in range(monoid_size)]
+            self.FORMAL_TOKENS = ["#", "|", "a", "b"] + monoid_tokens
+
         vocab = {pad_token: 0, bos_token: 1, eos_token: 2, mask_token: 3}
         offset = 4
         for i, tok in enumerate(self.FORMAL_TOKENS):
@@ -161,7 +171,6 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
 
 
 class SyntheticTokenizer(transformers.PreTrainedTokenizer):
-
     def __init__(
         self,
         vocab_size,
@@ -174,21 +183,15 @@ class SyntheticTokenizer(transformers.PreTrainedTokenizer):
         unk_token=None,
         **kwargs,
     ):
-
         self.tokens = []
-
         for i in range(vocab_size - 2):
-            # appending space for readability
             self.tokens.append(str(i) + " ")
-
         self._vocab_str_to_int = {
             "[BOS]": vocab_size - 2,
             "[EOS]": vocab_size - 1,
             **{ch: i for i, ch in enumerate(self.tokens)},
         }
-
         self._vocab_int_to_str = {v: k for k, v in self._vocab_str_to_int.items()}
-
         super().__init__(
             bos_token=bos_token,
             eos_token=eos_token,
@@ -222,12 +225,9 @@ class SyntheticTokenizer(transformers.PreTrainedTokenizer):
 
 def _generate_synthetic_data(dataset_size, seq_len, vocab_size):
     dataset = np.zeros((dataset_size, seq_len), dtype=int)
-    # tokens representing sequence boundary
-    dataset[:, 0] = vocab_size - 2  # bos
-    dataset[:, -1] = vocab_size - 1  # eos
-
+    dataset[:, 0] = vocab_size - 2
+    dataset[:, -1] = vocab_size - 1
     for i in range(dataset_size):
-        # sample from 0, 1, ..., vocab_size - 3
         temp = np.random.randint(vocab_size - 2)
         for j in reversed(range(1, seq_len - 1)):
             dataset[i, j] = temp
@@ -235,7 +235,6 @@ def _generate_synthetic_data(dataset_size, seq_len, vocab_size):
                 temp = temp // 4
             else:
                 temp = np.random.randint(vocab_size - 2)
-
     return dataset
 
 
@@ -247,13 +246,9 @@ def generate_synthetic_dataset(
         _generate_synthetic_data(train_dataset_size, seq_len, vocab_size)
     )
     train_dataset = datasets.Dataset.from_dict(
-        {
-            "input_ids": train_data,
-            "attention_mask": torch.ones_like(train_data),
-        }
+        {"input_ids": train_data, "attention_mask": torch.ones_like(train_data)}
     )
     train_dataset.set_format(type="torch")
-
     np.random.seed(41)
     validation_data = torch.from_numpy(
         _generate_synthetic_data(validation_dataset_size, seq_len, vocab_size)
@@ -265,11 +260,7 @@ def generate_synthetic_dataset(
         }
     )
     validation_dataset.set_format(type="torch")
-
-    return {
-        "train": train_dataset,
-        "validation": validation_dataset,
-    }
+    return {"train": train_dataset, "validation": validation_dataset}
 
 
 class Text8Tokenizer(transformers.PreTrainedTokenizer):
@@ -333,51 +324,25 @@ def get_lambada_test_dataset():
 
     def read_jsonl_to_list(url):
         response = requests.get(url, stream=True)
-        data_list = []
-
-        # Process each line in the response content
-        for line in response.iter_lines(decode_unicode=True):
-            if line:
-                data = json.loads(line)
-                data_list.append(data)
-
+        data_list = [
+            json.loads(line)
+            for line in response.iter_lines(decode_unicode=True)
+            if line
+        ]
         return data_list
 
-    lambada_data = read_jsonl_to_list(url)
-    dataset = datasets.Dataset.from_list(lambada_data)
-    return dataset
+    return datasets.Dataset.from_list(read_jsonl_to_list(url))
 
 
 def get_text8_dataset(cache_dir, max_seq_length=256, drop_last=True, crop_train=False):
-    """Adapted from:
-    https://github.com/google-research/google-research/blob/master/d3pm/text/datasets.py#L344
-
-    Args:
-      cache_dir: str, path to cache directory.
-      max_seq_length: int, maximum length of sequences.
-          (default: 256, as in D3PM codebase.)
-      drop_last: bool, whether to drop the last incomplete
-          batch. (default: True, as in D3PM codebase.)
-      crop_train: bool, whether to subsample contiguous
-          subsequences from training example. serves to
-          make sure transformer models with absolute position
-          embeddings do not have incorrect position-wise
-          marginals. (default: False, but necessary to match D3PM AR)
-
-    Returns:
-      dataset: dataset.DatasetDict, with keys 'train',
-          'valid', 'test'.
-    """
     url = "http://mattmahoney.net/dc/text8.zip"
-    if not crop_train:
-        cache_dir = f"{cache_dir}/text8"
-    else:
-        cache_dir = f"{cache_dir}/text8-crop-train"
+    cache_dir = (
+        f"{cache_dir}/text8" if not crop_train else f"{cache_dir}/text8-crop-train"
+    )
     split_names = ["train", "validation", "test"]
     if not all(
         [utils.fsspec_exists(os.path.join(cache_dir, split)) for split in split_names]
     ):
-        # Check if raw data exists
         raw_cache_dir = os.path.join(cache_dir, "raw_data")
         if not all(
             [
@@ -388,45 +353,39 @@ def get_text8_dataset(cache_dir, max_seq_length=256, drop_last=True, crop_train=
             if not utils.fsspec_exists(os.path.join(raw_cache_dir, "text8.zip")):
                 utils.fsspec_mkdirs(raw_cache_dir, exist_ok=True)
                 LOGGER.info("Downloading text8 from URL {}.".format(url))
-                with (
-                    urllib.request.urlopen(url) as in_stream,
-                    open(os.path.join(raw_cache_dir, "text8.zip"), "wb") as out_file,
-                ):
+                with urllib.request.urlopen(url) as in_stream, open(
+                    os.path.join(raw_cache_dir, "text8.zip"), "wb"
+                ) as out_file:
                     shutil.copyfileobj(in_stream, out_file)
-
             with fsspec.open(os.path.join(raw_cache_dir, "text8.zip"), "rb") as f:
                 rawdata = zipfile.ZipFile(f).read("text8").decode("utf-8")
-
-            # Splits taken from D3PM codebase
             splits = {
                 "train": rawdata[:90000000],
                 "validation": rawdata[90000000:95000000],
                 "test": rawdata[95000000:],
             }
-
             for split, data in splits.items():
-                _path = os.path.join(raw_cache_dir, f"text8.{split}.txt")
-                with fsspec.open(_path, "w") as f:
+                with fsspec.open(
+                    os.path.join(raw_cache_dir, f"text8.{split}.txt"), "w"
+                ) as f:
                     f.write(data)
         else:
             splits = {}
             for split in split_names:
-                _path = os.path.join(raw_cache_dir, f"text8.{split}.txt")
-                with fsspec.open(_path, "r") as f:
+                with fsspec.open(
+                    os.path.join(raw_cache_dir, f"text8.{split}.txt"), "r"
+                ) as f:
                     splits[split] = f.read()
 
-        # Chunk and save as datasets.DatasetDict
         def chunks(lst, n):
-            """Yield successive n-sized chunks from lst."""
             for i in range(0, len(lst), n):
                 yield lst[i : i + n]
 
         dataset_dict = {}
         for k, v in splits.items():
-            if k == "train" and crop_train == True:
-                chunk_size = 2 * max_seq_length
-            else:
-                chunk_size = max_seq_length
+            chunk_size = (
+                2 * max_seq_length if k == "train" and crop_train else max_seq_length
+            )
             text = list(chunks(v, chunk_size))
             if drop_last and len(text[-1]) < chunk_size:
                 text = text[:-1]
@@ -435,30 +394,19 @@ def get_text8_dataset(cache_dir, max_seq_length=256, drop_last=True, crop_train=
         dataset.save_to_disk(cache_dir)
     else:
         dataset = datasets.load_from_disk(cache_dir)
-
     return dataset
 
 
 def _group_texts(examples, block_size, bos, eos):
-    # Concatenate all texts.
     concatenated_examples = list(itertools.chain(*examples["input_ids"]))
     total_length = len(concatenated_examples)
-    # TODO(yair): look into not dropping the remainder but rather padding it.
-    # We drop the small remainder, and if the total_length < block_size - 2
-    # we exclude this batch and return an empty dict.
-    # We could add padding if the model supported it instead of
-    # this drop, you can customize this part to your needs.
-    new_block_size = block_size - 2  # [BOS] and [EOS] to be added
+    new_block_size = block_size - 2
     total_length = (total_length // new_block_size) * new_block_size
-    # Split by chunks of max_len.
-    result = {}
-    _values = []
-    _attn_masks = []
+    result, _values, _attn_masks = {}, [], []
     for i in range(0, total_length, new_block_size):
         _values.append([bos] + concatenated_examples[i : i + new_block_size] + [eos])
         _attn_masks.append(torch.ones(block_size))
-    result["input_ids"] = _values
-    result["attention_mask"] = _attn_masks
+    result["input_ids"], result["attention_mask"] = _values, _attn_masks
     return result
 
 
@@ -480,25 +428,25 @@ def get_dataset(
         eos_tag = "_eosFalse"
 
     if dataset_name == "bfvp":
-        # Create a descriptive filename for bfvp datasets based on generation parameters
         bfvp_cfg = getattr(config.data, "properties", {})
         num_vars = getattr(bfvp_cfg, "num_vars", 4)
         max_depth = getattr(bfvp_cfg, "max_depth", 3)
         fan_in = getattr(bfvp_cfg, "fan_in", 2)
         format_str = getattr(bfvp_cfg, "format", "trace").replace("_", "-")
-
         base_name = (
             f"{dataset_name}_nv{num_vars}_md{max_depth}_fi{fan_in}_f-{format_str}"
         )
-    elif dataset_name == "parity":
-        parity_cfg = getattr(config.data, "properties", {})
+    elif dataset_name == "parity" or dataset_name in FSA_LANGUAGES:
+        lang_cfg = getattr(config.data, "properties", {})
         if mode == "train":
-            min_log_len = getattr(parity_cfg, "min_log_len_train", 2)
-            max_log_len = getattr(parity_cfg, "max_log_len_train", 4)
+            min_log_len, max_log_len = getattr(
+                lang_cfg, "min_log_len_train", 2
+            ), getattr(lang_cfg, "max_log_len_train", 4)
         else:
-            min_log_len = getattr(parity_cfg, "min_log_len_valid", 2)
-            max_log_len = getattr(parity_cfg, "max_log_len_valid", 4)
-        format_str = getattr(parity_cfg, "format", "trace").replace("_", "-")
+            min_log_len, max_log_len = getattr(
+                lang_cfg, "min_log_len_valid", 5
+            ), getattr(lang_cfg, "max_log_len_valid", 6)
+        format_str = getattr(lang_cfg, "format", "trace").replace("_", "-")
         base_name = (
             f"{dataset_name}_minll{min_log_len}_maxll{max_log_len}_f-{format_str}"
         )
@@ -510,39 +458,32 @@ def get_dataset(
     else:
         filename = f"{base_name}_{mode}_bs{block_size}_unwrapped{eos_tag}.dat"
     _path = os.path.join(cache_dir, filename)
-
     if utils.fsspec_exists(_path):
         LOGGER.info(f"Loading data from: {_path}")
         return datasets.load_from_disk(_path).with_format("torch")
     LOGGER.info(f"Generating new data at: {_path}")
-    LOGGER.info(f"{streaming=}")
 
     crop_train = dataset_name == "text8-crop"
     if mode == "train" and crop_train:
-        # double block size for sub-sampling
         block_size *= 2
 
     if dataset_name == "bfvp":
-        # Read bfvp dataset config and generate data
         bfvp_cfg = getattr(config.data, "properties", {})
-        if mode == "train":
-            num_examples = getattr(bfvp_cfg, "num_examples_train", 50000)
-            split_name = "train"
-        else:
-            num_examples = getattr(bfvp_cfg, "num_examples_valid", 5000)
-            split_name = "validation"
-
-        # Use new parameters for NC1 generation with constant fan-in
-        num_vars = getattr(bfvp_cfg, "num_vars", 4)
-        max_depth = getattr(bfvp_cfg, "max_depth", 3)
-        fan_in = getattr(bfvp_cfg, "fan_in", 2)
-        format_mode = getattr(bfvp_cfg, "format", "trace")
-
-        LOGGER.info(
-            f"Generating '{split_name}' bfvp data with: max_depth={max_depth}, "
-            f"num_vars={num_vars}, fan_in={fan_in}, format={format_mode}"
+        num_examples = (
+            getattr(bfvp_cfg, "num_examples_train", 50000)
+            if mode == "train"
+            else getattr(bfvp_cfg, "num_examples_valid", 5000)
         )
-
+        split_name = "train" if mode == "train" else "validation"
+        num_vars, max_depth, fan_in = (
+            getattr(bfvp_cfg, "num_vars", 4),
+            getattr(bfvp_cfg, "max_depth", 3),
+            getattr(bfvp_cfg, "fan_in", 2),
+        )
+        format_mode = getattr(bfvp_cfg, "format", "trace")
+        LOGGER.info(
+            f"Generating '{split_name}' bfvp data with: max_depth={max_depth}, num_vars={num_vars}, fan_in={fan_in}, format={format_mode}"
+        )
         examples = bfvp.make_examples(
             num_examples=num_examples,
             max_depth=max_depth,
@@ -550,39 +491,42 @@ def get_dataset(
             fan_in=fan_in,
             mode=format_mode,
         )
-
         dataset = datasets.DatasetDict(
             {split_name: datasets.Dataset.from_list(examples)}
         )
-    elif dataset_name == "parity":
-        parity_cfg = getattr(config.data, "properties", {})
-        if mode == "train":
-            num_examples = getattr(parity_cfg, "num_examples_train", 50000)
-            split_name = "train"
-        else:
-            num_examples = getattr(parity_cfg, "num_examples_valid", 5000)
-            split_name = "validation"
-
-        if mode == "train":
-            min_log_len = getattr(parity_cfg, "min_log_len_train", 2)
-            max_log_len = getattr(parity_cfg, "max_log_len_train", 4)
-        else:
-            min_log_len = getattr(parity_cfg, "min_log_len_valid", 2)
-            max_log_len = getattr(parity_cfg, "max_log_len_valid", 4)
-
-        format_mode = getattr(parity_cfg, "format", "trace")
-
-        LOGGER.info(
-            f"Generating '{split_name}' parity data with: max_log_len={max_log_len}, "
-            f"format={format_mode}"
+    elif dataset_name == "parity" or dataset_name in FSA_LANGUAGES:
+        lang_cfg = getattr(config.data, "properties", {})
+        num_examples = (
+            getattr(lang_cfg, "num_examples_train", 50000)
+            if mode == "train"
+            else getattr(lang_cfg, "num_examples_valid", 5000)
         )
-
-        examples = parity.make_parity_examples(
-            num_examples=num_examples,
-            min_log_len=min_log_len,
-            max_log_len=max_log_len,
-            mode=format_mode,
-        )
+        split_name = "train" if mode == "train" else "validation"
+        if mode == "train":
+            min_log_len, max_log_len = getattr(
+                lang_cfg, "min_log_len_train", 2
+            ), getattr(lang_cfg, "max_log_len_train", 4)
+        else:
+            min_log_len, max_log_len = getattr(
+                lang_cfg, "min_log_len_valid", 5
+            ), getattr(lang_cfg, "max_log_len_valid", 6)
+        format_mode = getattr(lang_cfg, "format", "trace")
+        LOGGER.info(f"Generating '{split_name}' {dataset_name} data...")
+        if dataset_name == "parity":
+            examples = parity.make_parity_examples(
+                num_examples=num_examples,
+                min_log_len=min_log_len,
+                max_log_len=max_log_len,
+                mode=format_mode,
+            )
+        else:
+            examples, _ = fsa_languages.make_fsa_examples(
+                fsa_type=dataset_name,
+                num_examples=num_examples,
+                min_log_len=min_log_len,
+                max_log_len=max_log_len,
+                mode=format_mode,
+            )
         dataset = datasets.DatasetDict(
             {split_name: datasets.Dataset.from_list(examples)}
         )
@@ -604,11 +548,8 @@ def get_dataset(
     elif dataset_name == "lambada":
         dataset = get_lambada_test_dataset()
     elif dataset_name == "text8":
-        assert wrap
-        assert revision is None
         dataset = get_text8_dataset(cache_dir, max_seq_length=block_size)
     elif dataset_name == "text8-crop":
-        assert revision is None
         dataset = get_text8_dataset(
             cache_dir, max_seq_length=block_size, crop_train=True
         )
@@ -651,8 +592,6 @@ def get_dataset(
             "ag_news", cache_dir=cache_dir, streaming=streaming, revision=revision
         )
     elif dataset_name == "synthetic":
-        assert streaming
-        assert wrap  # i.e., no pad tokens
         dataset = generate_synthetic_dataset(
             train_dataset_size=100000,
             validation_dataset_size=1024,
@@ -664,14 +603,15 @@ def get_dataset(
             dataset_name, cache_dir=cache_dir, streaming=streaming, revision=revision
         )
 
-    if dataset_name in ["lambada", "openwebtext-train", "openwebtext-valid"]:
-        data = dataset
-    else:
-        data = dataset[mode]
-        if dataset_name == "synthetic":
-            # already tokenized, no further actions required
-            return data
+    data = (
+        dataset
+        if dataset_name in ["lambada", "openwebtext-train", "openwebtext-valid"]
+        else dataset[mode]
+    )
+    if dataset_name == "synthetic":
+        return data
 
+    detokenizer = None
     if dataset_name.startswith("wikitext"):
         detokenizer = wt_detokenizer
     elif dataset_name == "ptb":
@@ -682,34 +622,21 @@ def get_dataset(
         detokenizer = lambada_detokenizer
     elif dataset_name.startswith("scientific_papers"):
         detokenizer = scientific_papers_detokenizer
-    else:
-        detokenizer = None
 
-    def _apply_detokenizer(detokenizer):
-        def detok(text):
-            for i, t in enumerate(text, 0):
-                text[i] = detokenizer(t)
-            return text
-
-        return detok
-
-    EOS = tokenizer.encode(tokenizer.eos_token)[0]
-    BOS = tokenizer.encode(tokenizer.bos_token)[0]
+    EOS, BOS = (
+        tokenizer.encode(tokenizer.eos_token)[0],
+        tokenizer.encode(tokenizer.bos_token)[0],
+    )
 
     def preprocess_and_tokenize(example):
-        if dataset_name == "ptb":
-            text = example["sentence"]
-        elif "scientific_papers" in dataset_name:
-            text = example["article"]
-        else:
-            text = example["text"]
-
-        if detokenizer is not None:
-            text = _apply_detokenizer(detokenizer)(text)
-
-        tokenizer.padding_side = "right"
-        tokenizer.truncation_side = "right"
-
+        text = (
+            example["sentence"]
+            if dataset_name == "ptb"
+            else example.get("article", example["text"])
+        )
+        if detokenizer:
+            text = [detokenizer(t) for t in text]
+        tokenizer.padding_side, tokenizer.truncation_side = "right", "right"
         if wrap:
             tokens = tokenizer(
                 text,
@@ -719,7 +646,6 @@ def get_dataset(
             )
             if insert_eos:
                 tokens = {"input_ids": [t + [EOS] for t in tokens["input_ids"]]}
-            # Still missing BOS, but will be added in group_texts
         else:
             tokens = tokenizer(
                 text,
@@ -732,107 +658,83 @@ def get_dataset(
             )
         return tokens
 
-    if streaming:
-        tokenized_dataset = data.map(preprocess_and_tokenize, batched=True)
-    else:
-        tokenized_dataset = data.map(
-            preprocess_and_tokenize,
-            batched=True,
-            num_proc=num_proc,
-            load_from_cache_file=True,
-            desc="Tokenizing",
-        )
+    tokenized_dataset = data.map(
+        preprocess_and_tokenize,
+        batched=True,
+        num_proc=num_proc,
+        load_from_cache_file=True,
+        desc="Tokenizing",
+    )
+
+    remove_cols = []
     if dataset_name == "ptb":
-        tokenized_dataset = tokenized_dataset.remove_columns("sentence")
+        remove_cols = ["sentence"]
     elif "scientific_papers" in dataset_name:
-        tokenized_dataset = tokenized_dataset.remove_columns(
-            ["article", "abstract", "section_names"]
-        )
+        remove_cols = ["article", "abstract", "section_names"]
     elif dataset_name == "ag_news":
-        tokenized_dataset = tokenized_dataset.remove_columns(["text", "label"])
-    elif dataset_name == "bfvp" or dataset_name == "parity":
-        # Remove 'text' if present, will re-add below
-        if "text" in tokenized_dataset.column_names:
-            tokenized_dataset = tokenized_dataset.remove_columns("text")
+        remove_cols = ["text", "label"]
+    elif dataset_name in ["bfvp", "parity"] or dataset_name in FSA_LANGUAGES:
+        remove_cols = ["text"] if "text" in tokenized_dataset.column_names else []
     else:
-        tokenized_dataset = tokenized_dataset.remove_columns("text")
+        remove_cols = ["text"]
+    if remove_cols:
+        tokenized_dataset = tokenized_dataset.remove_columns(remove_cols)
 
     if not wrap:
-        # For bfvp dataset, add 'text' column before saving
-        if dataset_name == "bfvp" or dataset_name == "parity":
-            # Get the original text examples
-            if isinstance(data, datasets.Dataset):
-                original_texts = data["text"]
-            else:
-                original_texts = data[mode]["text"]
+        if dataset_name in ["bfvp", "parity"] or dataset_name in FSA_LANGUAGES:
+            original_texts = (
+                data["text"]
+                if isinstance(data, datasets.Dataset)
+                else data[mode]["text"]
+            )
             n = len(tokenized_dataset)
             if len(original_texts) > n:
                 original_texts = original_texts[:n]
             elif len(original_texts) < n:
-                original_texts = original_texts + [original_texts[-1]] * (
-                    n - len(original_texts)
-                )
+                original_texts += [original_texts[-1]] * (n - len(original_texts))
             tokenized_dataset = tokenized_dataset.add_column("text", original_texts)
         if not streaming:
             tokenized_dataset.save_to_disk(_path)
-        # After loading, check for 'text' column if bfvp
-        if (
-            dataset_name == "bfvp" or dataset_name == "parity"
-        ) and "text" not in tokenized_dataset.column_names:
-            raise RuntimeError(
-                "'text' column missing from tokenized bfvp/parity dataset after saving. Please check data pipeline."
-            )
         return tokenized_dataset.with_format("torch")
 
     group_texts = functools.partial(
         _group_texts, block_size=block_size, bos=BOS, eos=EOS
     )
-    if streaming:
-        chunked_dataset = tokenized_dataset.map(group_texts, batched=True)
-    else:
-        chunked_dataset = tokenized_dataset.map(
-            group_texts,
-            batched=True,
-            num_proc=num_proc,
-            load_from_cache_file=True,
-            desc="Grouping",
-        )
+    chunked_dataset = tokenized_dataset.map(
+        group_texts,
+        batched=True,
+        num_proc=num_proc,
+        load_from_cache_file=True,
+        desc="Grouping",
+    )
 
-    # If this is a FL dataset, add the original text field for the collator
-    if dataset_name == "bfvp" or dataset_name == "parity":
-        # Get the original text examples
-        if isinstance(data, datasets.Dataset):
-            original_texts = data["text"]
-        else:
-            # If data is a DatasetDict, get the split
-            original_texts = data[mode]["text"]
-        # Repeat or truncate to match chunked_dataset length
+    if dataset_name in ["bfvp", "parity"] or dataset_name in FSA_LANGUAGES:
+        original_texts = (
+            data["text"] if isinstance(data, datasets.Dataset) else data[mode]["text"]
+        )
         n = len(chunked_dataset)
         if len(original_texts) > n:
             original_texts = original_texts[:n]
         elif len(original_texts) < n:
-            # Repeat last text if needed
-            original_texts = original_texts + [original_texts[-1]] * (
-                n - len(original_texts)
-            )
+            original_texts += [original_texts[-1]] * (n - len(original_texts))
         chunked_dataset = chunked_dataset.add_column("text", original_texts)
-        # After adding, check for 'text' column
-        if "text" not in chunked_dataset.column_names:
-            raise RuntimeError(
-                "'text' column missing from chunked FL dataset after adding. Please check data pipeline."
-            )
 
     if not streaming:
         chunked_dataset.save_to_disk(_path)
-
-    chunked_dataset = chunked_dataset.with_format("torch")
-    return chunked_dataset
+    return chunked_dataset.with_format("torch")
 
 
 def get_tokenizer(config):
-
     if config.data.tokenizer_name_or_path == "formal":
-        tokenizer = FormalTokenizer(language=config.data.train)
+        language = config.data.train
+        monoid_size = None
+        # Pre-compute monoid size for relevant languages
+        if language in FSA_LANGUAGES:
+            monoid_size = get_monoid_size(language)
+            LOGGER.info(
+                f"Language '{language}' requires a monoid of size {monoid_size}. Creating dynamic tokenizer."
+            )
+        tokenizer = FormalTokenizer(language=language, monoid_size=monoid_size)
     elif config.data.tokenizer_name_or_path == "text8":
         tokenizer = Text8Tokenizer()
     elif config.data.tokenizer_name_or_path == "bert-base-uncased":
@@ -844,32 +746,24 @@ def get_tokenizer(config):
             config.data.tokenizer_name_or_path
         )
 
-    if isinstance(tokenizer, transformers.GPT2TokenizerFast) or isinstance(
-        tokenizer, transformers.GPT2Tokenizer
+    if isinstance(
+        tokenizer, (transformers.GPT2TokenizerFast, transformers.GPT2Tokenizer)
     ):
         tokenizer._tokenizer.post_processor = tokenizers.processors.BertProcessing(
             (tokenizer.bos_token, tokenizer.bos_token_id),
             (tokenizer.eos_token, tokenizer.eos_token_id),
         )
 
-    # For wrapped batches:
-    #  [BOS] sent1 [EOS] sent2-fragment [EOS]
-    #  [BOS] sent2-fragment [EOS] sent3 [EOS]
     if tokenizer.bos_token is None:
-        if tokenizer.cls_token is None:
-            raise AttributeError(
-                "Tokenizer must have a bos_token or " f"cls_token: {tokenizer}"
-            )
-        tokenizer.bos_token = tokenizer.cls_token
+        tokenizer.bos_token = (
+            tokenizer.cls_token if tokenizer.cls_token is not None else "[BOS]"
+        )
     if tokenizer.eos_token is None:
-        if tokenizer.sep_token is None:
-            raise AttributeError(
-                "Tokenizer must have a eos_token " f"or sep_token: {tokenizer}"
-            )
-        tokenizer.eos_token = tokenizer.sep_token
+        tokenizer.eos_token = (
+            tokenizer.sep_token if tokenizer.sep_token is not None else "[EOS]"
+        )
     if tokenizer.pad_token is None:
         tokenizer.add_special_tokens({"pad_token": "[PAD]"})
-
     return tokenizer
 
 
@@ -877,31 +771,21 @@ def get_dataloaders(
     config, tokenizer, skip_train=False, skip_valid=False, valid_seed=None
 ):
     num_gpus = torch.cuda.device_count()
-    assert config.loader.global_batch_size == (
-        config.loader.batch_size
-        * config.trainer.num_nodes
-        * num_gpus
-        * config.trainer.accumulate_grad_batches
-    )
     if (
         config.loader.global_batch_size
         % (num_gpus * config.trainer.accumulate_grad_batches)
         != 0
     ):
         raise ValueError(
-            f"Train Batch Size {config.training.batch_size}"
-            f"not divisible by {num_gpus} gpus with accumulation "
-            f"{config.trainer.accumulate_grad_batches}."
+            "Global batch size not divisible by number of GPUs and gradient accumulation steps."
         )
     if config.loader.eval_global_batch_size % num_gpus != 0:
-        raise ValueError(
-            f"Eval Batch Size for {config.eval.batch_size} "
-            f"not divisible by {num_gpus}."
-        )
-    if skip_train:
-        train_set = None
-    else:
-        train_set = get_dataset(
+        raise ValueError("Eval batch size not divisible by number of GPUs.")
+
+    train_set = (
+        None
+        if skip_train
+        else get_dataset(
             config.data.train,
             tokenizer,
             mode="train",
@@ -911,18 +795,18 @@ def get_dataloaders(
             block_size=config.model.length,
             streaming=config.data.streaming,
             num_proc=config.loader.num_workers,
-            revision=config.data.get("train_revision", None),
+            revision=config.data.get("train_revision"),
             config=config,
         )
+    )
 
-    if config.data.valid in ["text8", "lm1b", "ag_news"]:
-        validation_split = "test"
-    else:
-        validation_split = "validation"
-    if skip_valid:
-        valid_set = None
-    else:
-        valid_set = get_dataset(
+    validation_split = (
+        "test" if config.data.valid in ["text8", "lm1b", "ag_news"] else "validation"
+    )
+    valid_set = (
+        None
+        if skip_valid
+        else get_dataset(
             config.data.valid,
             tokenizer,
             wrap=config.data.wrap,
@@ -932,15 +816,15 @@ def get_dataloaders(
             block_size=config.model.length,
             streaming=config.data.streaming,
             num_proc=config.loader.num_workers,
-            revision=config.data.get("valid_revision", None),
+            revision=config.data.get("valid_revision"),
             config=config,
         )
+    )
 
     collator = MaskedFormalCollator(tokenizer=tokenizer, max_length=config.model.length)
+    train_loader, valid_loader = None, None
 
-    if skip_train:
-        train_loader = None
-    else:
+    if not skip_train:
         train_loader = torch.utils.data.DataLoader(
             train_set,
             batch_size=config.loader.batch_size,
@@ -952,15 +836,9 @@ def get_dataloaders(
         )
         train_loader.tokenizer = tokenizer
 
-    if skip_valid:
-        valid_loader = None
-    else:
-        if valid_seed is None:
-            shuffle_valid = False
-            generator = None
-        else:
-            shuffle_valid = True
-            generator = torch.Generator().manual_seed(valid_seed)
+    if not skip_valid:
+        shuffle_valid = valid_seed is not None
+        generator = torch.Generator().manual_seed(valid_seed) if shuffle_valid else None
         valid_loader = torch.utils.data.DataLoader(
             valid_set,
             batch_size=config.loader.eval_batch_size,
