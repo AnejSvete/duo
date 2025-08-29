@@ -152,6 +152,7 @@ def create_same_start_end_fsa():
     fsa = FiniteStateAutomaton(5, ["a", "b"])
     fsa.set_accepting_state(1)
     fsa.set_accepting_state(3)
+    # State 0: initial, 1: ends in a, 2: seen a then b, 3: ends in b, 4: seen b then a
     fsa.set_transition(0, "a", 1)
     fsa.set_transition(0, "b", 3)
     fsa.set_transition(1, "a", 1)
@@ -200,8 +201,10 @@ def get_monoid_trace(input_string, symbol_to_monoid_id, mult_table, identity_id)
         return []
     current_level = [symbol_to_monoid_id[s] for s in input_string]
     trace = []
-    while len(current_level) > 1:
+    while len(current_level) > 0:
         trace.append(" ".join(map(str, current_level)))
+        if len(current_level) == 1:
+            break
         if len(current_level) % 2 != 0:
             current_level.append(identity_id)  # Pad with identity
         next_level = [
@@ -209,11 +212,17 @@ def get_monoid_trace(input_string, symbol_to_monoid_id, mult_table, identity_id)
             for i in range(0, len(current_level), 2)
         ]
         current_level = next_level
-    trace.append(" ".join(map(str, current_level)))
     return trace
 
 
-def make_fsa_examples(fsa, num_examples, max_log_len, mode):
+def make_fsa_examples(
+    fsa: FiniteStateAutomaton,
+    num_examples: int,
+    min_log_len: int,
+    max_log_len: int,
+    mode: str,
+) -> List[Dict[str, str]]:
+    """Generates examples for the given FSA."""
     symbol_map, mult_table, identity_id = fsa.compute_syntactic_monoid()
     fsa_complement = fsa.complement()
     examples = []
@@ -227,15 +236,12 @@ def make_fsa_examples(fsa, num_examples, max_log_len, mode):
             state = target_fsa.get_next_state(state, symbol)
         return "".join(string)
 
-    # Generate a balanced set
+    # Generate a balanced set of accepting and rejecting examples
     num_accepting = num_examples // 2
-    num_rejecting = num_examples - num_accepting
-
     for i in range(num_examples):
-        log_len = random.randint(1, max_log_len)
+        log_len = random.randint(min_log_len, max_log_len)
         length = 2**log_len
         target_fsa = fsa if i < num_accepting else fsa_complement
-        # target_fsa = fsa
         input_string = sample_by_traversal(target_fsa, length)
 
         trace_levels = get_monoid_trace(
@@ -245,15 +251,35 @@ def make_fsa_examples(fsa, num_examples, max_log_len, mode):
 
         if mode == "trace":
             text = f"{initial_repr} # {' | '.join(trace_levels[1:])}"
-        else:  # final_value
+        elif mode == "final_value":
             text = f"{initial_repr} # {trace_levels[-1]}"
+        elif mode == "empty_trace":
+            if len(trace_levels) > 1:
+                reduction_steps_list = trace_levels[1:]
+                final_value = reduction_steps_list[-1]
+                padded_steps = []
+                for step in reduction_steps_list[:-1]:
+                    num_values = len(step.split())
+                    padded_steps.append(" ".join(["[PAD]"] * num_values))
+
+                if padded_steps:
+                    padded_trace = " [PAD] ".join(padded_steps)
+                    text = f"{initial_repr} # {padded_trace} [PAD] {final_value}"
+                else:
+                    text = f"{initial_repr} # {final_value}"
+            else:
+                text = f"{initial_repr} # {trace_levels[0]}"
+        else:
+            raise ValueError(f"Unknown format mode: {mode}")
+
         examples.append({"text": text})
 
     random.shuffle(examples)
     return examples
 
 
-def ascii_visualize_fsa(fsa):
+def ascii_visualize_fsa(fsa: FiniteStateAutomaton):
+    """Prints a simple text-based representation of the FSA."""
     print("\n--- FSA Structure ---")
     for state in fsa.states:
         desc = f"State {state}"
@@ -263,7 +289,8 @@ def ascii_visualize_fsa(fsa):
             desc += " (Accepting)"
         print(desc)
         for symbol in fsa.alphabet:
-            print(f"  - '{symbol}' -> State {fsa.get_next_state(state, symbol)}")
+            dst_state = fsa.get_next_state(state, symbol)
+            print(f"  - '{symbol}' -> State {dst_state}")
     print("---------------------\n")
 
 
@@ -271,6 +298,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Generate strings from an FSA and their syntactic monoid traces."
     )
+    # --- Main Arguments ---
     parser.add_argument(
         "--fsa_type",
         type=str,
@@ -279,27 +307,58 @@ if __name__ == "__main__":
         help="Type of FSA to generate.",
     )
     parser.add_argument(
+        "--format",
+        type=str,
+        default="trace",
+        choices=["trace", "final_value", "empty_trace"],
+        help="Output format: 'trace' for full reduction, 'empty_trace' for pause tokens, 'final_value' for the result only.",
+    )
+    parser.add_argument(
+        "--num_examples", type=int, default=10, help="Number of examples to generate."
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="train",
+        choices=["train", "valid"],
+        help="Dataset mode (train or valid) to select length ranges.",
+    )
+
+    # --- Length Arguments for Train/Valid splits ---
+    parser.add_argument(
+        "--min_log_len_train",
+        type=int,
+        default=2,
+        help="Minimum log-length for training examples (e.g., 2 -> 2^2=4).",
+    )
+    parser.add_argument(
+        "--max_log_len_train",
+        type=int,
+        default=4,
+        help="Maximum log-length for training examples (e.g., 4 -> 2^4=16).",
+    )
+    parser.add_argument(
+        "--min_log_len_valid",
+        type=int,
+        default=5,
+        help="Minimum log-length for validation examples.",
+    )
+    parser.add_argument(
+        "--max_log_len_valid",
+        type=int,
+        default=6,
+        help="Maximum log-length for validation examples.",
+    )
+
+    # --- Random FSA Arguments ---
+    parser.add_argument(
         "--num_states", type=int, default=4, help="Number of states for random FSA."
     )
     parser.add_argument(
         "--alphabet_size", type=int, default=2, help="Alphabet size for random FSA."
     )
-    parser.add_argument(
-        "--max_log_len",
-        type=int,
-        default=4,
-        help="Max log of string length (e.g., 4 -> max length 16).",
-    )
-    parser.add_argument(
-        "--format",
-        type=str,
-        default="trace",
-        choices=["trace", "final_value"],
-        help="Output format.",
-    )
-    parser.add_argument(
-        "--num_examples", type=int, default=10, help="Number of examples to generate."
-    )
+
+    # --- Utility Arguments ---
     parser.add_argument(
         "--show_examples", action="store_true", help="Print the generated examples."
     )
@@ -310,6 +369,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # --- Select FSA ---
     fsa_map = {
         "a5": ("A5 group automaton", create_a5_fsa),
         "parity": ("Parity automaton", create_parity_fsa),
@@ -329,15 +389,30 @@ if __name__ == "__main__":
         print(f"Generating examples from a random FSA.")
         fsa = generate_random_dfa(args.num_states, args.alphabet_size)
 
-    print(f"  - States: {fsa.num_states}, Alphabet: {fsa.alphabet}")
-    print(
-        f"  - Max String Length: 2^{args.max_log_len} = {2**args.max_log_len}, Format: {args.format}"
-    )
+    # --- Determine Length Range based on Mode ---
+    if args.mode == "train":
+        min_log_len = args.min_log_len_train
+        max_log_len = args.max_log_len_train
+    else:  # valid
+        min_log_len = args.min_log_len_valid
+        max_log_len = args.max_log_len_valid
+
+    print(f"Generating {args.num_examples} examples for '{args.mode}' mode.")
+    print(f"  - String Length Range: 2^{min_log_len} to 2^{max_log_len}")
+    print(f"  - Output Format: '{args.format}'")
 
     if args.show_fsa:
         ascii_visualize_fsa(fsa)
 
-    examples = make_fsa_examples(fsa, args.num_examples, args.max_log_len, args.format)
+    # --- Generate Examples ---
+    examples = make_fsa_examples(
+        fsa=fsa,
+        num_examples=args.num_examples,
+        min_log_len=min_log_len,
+        max_log_len=max_log_len,
+        mode=args.format,
+    )
+
     if args.show_examples:
         print("\n--- Generated Examples ---")
         for i, ex in enumerate(examples):

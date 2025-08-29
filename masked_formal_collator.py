@@ -44,29 +44,42 @@ class MaskedFormalCollator:
         input_ids = tokenized_output["input_ids"]
         attention_mask = tokenized_output["attention_mask"]
 
-        # --- Logic for 'do_not_mask' ---
+        # --- START: Robust 'do_not_mask' Creation ---
 
         # 1. Create a boolean mask for all '#' tokens
         is_hash = input_ids == self.hash_token_id
 
-        # 2. Use cumsum to find the *first* '#' in each row
-        hash_counts = is_hash.cumsum(dim=1)
-        is_first_hash = is_hash & (hash_counts == 1)
+        # 2. Find the index of the first '#' in each row.
+        # To robustly handle rows that have NO '#', we can find the index
+        # of the first non-padding token instead as a fallback.
+        is_not_padding = attention_mask.bool()
 
-        # 3. Create the 'do_not_mask' tensor
-        cutoff_indices = torch.argmax(is_first_hash.int(), dim=1)
+        # We want the cutoff to be the first '#' or, if none, the end of the real sequence.
+        # Let's find the length of each sequence (where attention_mask is 1)
+        seq_lengths = is_not_padding.sum(dim=1)
+
+        # Create a default cutoff index pointing to the end of each sequence.
+        # We use seq_lengths - 1 because indices are 0-based.
+        cutoff_indices = seq_lengths - 1
+
+        # Find the index of the first hash mark, if it exists
+        hash_indices = torch.argmax(is_hash.int(), dim=1)
+
+        # A boolean mask where True means a hash mark was found in the row.
+        # (argmax returns 0 if nothing is found, so we check if the token at that index is actually a hash)
+        hash_found = is_hash[torch.arange(is_hash.shape[0]), hash_indices]
+
+        # Where a hash was found, update the cutoff_indices to that position.
+        # Otherwise, it remains the end of the sequence.
+        cutoff_indices[hash_found] = hash_indices[hash_found]
+
+        # 3. Create the 'do_not_mask' using the calculated cutoff indices.
         col_indices = torch.arange(input_ids.shape[1], device=input_ids.device)
         do_not_mask = col_indices <= cutoff_indices.unsqueeze(1)
-
-        # 4. Handle the important edge case where a row has no '#' tokens at all
-        has_no_hash = ~is_hash.any(dim=1)
-        do_not_mask[has_no_hash] = True
 
         # --- Debugging Print Statements ---
         print(f"Text: {texts[:3]}")
         print(f"Input IDs: {input_ids[:3]}")
-        print(f"Is hash: {is_hash[:3]}")
-        print(f"Hash counts: {hash_counts[:3]}")
         print(f"Attention Mask: {attention_mask[:3]}")
         print(f"Do Not Mask: {do_not_mask[:3]}")
 

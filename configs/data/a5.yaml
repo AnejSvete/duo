@@ -11,7 +11,10 @@ regular:
   num_examples_train: 200000
   num_examples_valid: 20000
   fsa_type: a5
-  max_log_len: 4     # Max length will be 2^4 = 16. Lengths are chosen from {2, 4, 8, 16}
+  min_log_len_train: 5    
+  max_log_len_train: 5    
+  min_log_len_valid: 5    
+  max_log_len_valid: 5   
 
   # --- Output Format ---
   # Options: trace, final_value
