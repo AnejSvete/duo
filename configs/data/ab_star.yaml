@@ -7,7 +7,7 @@ streaming: False
 insert_train_eos: False
 insert_valid_eos: False
 
-regular:
+properties:
   num_examples_train: 200000
   num_examples_valid: 20000
   fsa_type: ab_star
