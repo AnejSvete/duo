@@ -449,6 +449,22 @@ def make_fsa_examples(
     return examples
 
 
+def get_monoid_size(fsa_type: str) -> int:
+    if fsa_type not in FSA_CREATORS:
+        raise ValueError(f"Unknown FSA type: {fsa_type}")
+    fsa = FSA_CREATORS[fsa_type]()
+    _, _, _, monoid_size = fsa.compute_syntactic_monoid()
+    return monoid_size
+
+
+def get_alphabet(fsa_type: str) -> List[str]:
+    """Returns the alphabet for a given FSA type."""
+    if fsa_type not in FSA_CREATORS:
+        raise ValueError(f"Unknown FSA type: {fsa_type}")
+    fsa = FSA_CREATORS[fsa_type]()
+    return fsa.alphabet
+
+
 def main():
     """Main function for running the FSA script from the command line."""
     parser = argparse.ArgumentParser(
