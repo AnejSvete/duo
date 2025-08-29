@@ -11,19 +11,18 @@ import zipfile
 from typing import Optional
 
 import datasets
-import fsa_languages
 import fsspec
 import numpy as np
 import requests
 import tokenizers
 import torch
 import transformers
-from fsa_languages import FSA_LANGUAGES, get_monoid_size
 
 import bfvp
 import parity
 import utils
 from masked_formal_collator import MaskedFormalCollator
+from regular import FSA_LANGUAGES, get_monoid_size, make_fsa_examples
 
 LOGGER = utils.get_logger(__name__)
 
@@ -520,7 +519,7 @@ def get_dataset(
                 mode=format_mode,
             )
         else:
-            examples, _ = fsa_languages.make_fsa_examples(
+            examples, _ = make_fsa_examples(
                 fsa_type=dataset_name,
                 num_examples=num_examples,
                 min_log_len=min_log_len,
