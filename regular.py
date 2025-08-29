@@ -61,7 +61,9 @@ class FiniteStateAutomaton:
             current_transform = queue[head]
             head += 1
             for gen_transform in initial_transforms.values():
-                composed = tuple(current_transform[i] for i in gen_transform)
+                # To process a string "uv", we apply u's transform (current)
+                # then v's transform (gen). This is gen_transform ∘ current_transform.
+                composed = tuple(gen_transform[i] for i in current_transform)
                 if composed not in monoid_elements:
                     monoid_elements.add(composed)
                     queue.append(composed)
@@ -83,7 +85,8 @@ class FiniteStateAutomaton:
         for i in range(num_elements):
             for j in range(num_elements):
                 t_i, t_j = sorted_elements[i], sorted_elements[j]
-                composed = tuple(t_i[state] for state in t_j)
+                # Multiplication table for t_i followed by t_j is t_j ∘ t_i.
+                composed = tuple(t_j[state] for state in t_i)
                 mult_table[i][j] = transform_to_id[composed]
 
         return (
@@ -168,6 +171,8 @@ def create_same_start_end_fsa():
 def create_a5_fsa():
     gen_a = (1, 2, 0, 3, 4)
     gen_b = (1, 2, 3, 4, 0)
+    # Note: This lambda composes right-to-left (p1 after p2), which is standard
+    # for permutation group actions written on the left.
     compose = lambda p1, p2: tuple(p1[p2[i]] for i in range(len(p2)))
     identity = tuple(range(5))
     elements = {identity}
@@ -177,6 +182,7 @@ def create_a5_fsa():
         curr = queue[head]
         head += 1
         for g in [gen_a, gen_b]:
+            # This is curr * g (right multiplication) which is compose(curr, g)
             neighbor = compose(curr, g)
             if neighbor not in elements:
                 elements.add(neighbor)
@@ -187,6 +193,7 @@ def create_a5_fsa():
     perm_to_id = {p: i for i, p in enumerate(sorted_elements)}
     fsa = FiniteStateAutomaton(60, ["a", "b"])
     for p, i in perm_to_id.items():
+        # Transition from p on 'a' leads to state for p*gen_a
         fsa.set_transition(i, "a", perm_to_id[compose(p, gen_a)])
         fsa.set_transition(i, "b", perm_to_id[compose(p, gen_b)])
     fsa.initial_state = perm_to_id[identity]
