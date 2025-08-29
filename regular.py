@@ -196,6 +196,105 @@ def create_a5_fsa():
     return fsa
 
 
+# --- Start of Added Code ---
+
+
+def create_first_a_fsa():
+    """DFA for the language where the first symbol is 'a'."""
+    fsa = FiniteStateAutomaton(3, ["a", "b"])
+    # State 0: Initial
+    # State 1: First symbol was 'a' (accepting sink)
+    # State 2: First symbol was 'b' (rejecting sink)
+    fsa.set_accepting_state(1)
+    fsa.set_transition(0, "a", 1)
+    fsa.set_transition(0, "b", 2)
+    fsa.set_transition(1, "a", 1)
+    fsa.set_transition(1, "b", 1)
+    fsa.set_transition(2, "a", 2)
+    fsa.set_transition(2, "b", 2)
+    return fsa
+
+
+def create_first_aa_fsa():
+    """DFA for the language where the first two symbols are 'aa'."""
+    fsa = FiniteStateAutomaton(4, ["a", "b"])
+    # State 0: Initial
+    # State 1: First symbol was 'a'
+    # State 2: First two symbols were 'aa' (accepting sink)
+    # State 3: Invalid prefix (rejecting sink)
+    fsa.set_accepting_state(2)
+    fsa.set_transition(0, "a", 1)
+    fsa.set_transition(0, "b", 3)
+    fsa.set_transition(1, "a", 2)
+    fsa.set_transition(1, "b", 3)
+    fsa.set_transition(2, "a", 2)
+    fsa.set_transition(2, "b", 2)
+    fsa.set_transition(3, "a", 3)
+    fsa.set_transition(3, "b", 3)
+    return fsa
+
+
+def create_last_a_fsa():
+    """DFA for the language where the last symbol is 'a'."""
+    fsa = FiniteStateAutomaton(2, ["a", "b"])
+    # State 0: Empty string or last symbol was 'b'
+    # State 1: Last symbol was 'a' (accepting)
+    fsa.set_accepting_state(1)
+    fsa.set_transition(0, "a", 1)
+    fsa.set_transition(0, "b", 0)
+    fsa.set_transition(1, "a", 1)
+    fsa.set_transition(1, "b", 0)
+    return fsa
+
+
+def create_last_aa_fsa():
+    """DFA for the language where the last two symbols are 'aa'."""
+    fsa = FiniteStateAutomaton(3, ["a", "b"])
+    # State 0: String ends in 'b' or is empty
+    # State 1: String ends in 'a', but not 'aa'
+    # State 2: String ends in 'aa' (accepting)
+    fsa.set_accepting_state(2)
+    fsa.set_transition(0, "a", 1)
+    fsa.set_transition(0, "b", 0)
+    fsa.set_transition(1, "a", 2)
+    fsa.set_transition(1, "b", 0)
+    fsa.set_transition(2, "a", 2)
+    fsa.set_transition(2, "b", 0)
+    return fsa
+
+
+def create_contains_a_fsa():
+    """DFA for the language of strings containing at least one 'a'."""
+    fsa = FiniteStateAutomaton(2, ["a", "b"])
+    # State 0: No 'a' seen yet
+    # State 1: At least one 'a' has been seen (accepting sink)
+    fsa.set_accepting_state(1)
+    fsa.set_transition(0, "a", 1)
+    fsa.set_transition(0, "b", 0)
+    fsa.set_transition(1, "a", 1)
+    fsa.set_transition(1, "b", 1)
+    return fsa
+
+
+def create_contains_ab_fsa():
+    """DFA for the language of strings containing the substring 'ab'."""
+    fsa = FiniteStateAutomaton(3, ["a", "b"])
+    # State 0: Initial state, no prefix of 'ab' seen
+    # State 1: The last symbol seen was 'a'
+    # State 2: The substring 'ab' has been seen (accepting sink)
+    fsa.set_accepting_state(2)
+    fsa.set_transition(0, "a", 1)
+    fsa.set_transition(0, "b", 0)
+    fsa.set_transition(1, "a", 1)
+    fsa.set_transition(1, "b", 2)
+    fsa.set_transition(2, "a", 2)
+    fsa.set_transition(2, "b", 2)
+    return fsa
+
+
+# --- End of Added Code ---
+
+
 def get_monoid_trace(input_string, symbol_to_monoid_id, mult_table, identity_id):
     if not input_string:
         return []
@@ -303,7 +402,20 @@ if __name__ == "__main__":
         "--fsa_type",
         type=str,
         default="random",
-        choices=["random", "a5", "parity", "ab_star", "mod_3", "same_start_end"],
+        choices=[
+            "random",
+            "a5",
+            "parity",
+            "ab_star",
+            "mod_3",
+            "same_start_end",
+            "first_a",
+            "first_aa",
+            "last_a",
+            "last_aa",
+            "contains_a",
+            "contains_ab",
+        ],
         help="Type of FSA to generate.",
     )
     parser.add_argument(
@@ -379,6 +491,12 @@ if __name__ == "__main__":
             "Same Start/End Symbol automaton",
             create_same_start_end_fsa,
         ),
+        "first_a": ("First symbol is 'a'", create_first_a_fsa),
+        "first_aa": ("First two symbols are 'aa'", create_first_aa_fsa),
+        "last_a": ("Last symbol is 'a'", create_last_a_fsa),
+        "last_aa": ("Last two symbols are 'aa'", create_last_aa_fsa),
+        "contains_a": ("Contains substring 'a'", create_contains_a_fsa),
+        "contains_ab": ("Contains substring 'ab'", create_contains_ab_fsa),
     }
 
     if args.fsa_type in fsa_map:
