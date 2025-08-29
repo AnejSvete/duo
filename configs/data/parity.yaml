@@ -7,7 +7,7 @@ streaming: False
 insert_train_eos: False
 insert_valid_eos: False
 properties:
-  num_examples_train: 500000
+  num_examples_train: 200000
   num_examples_valid: 20000
   min_log_len_train: 5    
   max_log_len_train: 5    
