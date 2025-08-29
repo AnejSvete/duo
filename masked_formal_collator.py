@@ -31,10 +31,7 @@ class MaskedFormalCollator:
 
     def __call__(self, batch: List[Dict[str, str]]) -> Dict[str, torch.Tensor]:
         """Processes a list of examples to create a batch tensor."""
-        # The input `batch` is a list of dictionaries, e.g., [{'text': '...'}, ...]
         texts = [item["text"] for item in batch]
-
-        print(f"texts: {texts[:10]}")
 
         tokenized_output = self.tokenizer(
             texts,
@@ -43,25 +40,41 @@ class MaskedFormalCollator:
             max_length=self.max_length,
             return_tensors="pt",
         )
-        print(f"tokenized_output: {tokenized_output[:10]}")
 
         input_ids = tokenized_output["input_ids"]
         attention_mask = tokenized_output["attention_mask"]
+        pad_token_id = self.tokenizer.pad_token_id
 
-        # Create the boolean tensor to specify which tokens to protect
-        do_not_mask = torch.zeros_like(input_ids, dtype=torch.bool)
+        # 1. Create a boolean mask for all '#' tokens in the batch
+        # Shape: (batch_size, seq_len)
+        is_hash = input_ids == self.hash_token_id
 
-        for i, token_ids in enumerate(input_ids):
-            # Find all occurrences of the '#' token
-            hash_indices = (token_ids == self.hash_token_id).nonzero(as_tuple=True)[0]
+        # 2. Use cumsum to count hashes row-wise. A subsequent '#' will have a count > 1.
+        # This creates a tensor where each element is the number of hashes seen so far in its row.
+        hash_counts = is_hash.cumsum(dim=1)
 
-            if len(hash_indices) > 0:
-                # Protect all tokens up to and including the first '#'
-                cutoff_index = hash_indices[0]
-                do_not_mask[i, : cutoff_index + 1] = True
-            else:
-                # If a trace has no '#', protect the entire sequence as a fallback
-                do_not_mask[i, :] = True
+        # 3. Create a mask for tokens that are a '#' AND have a count > 1
+        mask_to_replace = is_hash & (hash_counts > 1)
+
+        # 4. Apply the mask to replace subsequent '#' tokens and update the attention mask
+        input_ids[mask_to_replace] = pad_token_id
+        attention_mask[mask_to_replace] = 0
+
+        # 5. Create the 'do_not_mask' tensor in a vectorized way
+        # Find the first '#' in each row. argmax returns the *first* True index.
+        is_first_hash = is_hash & (hash_counts == 1)
+        cutoff_indices = torch.argmax(is_first_hash.int(), dim=1)
+
+        # Create a range tensor [0, 1, 2, ...] to compare against the cutoff indices
+        col_indices = torch.arange(input_ids.shape[1], device=input_ids.device)
+
+        # Create the mask by broadcasting. This is True for all positions up to the cutoff.
+        do_not_mask = col_indices <= cutoff_indices.unsqueeze(1)
+
+        print(f"Text: {texts[:10]}")
+        print(f"Input IDs: {input_ids[:10]}")
+        print(f"Attention Mask: {attention_mask[:10]}")
+        print(f"Do Not Mask: {do_not_mask[:10]}")
 
         return {
             "input_ids": input_ids,
