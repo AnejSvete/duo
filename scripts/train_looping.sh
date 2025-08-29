@@ -12,11 +12,13 @@ source /cluster/home/asvete/duo/bin/activate
 
 TASK=$1
 
+LENGTH=${2:-48}
+
 srun python -u -m main \
   wandb.name="$TASK-looping-$(date +%Y%m%d-%H%M%S)" \
   data=$TASK \
   model=ltnano \
   algo=lt \
   algo.looping_type=log \
-  model.length=48 \
+  model.length=$LENGTH \
   data.properties.format=final_value

@@ -12,10 +12,12 @@ source /cluster/home/asvete/duo/bin/activate
 
 TASK=$1
 
+LENGTH=${2:-96}
+
 srun python -u -m main \
   wandb.name="$TASK-mdm-$(date +%Y%m%d-%H%M%S)" \
   data=$TASK \
   model=nano \
   algo=mdlm \
-  model.length=96 \
+  model.length=$LENGTH \
   data.properties.format=trace
