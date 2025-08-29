@@ -76,7 +76,7 @@ class FiniteStateAutomaton:
             s: transform_to_id[t] for s, t in initial_transforms.items()
         }
 
-        num_elements = len(sorted_elements)  # This is the monoid size
+        num_elements = len(sorted_elements)
         mult_table = [[0] * num_elements for _ in range(num_elements)]
         for i in range(num_elements):
             for j in range(num_elements):
@@ -104,6 +104,87 @@ def get_monoid_trace(input_string, symbol_to_monoid_id, mult_table, identity_id)
         ]
         current_level = next_level
     return trace
+
+
+def create_parity_fsa():
+    fsa = FiniteStateAutomaton(2, ["a", "b"])
+    fsa.set_accepting_state(0)
+    fsa.set_transition(0, "a", 0)
+    fsa.set_transition(0, "b", 1)
+    fsa.set_transition(1, "a", 1)
+    fsa.set_transition(1, "b", 0)
+    return fsa
+
+
+def create_ab_star_fsa():
+    fsa = FiniteStateAutomaton(3, ["a", "b"])
+    fsa.set_accepting_state(0)
+    fsa.set_transition(0, "a", 1)
+    fsa.set_transition(0, "b", 2)
+    fsa.set_transition(1, "a", 2)
+    fsa.set_transition(1, "b", 0)
+    fsa.set_transition(2, "a", 2)
+    fsa.set_transition(2, "b", 2)
+    return fsa
+
+
+def create_mod_3_fsa():
+    fsa = FiniteStateAutomaton(3, ["a", "b"])
+    fsa.set_accepting_state(0)
+    fsa.set_transition(0, "a", 0)
+    fsa.set_transition(0, "b", 1)
+    fsa.set_transition(1, "a", 2)
+    fsa.set_transition(1, "b", 0)
+    fsa.set_transition(2, "a", 1)
+    fsa.set_transition(2, "b", 2)
+    return fsa
+
+
+def create_same_start_end_fsa():
+    fsa = FiniteStateAutomaton(5, ["a", "b"])
+    fsa.set_accepting_state(1)
+    fsa.set_accepting_state(3)
+    fsa.set_transition(0, "a", 1)
+    fsa.set_transition(0, "b", 3)
+    fsa.set_transition(1, "a", 1)
+    fsa.set_transition(1, "b", 2)
+    fsa.set_transition(2, "a", 1)
+    fsa.set_transition(2, "b", 2)
+    fsa.set_transition(3, "a", 4)
+    fsa.set_transition(3, "b", 3)
+    fsa.set_transition(4, "a", 4)
+    fsa.set_transition(4, "b", 3)
+    return fsa
+
+
+def create_a5_fsa():
+    gen_a = (1, 2, 0, 3, 4)  # This was gen0
+    gen_b = (1, 2, 3, 4, 0)  # This was gen1
+    compose = lambda p1, p2: tuple(p1[p2[i]] for i in range(len(p2)))
+    identity = tuple(range(5))
+    elements = {identity}
+    queue = [identity]
+    head = 0
+    while head < len(queue):
+        curr = queue[head]
+        head += 1
+        for g in [gen_a, gen_b]:
+            neighbor = compose(curr, g)
+            if neighbor not in elements:
+                elements.add(neighbor)
+                queue.append(neighbor)
+    if len(elements) != 60:
+        raise RuntimeError(f"Failed to generate A5. Generated {len(elements)}.")
+    sorted_elements = sorted(list(elements))
+    perm_to_id = {p: i for i, p in enumerate(sorted_elements)}
+    fsa = FiniteStateAutomaton(60, ["a", "b"])
+    for p, i in perm_to_id.items():
+        fsa.set_transition(i, "a", perm_to_id[compose(p, gen_a)])
+        fsa.set_transition(i, "b", perm_to_id[compose(p, gen_b)])
+    fsa.initial_state = perm_to_id[identity]
+    for i in range(60):
+        fsa.set_accepting_state(i)
+    return fsa
 
 
 def create_first_a_fsa():
@@ -183,13 +264,17 @@ FSA_CREATORS = {
     "last_aa": create_last_aa_fsa,
     "contains_a": create_contains_a_fsa,
     "contains_ab": create_contains_ab_fsa,
+    "a5": create_a5_fsa,
+    "parity_fsa": create_parity_fsa,
+    "ab_star": create_ab_star_fsa,
+    "mod_3": create_mod_3_fsa,
+    "same_start_end": create_same_start_end_fsa,
 }
 
 
 def make_fsa_examples(
     fsa_type, num_examples, min_log_len, max_log_len, mode
 ) -> Tuple[List[Dict[str, str]], int]:
-    """Generates examples for a given FSA type and returns them with the monoid size."""
     fsa = FSA_CREATORS[fsa_type]()
     symbol_map, mult_table, identity_id, monoid_size = fsa.compute_syntactic_monoid()
     fsa_complement = fsa.complement()
@@ -219,28 +304,21 @@ def make_fsa_examples(
             text = f"{initial_repr} # {' | '.join(trace_levels[1:])}"
         elif mode == "final_value":
             text = f"{initial_repr} # {trace_levels[-1]}"
-        # START MODIFICATION: Restored empty_trace functionality
         elif mode == "empty_trace":
             if len(trace_levels) > 1:
                 reduction_steps_list = trace_levels[1:]
                 final_value = reduction_steps_list[-1]
                 padded_steps = []
-                # Replace intermediate steps with [PAD] tokens
                 for step in reduction_steps_list[:-1]:
                     num_values = len(step.split())
                     padded_steps.append(" ".join(["[PAD]"] * num_values))
-
                 if padded_steps:
-                    # Join padded steps with the separator, then add the final value
                     padded_trace = " | ".join(padded_steps)
                     text = f"{initial_repr} # {padded_trace} | {final_value}"
                 else:
-                    # This case handles inputs so short they reduce in one step
                     text = f"{initial_repr} # {final_value}"
             else:
-                # This case handles single-character inputs
                 text = f"{initial_repr} # {trace_levels[0]}"
-        # END MODIFICATION
         else:
             raise ValueError(f"Unknown format mode: {mode}")
         examples.append({"text": text})
@@ -250,9 +328,16 @@ def make_fsa_examples(
 
 
 def get_monoid_size(fsa_type: str) -> int:
-    """Pre-computes and returns the syntactic monoid size for an FSA type."""
     if fsa_type not in FSA_CREATORS:
         raise ValueError(f"Unknown FSA type: {fsa_type}")
     fsa = FSA_CREATORS[fsa_type]()
     _, _, _, monoid_size = fsa.compute_syntactic_monoid()
     return monoid_size
+
+
+def get_alphabet(fsa_type: str) -> List[str]:
+    """Returns the alphabet for a given FSA type."""
+    if fsa_type not in FSA_CREATORS:
+        raise ValueError(f"Unknown FSA type: {fsa_type}")
+    fsa = FSA_CREATORS[fsa_type]()
+    return fsa.alphabet
