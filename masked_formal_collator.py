@@ -34,6 +34,8 @@ class MaskedFormalCollator:
         # The input `batch` is a list of dictionaries, e.g., [{'text': '...'}, ...]
         texts = [item["text"] for item in batch]
 
+        print(f"texts: {texts[:10]}")
+
         tokenized_output = self.tokenizer(
             texts,
             padding="max_length",
@@ -41,6 +43,7 @@ class MaskedFormalCollator:
             max_length=self.max_length,
             return_tensors="pt",
         )
+        print(f"tokenized_output: {tokenized_output[:10]}")
 
         input_ids = tokenized_output["input_ids"]
         attention_mask = tokenized_output["attention_mask"]
