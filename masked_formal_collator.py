@@ -57,7 +57,12 @@ class MaskedFormalCollator:
         mask_to_replace = is_hash & (hash_counts > 1)
 
         # 4. Apply the mask to replace subsequent '#' tokens and update the attention mask
+        print(f"Input IDs before: {input_ids[:3]}")
+        print(f"Is hash: {is_hash[:3]}")
+        print(f"Hash counts: {hash_counts[:3]}")
+        print(f"Mask to replace: {mask_to_replace[:3]}")
         input_ids[mask_to_replace] = pad_token_id
+        print(f"Input IDs after: {input_ids[:3]}")
         attention_mask[mask_to_replace] = 0
 
         # 5. Create the 'do_not_mask' tensor in a vectorized way
@@ -71,10 +76,10 @@ class MaskedFormalCollator:
         # Create the mask by broadcasting. This is True for all positions up to the cutoff.
         do_not_mask = col_indices <= cutoff_indices.unsqueeze(1)
 
-        print(f"Text: {texts[:10]}")
-        print(f"Input IDs: {input_ids[:10]}")
-        print(f"Attention Mask: {attention_mask[:10]}")
-        print(f"Do Not Mask: {do_not_mask[:10]}")
+        print(f"Text: {texts[:3]}")
+        print(f"Input IDs: {input_ids[:3]}")
+        print(f"Attention Mask: {attention_mask[:3]}")
+        print(f"Do Not Mask: {do_not_mask[:3]}")
 
         return {
             "input_ids": input_ids,
