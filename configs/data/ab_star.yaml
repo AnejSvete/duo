@@ -1,5 +1,5 @@
-train: regular
-valid: regular
+train: ab_star
+valid: ab_star
 tokenizer_name_or_path: formal # The formal tokenizer includes all needed symbols
 cache_dir: /cluster/scratch/asvete/duo
 wrap: False
