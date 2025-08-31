@@ -34,13 +34,6 @@ class FiniteStateAutomaton:
     def get_next_state(self, current_state: int, symbol: str) -> int:
         return self.transitions.get((current_state, symbol))
 
-    def complement(self):
-        comp = FiniteStateAutomaton(self.num_states, self.alphabet)
-        comp.transitions = self.transitions.copy()
-        comp.initial_state = self.initial_state
-        comp.accepting_states = set(self.states) - self.accepting_states
-        return comp
-
     def compute_syntactic_monoid(
         self,
     ) -> Tuple[Dict[str, int], List[List[int]], int, int, Dict[int, tuple]]:
@@ -99,6 +92,7 @@ class FiniteStateAutomaton:
 
 
 def get_monoid_trace(input_string, symbol_to_monoid_id, mult_table, identity_id):
+    """Computes the reduction trace of a string in the syntactic monoid."""
     if not input_string:
         return []
     current_level = [symbol_to_monoid_id[s] for s in input_string]
@@ -107,8 +101,10 @@ def get_monoid_trace(input_string, symbol_to_monoid_id, mult_table, identity_id)
         trace.append(" ".join(map(str, current_level)))
         if len(current_level) == 1:
             break
+        # If the number of elements is odd, multiply by the identity to make it even.
         if len(current_level) % 2 != 0:
             current_level.append(identity_id)
+        # Pairwise multiplication for the next level of the reduction tree.
         next_level = [
             mult_table[current_level[i]][current_level[i + 1]]
             for i in range(0, len(current_level), 2)
@@ -390,8 +386,8 @@ def make_fsa_examples(
     fsa: FiniteStateAutomaton,
     monoid_details: dict,
     num_examples: int,
-    min_log_len: int,
-    max_log_len: int,
+    min_len: int,
+    max_len: int,
     mode: str,
 ) -> List[Dict[str, str]]:
     """Generates examples for a given FSA and its computed monoid."""
@@ -399,24 +395,13 @@ def make_fsa_examples(
     mult_table = monoid_details["mult_table"]
     identity_id = monoid_details["identity_id"]
 
-    fsa_complement = fsa.complement()
     examples = []
 
-    def sample_by_traversal(target_fsa, length):
-        string = []
-        state = target_fsa.initial_state
-        for _ in range(length):
-            symbol = random.choice(target_fsa.alphabet)
-            string.append(symbol)
-            state = target_fsa.get_next_state(state, symbol)
-        return "".join(string)
+    for _ in range(num_examples):
+        # Generate a random string with a length in the specified range.
+        length = random.randint(min_len, max_len)
+        input_string = "".join(random.choices(fsa.alphabet, k=length))
 
-    num_accepting = num_examples // 2
-    for i in range(num_examples):
-        log_len = random.randint(min_log_len, max_log_len)
-        length = 2**log_len
-        target_fsa = fsa if i < num_accepting else fsa_complement
-        input_string = sample_by_traversal(target_fsa, length)
         trace_levels = get_monoid_trace(
             input_string, symbol_map, mult_table, identity_id
         )
@@ -488,17 +473,17 @@ def main():
     )
 
     parser.add_argument(
-        "--min-log-len",
+        "--min-len",
         type=int,
-        default=3,
-        help="Minimum log2 of the input string length (e.g., 3 means length 2^3=8).",
+        default=8,
+        help="Minimum length of the input string.",
     )
 
     parser.add_argument(
-        "--max-log-len",
+        "--max-len",
         type=int,
-        default=3,
-        help="Maximum log2 of the input string length (e.g., 5 means length 2^5=32).",
+        default=32,
+        help="Maximum length of the input string.",
     )
 
     parser.add_argument(
@@ -563,7 +548,7 @@ def main():
 
         print(
             f"\nGenerating {args.num_examples} examples "
-            f"(length 2^{args.min_log_len} to 2^{args.max_log_len}) "
+            f"(length {args.min_len} to {args.max_len}) "
             f"with mode '{args.mode}'..."
         )
 
@@ -571,8 +556,8 @@ def main():
             fsa,
             monoid_details,
             args.num_examples,
-            args.min_log_len,
-            args.max_log_len,
+            args.min_len,
+            args.max_len,
             args.mode,
         )
 

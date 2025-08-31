@@ -11,8 +11,13 @@ module load stack/2024-06 python/3.12.8 eth_proxy
 source /cluster/home/asvete/duo/bin/activate
 
 TASK=$1
-
-LENGTH=${2:-96}
+MIN_TRAIN_LENGTH=$2
+MAX_TRAIN_LENGTH=$3
+MIN_VAL_LENGTH=$4
+MAX_VAL_LENGTH=$5
+MIN_TEST_LENGTH=$6
+MAX_TEST_LENGTH=$7
+MODEL_LENGTH=$8
 
 srun python -u -m main \
   wandb.name="$TASK-padding-$(date +%Y%m%d-%H%M%S)" \
@@ -20,5 +25,11 @@ srun python -u -m main \
   model=nano \
   algo=lt \
   algo.looping_type=constant \
-  model.length=$LENGTH \
-  data.properties.format=trace
+  model.length=$MODEL_LENGTH \
+  data.properties.format=trace \
+  data.properties.min_train_len=$MIN_TRAIN_LENGTH \
+  data.properties.max_train_len=$MAX_TRAIN_LENGTH \
+  data.properties.min_val_len=$MIN_VAL_LENGTH \
+  data.properties.max_val_len=$MAX_VAL_LENGTH \
+  data.properties.min_test_len=$MIN_TEST_LENGTH \
+  data.properties.max_test_len=$MAX_TEST_LENGTH

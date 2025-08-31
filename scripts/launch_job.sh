@@ -1,31 +1,37 @@
 #!/bin/bash
 
-# Usage: bash launch_job.sh <TASK> [--prepare|--rest] [SHORT_LEN] [LONG_LEN]
+# Usage: bash launch_job.sh <LANGUAGE> [--prepare|--rest] [SHORT_MODEL_LENGTH] [LONG_MODEL_LENGTH]
 
 
-TASK=$1
+LANGUAGE=$1
 FLAG=$2
-SHORT_LEN=${3:-48}
-LONG_LEN=${4:-96}
+MIN_TRAIN_LENGTH=${3:-2}
+MAX_TRAIN_LENGTH=${4:-64}
+MIN_VAL_LENGTH=${5:-32}
+MAX_VAL_LENGTH=${6:-64}
+MIN_TEST_LENGTH=${7:-48}
+MAX_TEST_LENGTH=${8:-64}
+SHORT_MODEL_LENGTH=${9:-96}
+LONG_MODEL_LENGTH=${10:-192}
 
 if [ "$FLAG" = "--prepare" ]; then
-    sbatch scripts/train_classifier.sh $TASK $SHORT_LEN
-    sbatch scripts/train_empty_padding.sh $TASK $LONG_LEN
-    sbatch scripts/train_cot.sh $TASK $LONG_LEN
+    sbatch scripts/train_classifier.sh $LANGUAGE $MIN_TRAIN_LENGTH $MAX_TRAIN_LENGTH $MIN_VAL_LENGTH $MAX_VAL_LENGTH $MIN_TEST_LENGTH $MAX_TEST_LENGTH $SHORT_MODEL_LENGTH
+    sbatch scripts/train_empty_padding.sh $LANGUAGE $MIN_TRAIN_LENGTH $MAX_TRAIN_LENGTH $MIN_VAL_LENGTH $MAX_VAL_LENGTH $MIN_TEST_LENGTH $MAX_TEST_LENGTH $LONG_MODEL_LENGTH
+    sbatch scripts/train_cot.sh $LANGUAGE $MIN_TRAIN_LENGTH $MAX_TRAIN_LENGTH $MIN_VAL_LENGTH $MAX_VAL_LENGTH $MIN_TEST_LENGTH $MAX_TEST_LENGTH $LONG_MODEL_LENGTH
 elif [ "$FLAG" = "--rest" ]; then
-    sbatch scripts/train_empty_padded_looping.sh $TASK $LONG_LEN
-    sbatch scripts/train_looping.sh $TASK $SHORT_LEN
-    sbatch scripts/train_mdm.sh $TASK $LONG_LEN
-    sbatch scripts/train_padded_looping.sh $TASK $LONG_LEN
-    sbatch scripts/train_padding.sh $TASK $LONG_LEN
+    sbatch scripts/train_empty_padded_looping.sh $LANGUAGE $MIN_TRAIN_LENGTH $MAX_TRAIN_LENGTH $MIN_VAL_LENGTH $MAX_VAL_LENGTH $MIN_TEST_LENGTH $MAX_TEST_LENGTH $LONG_MODEL_LENGTH
+    sbatch scripts/train_looping.sh $LANGUAGE $MIN_TRAIN_LENGTH $MAX_TRAIN_LENGTH $MIN_VAL_LENGTH $MAX_VAL_LENGTH $MIN_TEST_LENGTH $MAX_TEST_LENGTH $SHORT_MODEL_LENGTH
+    sbatch scripts/train_mdm.sh $LANGUAGE $MIN_TRAIN_LENGTH $MAX_TRAIN_LENGTH $MIN_VAL_LENGTH $MAX_VAL_LENGTH $MIN_TEST_LENGTH $MAX_TEST_LENGTH $LONG_MODEL_LENGTH
+    sbatch scripts/train_padded_looping.sh $LANGUAGE $MIN_TRAIN_LENGTH $MAX_TRAIN_LENGTH $MIN_VAL_LENGTH $MAX_VAL_LENGTH $MIN_TEST_LENGTH $MAX_TEST_LENGTH $LONG_MODEL_LENGTH
+    sbatch scripts/train_padding.sh $LANGUAGE $MIN_TRAIN_LENGTH $MAX_TRAIN_LENGTH $MIN_VAL_LENGTH $MAX_VAL_LENGTH $MIN_TEST_LENGTH $MAX_TEST_LENGTH $LONG_MODEL_LENGTH
 else
-    sbatch scripts/train_classifier.sh $TASK $SHORT_LEN
-    sbatch scripts/train_cot.sh $TASK $LONG_LEN
-    sbatch scripts/train_empty_padded_looping.sh $TASK $LONG_LEN
-    sbatch scripts/train_empty_padding.sh $TASK $LONG_LEN
-    sbatch scripts/train_looping.sh $TASK $SHORT_LEN
-    sbatch scripts/train_mdm.sh $TASK $LONG_LEN
-    sbatch scripts/train_padded_looping.sh $TASK $LONG_LEN
-    sbatch scripts/train_padding.sh $TASK $LONG_LEN
+    sbatch scripts/train_classifier.sh $LANGUAGE $MIN_TRAIN_LENGTH $MAX_TRAIN_LENGTH $MIN_VAL_LENGTH $MAX_VAL_LENGTH $MIN_TEST_LENGTH $MAX_TEST_LENGTH $SHORT_MODEL_LENGTH
+    sbatch scripts/train_cot.sh $LANGUAGE $MIN_TRAIN_LENGTH $MAX_TRAIN_LENGTH $MIN_VAL_LENGTH $MAX_VAL_LENGTH $MIN_TEST_LENGTH $MAX_TEST_LENGTH $LONG_MODEL_LENGTH
+    sbatch scripts/train_empty_padded_looping.sh $LANGUAGE $MIN_TRAIN_LENGTH $MAX_TRAIN_LENGTH $MIN_VAL_LENGTH $MAX_VAL_LENGTH $MIN_TEST_LENGTH $MAX_TEST_LENGTH $LONG_MODEL_LENGTH
+    sbatch scripts/train_empty_padding.sh $LANGUAGE $MIN_TRAIN_LENGTH $MAX_TRAIN_LENGTH $MIN_VAL_LENGTH $MAX_VAL_LENGTH $MIN_TEST_LENGTH $MAX_TEST_LENGTH $LONG_MODEL_LENGTH
+    sbatch scripts/train_looping.sh $LANGUAGE $MIN_TRAIN_LENGTH $MAX_TRAIN_LENGTH $MIN_VAL_LENGTH $MAX_VAL_LENGTH $MIN_TEST_LENGTH $MAX_TEST_LENGTH $SHORT_MODEL_LENGTH
+    sbatch scripts/train_mdm.sh $LANGUAGE $MIN_TRAIN_LENGTH $MAX_TRAIN_LENGTH $MIN_VAL_LENGTH $MAX_VAL_LENGTH $MIN_TEST_LENGTH $MAX_TEST_LENGTH $LONG_MODEL_LENGTH
+    sbatch scripts/train_padded_looping.sh $LANGUAGE $MIN_TRAIN_LENGTH $MAX_TRAIN_LENGTH $MIN_VAL_LENGTH $MAX_VAL_LENGTH $MIN_TEST_LENGTH $MAX_TEST_LENGTH $LONG_MODEL_LENGTH
+    sbatch scripts/train_padding.sh $LANGUAGE $MIN_TRAIN_LENGTH $MAX_TRAIN_LENGTH $MIN_VAL_LENGTH $MAX_VAL_LENGTH $MIN_TEST_LENGTH $MAX_TEST_LENGTH $LONG_MODEL_LENGTH
 fi
 

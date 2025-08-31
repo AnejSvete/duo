@@ -11,10 +11,12 @@ properties:
   num_examples_train: 200000
   num_examples_valid: 20000
   fsa_type: a4_x_z5
-  min_log_len_train: 5    
-  max_log_len_train: 5    
-  min_log_len_valid: 5    
-  max_log_len_valid: 5   
+  min_train_len: 5
+  max_train_len: 5
+  min_val_len: 5
+  max_val_len: 5
+  min_test_len: 5
+  max_test_len: 5
 
   # --- Output Format ---
   # Options: trace, final_value

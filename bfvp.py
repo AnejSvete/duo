@@ -2,6 +2,11 @@ import argparse
 import random
 from typing import Any, Dict, List, Set, Tuple
 
+# Added for structural consistency with the regular language codebase
+BFVP_CREATORS = {
+    "bfvp": True,
+}
+
 
 def generate_formula_tree(depth: int, num_vars: int, fan_in: int) -> Dict[str, Any]:
     """
@@ -164,10 +169,10 @@ def evaluate_expression_tree(start_tree: Dict[str, Any]) -> str:
     return current_tree.get("const", "ERROR")
 
 
-def get_prefix_reduction_trace(start_tree: Dict[str, Any]) -> str:
+def get_prefix_reduction_steps(start_tree: Dict[str, Any]) -> List[str]:
     """
-    Takes a variable-free expression tree and returns the full evaluation trace
-    string, with each step in prefix notation.
+    Takes a variable-free expression tree and returns the evaluation trace
+    as a list of prefix notation strings.
     """
     current_tree = start_tree
     steps = [tree_to_prefix_str(current_tree)]
@@ -176,7 +181,15 @@ def get_prefix_reduction_trace(start_tree: Dict[str, Any]) -> str:
         if not reduced:
             break
         steps.append(tree_to_prefix_str(current_tree))
+    return steps
 
+
+def get_prefix_reduction_trace(start_tree: Dict[str, Any]) -> str:
+    """
+    Takes a variable-free expression tree and returns the full evaluation trace
+    string, with each step in prefix notation.
+    """
+    steps = get_prefix_reduction_steps(start_tree)
     if len(steps) <= 1:
         return steps[0]
     return f"{steps[0]} # {' | '.join(steps[1:])}"
@@ -184,6 +197,7 @@ def get_prefix_reduction_trace(start_tree: Dict[str, Any]) -> str:
 
 def make_examples(
     num_examples: int,
+    min_depth: int,
     max_depth: int,
     num_vars: int,
     fan_in: int,
@@ -194,8 +208,8 @@ def make_examples(
     """
     examples = []
     for _ in range(num_examples):
-        # For each example, choose a random depth between 1 and max_depth
-        current_depth = random.randint(1, max_depth)
+        # For each example, choose a random depth between min_depth and max_depth
+        current_depth = random.randint(min_depth, max_depth)
         expression_tree = generate_formula_tree(current_depth, num_vars, fan_in)
 
         variables = get_variables_from_tree(expression_tree)
@@ -208,6 +222,27 @@ def make_examples(
             prefix_str = tree_to_prefix_str(substituted_tree)
             final_value = evaluate_expression_tree(substituted_tree)
             text = f"{prefix_str} # {final_value}"
+        elif mode == "empty_trace":
+            steps = get_prefix_reduction_steps(substituted_tree)
+            initial_repr = steps[0]
+            if len(steps) > 1:
+                reduction_steps_list = steps[1:]
+                final_value = reduction_steps_list[-1]
+                padded_steps = []
+                # Create padded strings for each intermediate step
+                for step in reduction_steps_list[:-1]:
+                    num_tokens = len(step.split())
+                    padded_steps.append(" ".join(["[PAD]"] * num_tokens))
+                # Join the padded steps and append the final value
+                if padded_steps:
+                    padded_trace = " [PAD] ".join(padded_steps)
+                    text = f"{initial_repr} # {padded_trace} [PAD] {final_value}"
+                else:
+                    # Case where there's only one reduction step
+                    text = f"{initial_repr} # {final_value}"
+            else:
+                # If there are no reduction steps, just use the initial representation
+                text = initial_repr
         else:
             raise ValueError(f"Unknown format mode: {mode}")
 
@@ -219,6 +254,12 @@ def make_examples(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Generate Boolean formulas in prefix notation."
+    )
+    parser.add_argument(
+        "--min_depth",
+        type=int,
+        default=1,
+        help="The minimum depth of the formula tree.",
     )
     parser.add_argument(
         "--max_depth",
@@ -242,20 +283,17 @@ if __name__ == "__main__":
         "--format",
         type=str,
         default="trace",
-        choices=["trace", "final_value"],
-        help="Output format: 'trace' for full reduction, 'final_value' for the result only.",
+        choices=["trace", "final_value", "empty_trace"],
+        help="Output format: 'trace' for full reduction, 'final_value' for result only, 'empty_trace' for padded trace.",
     )
     parser.add_argument(
         "--num_examples", type=int, default=5, help="Number of examples to generate."
-    )
-    parser.add_argument(
-        "--show_examples", action="store_true", help="Print the generated examples."
     )
 
     args = parser.parse_args()
 
     print(
-        f"Generating {args.num_examples} examples with max tree depth {args.max_depth}."
+        f"Generating {args.num_examples} examples with tree depth from {args.min_depth} to {args.max_depth}."
     )
     print(f"Variable pool size: {args.num_vars}")
     print(f"Fan-in: {args.fan_in}")
@@ -263,13 +301,13 @@ if __name__ == "__main__":
 
     examples = make_examples(
         num_examples=args.num_examples,
+        min_depth=args.min_depth,
         max_depth=args.max_depth,
         num_vars=args.num_vars,
         fan_in=args.fan_in,
         mode=args.format,
     )
 
-    if args.show_examples:
-        print("\n--- Generated Examples ---")
-        for i, ex in enumerate(examples):
-            print(f"[{i+1}] {ex['text']}")
+    print("\n--- Generated Examples ---")
+    for i, ex in enumerate(examples):
+        print(f"[{i+1}] {ex['text']}")
