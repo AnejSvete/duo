@@ -123,6 +123,7 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
         num_vars: Optional[int] = None,
         min_val: Optional[int] = None,
         max_val: Optional[int] = None,
+        format_mode: str = "trace",
         **kwargs,
     ):
         print(f"language = {language}")
@@ -130,11 +131,14 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
         print(f"num_vars = {num_vars}")
         print(f"min_val = {min_val}")
         print(f"max_val = {max_val}")
+        print(f"format_mode = {format_mode}")
 
         if language in BFVP_CREATORS:
             if num_vars is None:
                 raise ValueError("num_vars must be provided for the bfvp language.")
-            variable_tokens = [f"x{i}" for i in range(1, num_vars + 1)]
+            variable_tokens = []
+            if format_mode == "lookup":
+                variable_tokens = [f"x{i}" for i in range(1, num_vars + 1)]
             self.FORMAL_TOKENS = [
                 "#",
                 "|",
@@ -154,7 +158,9 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
                 raise ValueError(
                     "num_vars, min_val, and max_val must be provided for the arithmetic language."
                 )
-            variable_tokens = [f"x{i}" for i in range(1, num_vars + 1)]
+            variable_tokens = []
+            if format_mode == "lookup":
+                variable_tokens = [f"x{i}" for i in range(1, num_vars + 1)]
             constant_tokens = [str(i) for i in range(min_val, max_val + 1)]
             self.FORMAL_TOKENS = (
                 ["#", "|", "+", "-", "*", "/"] + variable_tokens + constant_tokens
@@ -827,10 +833,12 @@ def get_tokenizer(config):
         num_vars = None
         min_val = None
         max_val = None
+        format_mode = "trace"
         # Pre-compute monoid size or num_vars for dynamic tokenizer vocab
         if language in BFVP_CREATORS:
             bfvp_cfg = getattr(config.data, "properties", {})
             num_vars = getattr(bfvp_cfg, "num_vars", 4)
+            format_mode = getattr(bfvp_cfg, "format", "trace")
             LOGGER.info(
                 f"Language '{language}' requires {num_vars} variables. Creating dynamic tokenizer."
             )
@@ -844,6 +852,7 @@ def get_tokenizer(config):
             num_vars = getattr(arith_cfg, "num_vars", 2)
             min_val = getattr(arith_cfg, "min_val", 0)
             max_val = getattr(arith_cfg, "max_val", 50)
+            format_mode = getattr(arith_cfg, "format", "trace")
             LOGGER.info(
                 f"Language '{language}' requires {num_vars} variables and values in [{min_val}, {max_val}]. Creating dynamic tokenizer."
             )
@@ -853,6 +862,7 @@ def get_tokenizer(config):
             num_vars=num_vars,
             min_val=min_val,
             max_val=max_val,
+            format_mode=format_mode,
         )
     elif config.data.tokenizer_name_or_path == "text8":
         tokenizer = Text8Tokenizer()
