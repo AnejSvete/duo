@@ -1,22 +1,7 @@
+defaults:
+  - formal_language
+
 train: first_aa
 valid: first_aa
-tokenizer_name_or_path: formal # The formal tokenizer includes all needed symbols
-cache_dir: /cluster/scratch/asvete/duo
-wrap: False
-streaming: False
-insert_train_eos: False
-insert_valid_eos: False
-
 properties:
-  num_examples_train: 200000
-  num_examples_valid: 20000
   fsa_type: first_aa
-  min_train_len: 5
-  max_train_len: 5
-  min_val_len: 5
-  max_val_len: 5
-  min_test_len: 5
-  max_test_len: 5
-  format: trace      
-  num_states: 4
-  alphabet_size: 2

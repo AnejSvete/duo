@@ -1,27 +1,7 @@
+defaults:
+  - formal_language
+
 train: ab_star
 valid: ab_star
-tokenizer_name_or_path: formal # The formal tokenizer includes all needed symbols
-cache_dir: /cluster/scratch/asvete/duo
-wrap: False
-streaming: False
-insert_train_eos: False
-insert_valid_eos: False
-
 properties:
-  num_examples_train: 200000
-  num_examples_valid: 20000
   fsa_type: ab_star
-  min_train_len: 5
-  max_train_len: 5
-  min_val_len: 5
-  max_val_len: 5
-  min_test_len: 5
-  max_test_len: 5
-
-  # --- Output Format ---
-  # Options: trace, final_value
-  format: trace      
-  
-  # --- Parameters for 'random' fsa_type ONLY ---
-  num_states: 4
-  alphabet_size: 2

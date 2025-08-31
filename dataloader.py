@@ -18,8 +18,10 @@ import tokenizers
 import torch
 import transformers
 
+import arithmetic
 import bfvp
 import utils
+from arithmetic import ARITHMETIC_CREATORS
 from bfvp import BFVP_CREATORS
 from masked_formal_collator import MaskedFormalCollator
 from regular import FSA_CREATORS, get_monoid_size, make_fsa_examples
@@ -119,11 +121,15 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
         language="bfvp",
         monoid_size: Optional[int] = None,
         num_vars: Optional[int] = None,
+        min_val: Optional[int] = None,
+        max_val: Optional[int] = None,
         **kwargs,
     ):
         print(f"language = {language}")
         print(f"monoid_size = {monoid_size}")
         print(f"num_vars = {num_vars}")
+        print(f"min_val = {min_val}")
+        print(f"max_val = {max_val}")
 
         if language in BFVP_CREATORS:
             if num_vars is None:
@@ -141,9 +147,18 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
         elif language in FSA_CREATORS:
             if monoid_size is None:
                 raise ValueError("monoid_size must be provided for FSA languages.")
-            # Dynamically create vocab for the exact number of monoid elements
             monoid_tokens = [str(i) for i in range(monoid_size)]
             self.FORMAL_TOKENS = ["#", "|", "a", "b"] + monoid_tokens
+        elif language in ARITHMETIC_CREATORS:
+            if num_vars is None or min_val is None or max_val is None:
+                raise ValueError(
+                    "num_vars, min_val, and max_val must be provided for the arithmetic language."
+                )
+            variable_tokens = [f"x{i}" for i in range(1, num_vars + 1)]
+            constant_tokens = [str(i) for i in range(min_val, max_val + 1)]
+            self.FORMAL_TOKENS = (
+                ["#", "|", "+", "-", "*", "/"] + variable_tokens + constant_tokens
+            )
         else:
             raise ValueError(f"Unknown formal language: {language}")
 
@@ -466,6 +481,19 @@ def get_dataset(
             )
         format_str = getattr(lang_cfg, "format", "trace").replace("_", "-")
         base_name = f"{dataset_name}_minl{min_len}_maxl{max_len}_f-{format_str}"
+    elif dataset_name in ARITHMETIC_CREATORS:
+        arith_cfg = getattr(config.data, "properties", {})
+        min_depth = getattr(
+            arith_cfg, "min_depth_train" if mode == "train" else "min_depth_valid", 1
+        )
+        max_depth = getattr(
+            arith_cfg, "max_depth_train" if mode == "train" else "max_depth_valid", 4
+        )
+        num_vars = getattr(arith_cfg, "num_vars", 2)
+        min_val = getattr(arith_cfg, "min_val", 0)
+        max_val = getattr(arith_cfg, "max_val", 50)
+        format_str = getattr(arith_cfg, "format", "trace").replace("_", "-")
+        base_name = f"{dataset_name}_mind{min_depth}_maxd{max_depth}_nv{num_vars}_minv{min_val}_maxv{max_val}_f-{format_str}"
     else:
         base_name = dataset_name
 
@@ -548,6 +576,40 @@ def get_dataset(
             min_len,
             max_len,
             format_mode,
+        )
+        dataset = datasets.DatasetDict(
+            {split_name: datasets.Dataset.from_list(examples)}
+        )
+    elif dataset_name in ARITHMETIC_CREATORS:
+        arith_cfg = getattr(config.data, "properties", {})
+        num_examples = (
+            getattr(arith_cfg, "num_examples_train", 50000)
+            if mode == "train"
+            else getattr(arith_cfg, "num_examples_valid", 5000)
+        )
+        split_name = "train" if mode == "train" else "validation"
+        min_depth = getattr(
+            arith_cfg, "min_depth_train" if mode == "train" else "min_depth_valid", 1
+        )
+        max_depth = getattr(
+            arith_cfg, "max_depth_train" if mode == "train" else "max_depth_valid", 4
+        )
+        num_vars = getattr(arith_cfg, "num_vars", 2)
+        min_val = getattr(arith_cfg, "min_val", 0)
+        max_val = getattr(arith_cfg, "max_val", 50)
+        format_mode = getattr(arith_cfg, "format", "trace")
+        LOGGER.info(
+            f"Generating '{split_name}' arithmetic data with: min_depth={min_depth}, max_depth={max_depth}, "
+            f"num_vars={num_vars}, min_val={min_val}, max_val={max_val}, format={format_mode}"
+        )
+        examples = arithmetic.make_examples(
+            num_examples=num_examples,
+            min_depth=min_depth,
+            max_depth=max_depth,
+            mode=format_mode,
+            min_val=min_val,
+            max_val=max_val,
+            num_vars=num_vars,
         )
         dataset = datasets.DatasetDict(
             {split_name: datasets.Dataset.from_list(examples)}
@@ -695,7 +757,11 @@ def get_dataset(
         remove_cols = ["article", "abstract", "section_names"]
     elif dataset_name == "ag_news":
         remove_cols = ["text", "label"]
-    elif dataset_name in BFVP_CREATORS or dataset_name in FSA_CREATORS:
+    elif (
+        dataset_name in BFVP_CREATORS
+        or dataset_name in FSA_CREATORS
+        or dataset_name in ARITHMETIC_CREATORS
+    ):
         remove_cols = ["text"] if "text" in tokenized_dataset.column_names else []
     else:
         remove_cols = ["text"]
@@ -703,7 +769,11 @@ def get_dataset(
         tokenized_dataset = tokenized_dataset.remove_columns(remove_cols)
 
     if not wrap:
-        if dataset_name in BFVP_CREATORS or dataset_name in FSA_CREATORS:
+        if (
+            dataset_name in BFVP_CREATORS
+            or dataset_name in FSA_CREATORS
+            or dataset_name in ARITHMETIC_CREATORS
+        ):
             original_texts = (
                 data["text"]
                 if isinstance(data, datasets.Dataset)
@@ -730,7 +800,11 @@ def get_dataset(
         desc="Grouping",
     )
 
-    if dataset_name in BFVP_CREATORS or dataset_name in FSA_CREATORS:
+    if (
+        dataset_name in BFVP_CREATORS
+        or dataset_name in FSA_CREATORS
+        or dataset_name in ARITHMETIC_CREATORS
+    ):
         original_texts = (
             data["text"] if isinstance(data, datasets.Dataset) else data[mode]["text"]
         )
@@ -751,6 +825,8 @@ def get_tokenizer(config):
         language = config.data.train
         monoid_size = None
         num_vars = None
+        min_val = None
+        max_val = None
         # Pre-compute monoid size or num_vars for dynamic tokenizer vocab
         if language in BFVP_CREATORS:
             bfvp_cfg = getattr(config.data, "properties", {})
@@ -763,8 +839,20 @@ def get_tokenizer(config):
             LOGGER.info(
                 f"Language '{language}' requires a monoid of size {monoid_size}. Creating dynamic tokenizer."
             )
+        elif language in ARITHMETIC_CREATORS:
+            arith_cfg = getattr(config.data, "properties", {})
+            num_vars = getattr(arith_cfg, "num_vars", 2)
+            min_val = getattr(arith_cfg, "min_val", 0)
+            max_val = getattr(arith_cfg, "max_val", 50)
+            LOGGER.info(
+                f"Language '{language}' requires {num_vars} variables and values in [{min_val}, {max_val}]. Creating dynamic tokenizer."
+            )
         tokenizer = FormalTokenizer(
-            language=language, monoid_size=monoid_size, num_vars=num_vars
+            language=language,
+            monoid_size=monoid_size,
+            num_vars=num_vars,
+            min_val=min_val,
+            max_val=max_val,
         )
     elif config.data.tokenizer_name_or_path == "text8":
         tokenizer = Text8Tokenizer()

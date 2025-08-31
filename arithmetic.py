@@ -1,6 +1,6 @@
 import argparse
 import random
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 # A creator dictionary, analogous to FSA_CREATORS and BFVP_CREATORS,
 # for easy integration with the existing dataloader.
@@ -37,12 +37,8 @@ def generate_expression_tree(depth: int, min_val: int, max_val: int) -> Dict[str
         try:
             if op == "+":
                 # To get a + b = c, where c <= max_val:
-                # 1. Generate a valid left child 'a'.
                 left_child = generate_expression_tree(depth - 1, min_val, max_val)
                 left_val = evaluate_expression_tree(left_child)
-                # 2. Constrain the right child 'b' so that a + b <= max_val.
-                #    This means b's value must be <= max_val - a.
-                #    We achieve this by recursively generating trees until one fits the constraint.
                 while True:
                     right_child = generate_expression_tree(depth - 1, min_val, max_val)
                     if evaluate_expression_tree(right_child) <= max_val - left_val:
@@ -51,11 +47,8 @@ def generate_expression_tree(depth: int, min_val: int, max_val: int) -> Dict[str
 
             elif op == "-":
                 # To get a - b = c, where c >= min_val:
-                # 1. Generate a valid left child 'a'.
                 left_child = generate_expression_tree(depth - 1, min_val, max_val)
                 left_val = evaluate_expression_tree(left_child)
-                # 2. Constrain the right child 'b' so that a - b >= min_val.
-                #    This means b's value must be <= a.
                 while True:
                     right_child = generate_expression_tree(depth - 1, min_val, max_val)
                     if evaluate_expression_tree(right_child) <= left_val - min_val:
@@ -64,14 +57,11 @@ def generate_expression_tree(depth: int, min_val: int, max_val: int) -> Dict[str
 
             elif op == "*":
                 # To get a * b = c, where c <= max_val:
-                # 1. Generate a valid left child 'a'.
                 left_child = generate_expression_tree(depth - 1, min_val, max_val)
                 left_val = evaluate_expression_tree(left_child)
-                # 2. Handle multiplication by zero separately.
                 if left_val == 0:
                     right_child = generate_expression_tree(depth - 1, min_val, max_val)
                 else:
-                    # 3. Constrain 'b' so a * b <= max_val => b <= max_val / a.
                     while True:
                         right_child = generate_expression_tree(
                             depth - 1, min_val, max_val
@@ -82,28 +72,21 @@ def generate_expression_tree(depth: int, min_val: int, max_val: int) -> Dict[str
 
             elif op == "/":
                 # Division is tricky. It's easier to work backward.
-                # To get a / b = c, where a, b, c are valid:
-                # 1. Generate a valid divisor 'b' (must not be 0).
                 while True:
                     right_child = generate_expression_tree(depth - 1, min_val, max_val)
                     right_val = evaluate_expression_tree(right_child)
                     if right_val != 0:
                         break
-                # 2. Generate a valid result 'c'.
                 result_child = generate_expression_tree(depth - 1, min_val, max_val)
                 result_val = evaluate_expression_tree(result_child)
-                # 3. Calculate the required dividend 'a' = b * c.
                 left_val = right_val * result_val
-                # 4. If 'a' is out of bounds, we must retry the whole process.
                 if not (min_val <= left_val <= max_val):
-                    continue  # Retry the main while loop
-                # 5. If 'a' is valid, create a constant node for it. We don't recurse
-                #    further to ensure the division constraint holds.
+                    continue
                 left_child = {"const": left_val}
                 return {"op": op, "children": [left_child, right_child]}
 
         except (ValueError, ZeroDivisionError):
-            continue  # Retry if any unexpected error occurs during generation
+            continue
 
 
 def evaluate_expression_tree(tree: Dict[str, Any]) -> int:
@@ -121,7 +104,6 @@ def evaluate_expression_tree(tree: Dict[str, Any]) -> int:
     if op == "*":
         return child_values[0] * child_values[1]
     if op == "/":
-        # The generation process ensures no division by zero.
         return child_values[0] // child_values[1]
     raise ValueError(f"Unknown operator: {op}")
 
@@ -130,8 +112,9 @@ def tree_to_prefix_str(tree: Dict[str, Any]) -> str:
     """Converts an expression tree to a prefix notation string (Polish Notation)."""
     if "const" in tree:
         return str(tree["const"])
+    if "var" in tree:
+        return tree["var"]
 
-    # Recursively get string representations of children
     children_strs = [tree_to_prefix_str(child) for child in tree["children"]]
     op = tree["op"]
 
@@ -141,12 +124,10 @@ def tree_to_prefix_str(tree: Dict[str, Any]) -> str:
 def reduce_expression_tree_step(node: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
     """
     Performs one reduction on the deepest, leftmost reducible sub-expression.
-    A sub-expression is reducible if it's an operator with constant children.
     """
     if "const" in node:
-        return node, False  # Cannot reduce a constant
+        return node, False
 
-    # Attempt to reduce children first (post-order traversal)
     new_children = []
     was_reduced = False
     for child in node["children"]:
@@ -161,7 +142,6 @@ def reduce_expression_tree_step(node: Dict[str, Any]) -> Tuple[Dict[str, Any], b
     if was_reduced:
         return {"op": node["op"], "children": new_children}, True
 
-    # If no children were reduced, check if this node is now reducible
     if all("const" in child for child in node["children"]):
         final_value = evaluate_expression_tree(node)
         return {"const": final_value}, True
@@ -175,7 +155,6 @@ def get_prefix_reduction_steps(start_tree: Dict[str, Any]) -> List[str]:
     """
     current_tree = start_tree
     steps = [tree_to_prefix_str(current_tree)]
-    # Loop until the tree is fully reduced to a single constant
     while "op" in current_tree:
         current_tree, reduced = reduce_expression_tree_step(current_tree)
         if not reduced:
@@ -191,8 +170,37 @@ def get_prefix_reduction_trace(start_tree: Dict[str, Any]) -> str:
     steps = get_prefix_reduction_steps(start_tree)
     if len(steps) <= 1:
         return steps[0]
-    # Format matches the other scripts: `initial # step1 | step2 | final`
     return f"{steps[0]} # {' | '.join(steps[1:])}"
+
+
+def get_constants_from_tree(node: Dict[str, Any]) -> Set[int]:
+    """Traverses an expression tree and returns a set of unique constant values."""
+    if "const" in node:
+        return {node["const"]}
+    if "var" in node:
+        return set()
+    return set.union(
+        *[get_constants_from_tree(child) for child in node.get("children", [])]
+    )
+
+
+def variablize_tree(
+    node: Dict[str, Any], value_to_var_map: Dict[int, str]
+) -> Dict[str, Any]:
+    """
+    Replaces constant nodes in a tree with variable nodes based on the provided mapping.
+    """
+    if "const" in node:
+        value = node["const"]
+        return {"var": value_to_var_map[value]} if value in value_to_var_map else node
+    if "op" in node:
+        return {
+            "op": node["op"],
+            "children": [
+                variablize_tree(child, value_to_var_map) for child in node["children"]
+            ],
+        }
+    return node
 
 
 def make_examples(
@@ -202,6 +210,7 @@ def make_examples(
     mode: str,
     min_val: int,
     max_val: int,
+    num_vars: int,
 ) -> List[Dict[str, str]]:
     """
     Generates a list of arithmetic expression examples.
@@ -225,7 +234,6 @@ def make_examples(
                 final_value = reduction_steps_list[-1]
                 padded_steps = []
                 for step in reduction_steps_list[:-1]:
-                    # For prefix, tokens are numbers and ops
                     num_tokens = len(step.split())
                     padded_steps.append(" ".join(["[PAD]"] * num_tokens))
                 if padded_steps:
@@ -235,6 +243,44 @@ def make_examples(
                     text = f"{initial_repr} # {final_value}"
             else:
                 text = initial_repr
+        elif mode == "lookup":
+            if num_vars <= 0:
+                raise ValueError("num_vars must be positive for 'lookup' mode.")
+
+            unique_constants = sorted(list(get_constants_from_tree(expression_tree)))
+            num_to_variablize = min(num_vars, len(unique_constants))
+
+            if num_to_variablize == 0:
+                # Fallback for simple trees with no variety in constants
+                text = get_prefix_reduction_trace(expression_tree)
+                examples.append({"text": text})
+                continue
+
+            constants_to_variablize = random.sample(unique_constants, num_to_variablize)
+
+            var_to_value_map = {
+                f"x{i+1}": val for i, val in enumerate(constants_to_variablize)
+            }
+            value_to_var_map = {val: var for var, val in var_to_value_map.items()}
+
+            variable_tree = variablize_tree(expression_tree, value_to_var_map)
+
+            assignment_parts = []
+            for var, val in sorted(
+                var_to_value_map.items(), key=lambda item: int(item[0][1:])
+            ):
+                assignment_parts.append(f"{var} {val}")
+            assignment_str = " ".join(assignment_parts)
+
+            formula_with_vars_str = tree_to_prefix_str(variable_tree)
+
+            full_trace_str = get_prefix_reduction_trace(expression_tree)
+            trace_parts = full_trace_str.split(" # ", 1)
+            reduction_trace = (
+                trace_parts[1] if len(trace_parts) == 2 else trace_parts[0]
+            )
+
+            text = f"{assignment_str} | {formula_with_vars_str} # {reduction_trace}"
         else:
             raise ValueError(f"Unknown format mode: {mode}")
 
@@ -276,11 +322,17 @@ if __name__ == "__main__":
         help="Maximum value for operands and results.",
     )
     parser.add_argument(
+        "--num_vars",
+        type=int,
+        default=2,
+        help="Number of unique variables to create for 'lookup' mode.",
+    )
+    parser.add_argument(
         "--format",
         type=str,
         default="trace",
-        choices=["trace", "final_value", "empty_trace"],
-        help="Output format: 'trace' for full reduction, 'final_value' for result only, 'empty_trace' for padded trace.",
+        choices=["trace", "final_value", "empty_trace", "lookup"],
+        help="Output format. 'lookup' mode creates variables.",
     )
 
     args = parser.parse_args()
@@ -290,6 +342,9 @@ if __name__ == "__main__":
     print(
         f"Generating {args.num_examples} examples with tree depth from {args.min_depth} to {args.max_depth}."
     )
+    print(f"Output Format: '{args.format}'")
+    if args.format == "lookup":
+        print(f"Variables per example: up to {args.num_vars}")
 
     generated_examples = make_examples(
         num_examples=args.num_examples,
@@ -298,6 +353,7 @@ if __name__ == "__main__":
         mode=args.format,
         min_val=args.min_val,
         max_val=args.max_val,
+        num_vars=args.num_vars,
     )
 
     print("\n--- Generated Examples ---")

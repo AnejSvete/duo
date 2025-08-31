@@ -243,6 +243,32 @@ def make_examples(
             else:
                 # If there are no reduction steps, just use the initial representation
                 text = initial_repr
+        elif mode == "lookup":
+            # Create the variable assignment string, sorting for consistency.
+            assignment_parts = []
+            # Sort keys by the integer value of the variable name (e.g., x1, x2, x10)
+            sorted_vars = sorted(list(assignments.keys()), key=lambda v: int(v[1:]))
+            for var in sorted_vars:
+                value = assignments[var]
+                assignment_parts.append(f"{var} {'T' if value else 'F'}")
+            assignment_str = " ".join(assignment_parts)
+
+            # Get the formula with variables.
+            initial_formula_str = tree_to_prefix_str(expression_tree)
+
+            # Get the full reduction trace of the substituted tree.
+            full_trace_str = get_prefix_reduction_trace(substituted_tree)
+
+            # The trace string might just be the final value if no reduction happens.
+            # We need to extract the part after the '#', if it exists.
+            trace_parts = full_trace_str.split(" # ", 1)
+            if len(trace_parts) == 2:
+                reduction_trace = trace_parts[1]
+            else:
+                # If there's no '#', the trace is just the final value.
+                reduction_trace = trace_parts[0]
+
+            text = f"{assignment_str} | {initial_formula_str} # {reduction_trace}"
         else:
             raise ValueError(f"Unknown format mode: {mode}")
 
@@ -283,8 +309,8 @@ if __name__ == "__main__":
         "--format",
         type=str,
         default="trace",
-        choices=["trace", "final_value", "empty_trace"],
-        help="Output format: 'trace' for full reduction, 'final_value' for result only, 'empty_trace' for padded trace.",
+        choices=["trace", "final_value", "empty_trace", "lookup"],
+        help="Output format: 'trace', 'final_value', 'empty_trace', or 'lookup'.",
     )
     parser.add_argument(
         "--num_examples", type=int, default=5, help="Number of examples to generate."

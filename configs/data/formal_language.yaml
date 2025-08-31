@@ -1,0 +1,26 @@
+train: null
+valid: null
+tokenizer_name_or_path: formal # The formal tokenizer includes all needed symbols
+cache_dir: /cluster/scratch/asvete/duo
+wrap: False
+streaming: False
+insert_train_eos: False
+insert_valid_eos: False
+
+properties:
+  num_examples_train: 200000
+  num_examples_valid: 20000
+  fsa_type: null
+  min_train_len: 2
+  max_train_len: 64
+  min_val_len: 32
+  max_val_len: 64
+  min_test_len: 48
+  max_test_len: 64
+  format: trace
+  num_states: null
+  alphabet_size: null
+  num_vars: null
+  max_val: null
+  max_depth: null
+  fan_in: null

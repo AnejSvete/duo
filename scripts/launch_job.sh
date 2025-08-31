@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# Usage: bash launch_job.sh <LANGUAGE> [--prepare|--rest] [SHORT_MODEL_LENGTH] [LONG_MODEL_LENGTH]
-
+# Usage: bash launch_job.sh <LANGUAGE> [--prepare|--rest] [MIN_TRAIN_LENGTH] [MAX_TRAIN_LENGTH] [MIN_VAL_LENGTH] [MAX_VAL_LENGTH] [MIN_TEST_LENGTH] [MAX_TEST_LENGTH] [SHORT_MODEL_LENGTH] [LONG_MODEL_LENGTH]
 
 LANGUAGE=$1
 FLAG=$2
