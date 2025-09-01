@@ -4,8 +4,6 @@ defaults:
 train: bfvp
 valid: bfvp
 properties:
-  num_examples_train: 1000000
-  num_examples_valid: 10000
   num_vars: 2
   min_depth: 2
   max_depth: 7

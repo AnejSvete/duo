@@ -10,6 +10,7 @@ insert_valid_eos: False
 properties:
   num_examples_train: 100000
   num_examples_valid: 10000
+  num_examples_test: 50000
   fsa_type: null
   min_train_len: 64
   max_train_len: 64

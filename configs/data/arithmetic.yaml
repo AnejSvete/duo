@@ -4,9 +4,8 @@ defaults:
 train: arithmetic
 valid: arithmetic
 properties:
-  num_examples_train: 1000000
-  num_examples_valid: 10000
   num_vars: 2
+  min_val: 0
   max_val: 50
-  max_depth: 6
+  max_depth: 7
   format: trace
