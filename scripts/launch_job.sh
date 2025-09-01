@@ -10,17 +10,17 @@ MIN_VAL_LENGTH=${5:-32}
 MAX_VAL_LENGTH=${6:-64}
 MIN_TEST_LENGTH=${7:-48}
 MAX_TEST_LENGTH=${8:-64}
-
 # Set model lengths based on language and max train length
-if [ "$LANGUAGE" = "arithmetic" ] || [ "$LANGUAGE" = "bfvp" ]; then
+if [ "$LANGUAGE" = "arithmetic" ]; then
     SHORT_MODEL_LENGTH=512
     LONG_MODEL_LENGTH=1024
+elif [ "$LANGUAGE" = "bfvp" ]; then
+    SHORT_MODEL_LENGTH=1024
+    LONG_MODEL_LENGTH=2048
 else
     SHORT_MODEL_LENGTH=$(( MAX_TRAIN_LENGTH * 3 / 2 ))
     LONG_MODEL_LENGTH=$(( MAX_TRAIN_LENGTH * 3 ))
 fi
-echo $SHORT_MODEL_LENGTH
-echo $LONG_MODEL_LENGTH
 
 if [ "$FLAG" = "--prepare" ]; then
     sbatch scripts/train_classifier.sh $LANGUAGE $MIN_TRAIN_LENGTH $MAX_TRAIN_LENGTH $MIN_VAL_LENGTH $MAX_VAL_LENGTH $MIN_TEST_LENGTH $MAX_TEST_LENGTH $SHORT_MODEL_LENGTH

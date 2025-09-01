@@ -17,9 +17,6 @@ class MaskedFormalCollator:
 
     def __init__(self, tokenizer: PreTrainedTokenizer, max_length: int):
 
-        print(
-            f"Using MaskedFormalCollator with max_length={max_length}, type={type(max_length)}"
-        )
         self.tokenizer = tokenizer
         self.max_length = max_length
         if self.tokenizer.pad_token is None:

@@ -126,12 +126,6 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
         format_mode: str = "trace",
         **kwargs,
     ):
-        print(f"language = {language}")
-        print(f"monoid_size = {monoid_size}")
-        print(f"num_vars = {num_vars}")
-        print(f"min_val = {min_val}")
-        print(f"max_val = {max_val}")
-        print(f"format_mode = {format_mode}")
 
         if language in BFVP_CREATORS:
             if num_vars is None:
@@ -910,10 +904,6 @@ def get_dataloaders(
         )
     if config.loader.eval_global_batch_size % num_gpus != 0:
         raise ValueError("Eval batch size not divisible by number of GPUs.")
-
-    print(
-        f"config.model.length={config.model.length}, type={type(config.model.length)}"
-    )
 
     train_set = (
         None
