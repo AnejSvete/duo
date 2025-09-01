@@ -911,6 +911,10 @@ def get_dataloaders(
     if config.loader.eval_global_batch_size % num_gpus != 0:
         raise ValueError("Eval batch size not divisible by number of GPUs.")
 
+    print(
+        f"config.model.length={config.model.length}, type={type(config.model.length)}"
+    )
+
     train_set = (
         None
         if skip_train
