@@ -7,6 +7,7 @@ properties:
   num_examples_train: 1000000
   num_examples_valid: 10000
   num_vars: 2
-  max_depth: 6
+  min_depth: 2
+  max_depth: 7
   fan_in: 2
   format: trace

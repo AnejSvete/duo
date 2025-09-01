@@ -8,14 +8,14 @@ insert_train_eos: False
 insert_valid_eos: False
 
 properties:
-  num_examples_train: 200000
-  num_examples_valid: 20000
+  num_examples_train: 100000
+  num_examples_valid: 10000
   fsa_type: null
-  min_train_len: 2
+  min_train_len: 64
   max_train_len: 64
-  min_val_len: 32
+  min_val_len: 64
   max_val_len: 64
-  min_test_len: 48
+  min_test_len: 64
   max_test_len: 64
   format: trace
   num_states: null

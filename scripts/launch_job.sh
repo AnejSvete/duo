@@ -10,8 +10,22 @@ MIN_VAL_LENGTH=${5:-32}
 MAX_VAL_LENGTH=${6:-64}
 MIN_TEST_LENGTH=${7:-48}
 MAX_TEST_LENGTH=${8:-64}
-SHORT_MODEL_LENGTH=${9:-96}
-LONG_MODEL_LENGTH=${10:-192}
+
+# Set model lengths based on language and max train length
+if [ "$LANGUAGE" = "arithmetic" ] || [ "$LANGUAGE" = "bfvp" ]; then
+    SHORT_MODEL_LENGTH=512
+    LONG_MODEL_LENGTH=1024
+else
+    SHORT_MODEL_LENGTH=$(printf "%d" "$(echo "1.5 * $MAX_TRAIN_LENGTH" | bc)")
+    LONG_MODEL_LENGTH=$(printf "%d" "$(echo "3 * $MAX_TRAIN_LENGTH" | bc)")
+fi
+# Override if positional arguments are provided
+if [ -n "$9" ]; then
+    SHORT_MODEL_LENGTH=$9
+fi
+if [ -n "$10" ]; then
+    LONG_MODEL_LENGTH=$10
+fi
 
 if [ "$FLAG" = "--prepare" ]; then
     sbatch scripts/train_classifier.sh $LANGUAGE $MIN_TRAIN_LENGTH $MAX_TRAIN_LENGTH $MIN_VAL_LENGTH $MAX_VAL_LENGTH $MIN_TEST_LENGTH $MAX_TEST_LENGTH $SHORT_MODEL_LENGTH
