@@ -19,6 +19,8 @@ MIN_TEST_LENGTH=$6
 MAX_TEST_LENGTH=$7
 MODEL_LENGTH=$8
 
+echo "Using model length: $MODEL_LENGTH"
+
 srun python -u -m main \
   wandb.name="$TASK-cot-$(date +%Y%m%d-%H%M%S)" \
   data=$TASK \
