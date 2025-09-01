@@ -16,8 +16,8 @@ if [ "$LANGUAGE" = "arithmetic" ] || [ "$LANGUAGE" = "bfvp" ]; then
     SHORT_MODEL_LENGTH=512
     LONG_MODEL_LENGTH=1024
 else
-    SHORT_MODEL_LENGTH=$(printf "%d" "$(echo "1.5 * $MAX_TRAIN_LENGTH" | bc)")
-    LONG_MODEL_LENGTH=$(printf "%d" "$(echo "3 * $MAX_TRAIN_LENGTH" | bc)")
+    SHORT_MODEL_LENGTH=$(( MAX_TRAIN_LENGTH * 3 / 2 ))
+    LONG_MODEL_LENGTH=$(( MAX_TRAIN_LENGTH * 3 ))
 fi
 # Override if positional arguments are provided
 if [ -n "$9" ]; then
