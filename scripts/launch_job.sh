@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Usage: bash launch_job.sh <LANGUAGE> [--prepare|--rest] [MIN_TRAIN_LENGTH] [MAX_TRAIN_LENGTH] [MIN_VAL_LENGTH] [MAX_VAL_LENGTH] [MIN_TEST_LENGTH] [MAX_TEST_LENGTH] [SHORT_MODEL_LENGTH] [LONG_MODEL_LENGTH]
+# Usage: bash launch_job.sh <LANGUAGE> [--prepare|--rest] [MIN_TRAIN_LENGTH] [MAX_TRAIN_LENGTH] [MIN_VAL_LENGTH] [MAX_VAL_LENGTH] [MIN_TEST_LENGTH] [MAX_TEST_LENGTH] 
 
 LANGUAGE=$1
 FLAG=$2
@@ -19,14 +19,6 @@ else
     SHORT_MODEL_LENGTH=$(( MAX_TRAIN_LENGTH * 3 / 2 ))
     LONG_MODEL_LENGTH=$(( MAX_TRAIN_LENGTH * 3 ))
 fi
-# Override if positional arguments are provided
-if [ -n "$9" ]; then
-    SHORT_MODEL_LENGTH=$9
-fi
-if [ -n "$10" ]; then
-    LONG_MODEL_LENGTH=$10
-fi
-
 echo $SHORT_MODEL_LENGTH
 echo $LONG_MODEL_LENGTH
 
