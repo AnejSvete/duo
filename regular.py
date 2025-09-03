@@ -135,6 +135,18 @@ def create_ab_star_fsa():
     return fsa
 
 
+def create_aa_star_fsa():
+    fsa = FiniteStateAutomaton(3, ["a", "b"])
+    fsa.set_accepting_state(0)
+    fsa.set_transition(0, "a", 1)
+    fsa.set_transition(0, "b", 2)
+    fsa.set_transition(1, "a", 0)
+    fsa.set_transition(1, "b", 2)
+    fsa.set_transition(2, "a", 2)
+    fsa.set_transition(2, "b", 2)
+    return fsa
+
+
 def create_mod_3_fsa():
     fsa = FiniteStateAutomaton(3, ["a", "b"])
     fsa.set_accepting_state(0)
@@ -368,6 +380,7 @@ def create_a4_x_z5_fsa():
 FSA_CREATORS = {
     "a4_x_z5": create_a4_x_z5_fsa,
     "a5": create_a5_fsa,
+    "aa_star": create_aa_star_fsa,
     "ab_star": create_ab_star_fsa,
     "contains_a": create_contains_a_fsa,
     "contains_ab": create_contains_ab_fsa,
