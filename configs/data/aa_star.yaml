@@ -1,0 +1,7 @@
+defaults:
+  - formal_language
+
+train: aa_star
+valid: aa_star
+properties:
+  fsa_type: aa_star

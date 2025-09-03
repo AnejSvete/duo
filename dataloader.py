@@ -471,14 +471,9 @@ def get_dataset(
         base_name = f"{dataset_name}_mind{min_depth}_maxd{max_depth}_nv{num_vars}_fi{fan_in}_f-{format_str}"
     elif dataset_name in FSA_CREATORS:
         lang_cfg = getattr(config.data, "properties", {})
-        if mode == "train":
-            min_len, max_len = getattr(lang_cfg, "min_len_train", 8), getattr(
-                lang_cfg, "max_len_train", 16
-            )
-        else:
-            min_len, max_len = getattr(lang_cfg, "min_len_valid", 32), getattr(
-                lang_cfg, "max_len_valid", 64
-            )
+        min_len, max_len = getattr(lang_cfg, f"min_len_{mode}", 32), getattr(
+            lang_cfg, f"max_len_{mode}", 32
+        )
         format_str = getattr(lang_cfg, "format", "trace").replace("_", "-")
         base_name = f"{dataset_name}_minl{min_len}_maxl{max_len}_f-{format_str}"
     elif dataset_name in ARITHMETIC_CREATORS:
@@ -546,20 +541,11 @@ def get_dataset(
         )
     elif dataset_name in FSA_CREATORS:
         lang_cfg = getattr(config.data, "properties", {})
-        num_examples = (
-            getattr(lang_cfg, "num_examples_train", 50000)
-            if mode == "train"
-            else getattr(lang_cfg, "num_examples_valid", 5000)
-        )
+        num_examples = getattr(lang_cfg, f"num_examples_{mode}", 50000)
         split_name = "train" if mode == "train" else "validation"
-        if mode == "train":
-            min_len, max_len = getattr(lang_cfg, "min_len_train", 8), getattr(
-                lang_cfg, "max_len_train", 16
-            )
-        else:
-            min_len, max_len = getattr(lang_cfg, "min_len_valid", 32), getattr(
-                lang_cfg, "max_len_valid", 64
-            )
+        min_len, max_len = getattr(lang_cfg, f"min_len_{mode}", 32), getattr(
+            lang_cfg, f"max_len_{mode}", 32
+        )
         format_mode = getattr(lang_cfg, "format", "trace")
         LOGGER.info(f"Generating '{split_name}' {dataset_name} data...")
         fsa = FSA_CREATORS[dataset_name]()
@@ -891,7 +877,12 @@ def get_tokenizer(config):
 
 
 def get_dataloaders(
-    config, tokenizer, skip_train=False, skip_valid=False, valid_seed=None
+    config,
+    tokenizer,
+    skip_train=False,
+    skip_valid=False,
+    skip_test=False,
+    valid_seed=None,
 ):
     num_gpus = torch.cuda.device_count()
     if (
@@ -944,8 +935,27 @@ def get_dataloaders(
         )
     )
 
+    test_split = "test"
+    test_set = (
+        None
+        if skip_test
+        else get_dataset(
+            config.data.test,
+            tokenizer,
+            wrap=config.data.wrap,
+            mode=test_split,
+            cache_dir=config.data.cache_dir,
+            insert_eos=config.data.insert_test_eos,
+            block_size=config.model.length,
+            streaming=config.data.streaming,
+            num_proc=config.loader.num_workers,
+            revision=config.data.get("test_revision"),
+            config=config,
+        )
+    )
+
     collator = MaskedFormalCollator(tokenizer=tokenizer, max_length=config.model.length)
-    train_loader, valid_loader = None, None
+    train_loader, valid_loader, test_loader = None, None, None
 
     if not skip_train:
         train_loader = torch.utils.data.DataLoader(
@@ -973,4 +983,15 @@ def get_dataloaders(
         )
         valid_loader.tokenizer = tokenizer
 
-    return train_loader, valid_loader
+    if not skip_test:
+        test_loader = torch.utils.data.DataLoader(
+            test_set,
+            batch_size=config.loader.eval_batch_size,
+            num_workers=config.loader.num_workers,
+            pin_memory=config.loader.pin_memory,
+            shuffle=False,
+            collate_fn=collator,
+        )
+        test_loader.tokenizer = tokenizer
+
+    return train_loader, valid_loader, test_loader

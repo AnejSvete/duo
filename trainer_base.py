@@ -1,5 +1,7 @@
 import itertools
+import json
 import math
+import os
 from dataclasses import dataclass
 
 import hydra.utils
@@ -476,6 +478,28 @@ class TrainerBase(L.LightningModule):
             self.log(
                 name=k, value=v.compute(), on_step=False, on_epoch=True, sync_dist=True
             )
+
+        # Save validation metrics to file
+        val_metrics_file = os.path.join(
+            self.config.checkpointing.save_dir, "validation_metrics.json"
+        )
+        current_metrics = {
+            k: v.compute().item() for k, v in self.metrics.valid_nlls.items()
+        }
+        current_metrics["epoch"] = self.current_epoch
+        current_metrics["global_step"] = self.global_step
+
+        if os.path.exists(val_metrics_file):
+            with open(val_metrics_file, "r") as f:
+                all_metrics = json.load(f)
+        else:
+            all_metrics = []
+
+        all_metrics.append(current_metrics)
+
+        with open(val_metrics_file, "w") as f:
+            json.dump(all_metrics, f, indent=4)
+
         # if (
         #     self.config.eval.compute_perplexity_on_sanity
         #     or not self.trainer.sanity_checking
@@ -519,6 +543,152 @@ class TrainerBase(L.LightningModule):
         #                 on_step=False,
         #                 sync_dist=True,
         #             )
+        self._train_mode()
+
+    def on_test_epoch_start(self):
+        self.metrics.reset()
+        self._eval_mode()
+        assert self.metrics.valid_nlls.nll.mean_value == 0
+        assert self.metrics.valid_nlls.nll.weight == 0
+
+    def test_step(self, batch, batch_idx):
+        # Robust fallback for do_not_mask
+        if "do_not_mask" not in batch:
+            batch["do_not_mask"] = torch.zeros_like(
+                batch["input_ids"], dtype=torch.bool
+            )
+
+        losses = self._loss(
+            x0=batch["input_ids"],
+            valid_tokens=batch["attention_mask"],
+            do_not_mask=batch["do_not_mask"],
+            train_mode=False,
+            ground_truth_masking=self.config.training.ground_truth_masking,
+        )
+        self.metrics.update_valid(losses.nlls, losses.prior_loss, losses.num_tokens)
+
+        # --- Formal accuracy evaluation ---
+        # Only run if formal dataset (do_not_mask is used)
+        if batch["do_not_mask"].any():
+            all_generated_samples = dict()
+            prompts, targets = self._extract_prompts_and_targets(
+                batch["input_ids"], batch["do_not_mask"]
+            )
+
+            # Generate completions conditioned on prompts
+            top_k = getattr(self.config.eval, "top_k", 1)
+
+            gen_modes = (
+                ["random", "top_k", "one_level", "all_at_once", "one_at_a_time"]
+                if isinstance(self, Diffusion)
+                else ["default"]
+            )
+
+            for gen_mode in gen_modes:
+                # Pass the `targets` tensor for shape compatibility, as required by the function signature.
+                generated = self.generate_conditioned(
+                    prompts, targets, mode=gen_mode, top_k=top_k
+                )
+
+                # Compute accuracy (exact match and token-level)
+                acc_exact, acc_token, correct_prediction = self._compute_accuracy(
+                    generated, targets
+                )
+                self.log(
+                    f"test/{gen_mode}_acc_exact",
+                    acc_exact,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=True,
+                )
+                self.log(
+                    f"test/{gen_mode}_acc_token",
+                    acc_token,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=True,
+                )
+                self.log(
+                    f"test/{gen_mode}_correct_prediction",
+                    correct_prediction,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=True,
+                )
+
+                if gen_mode in ["default", "one_at_a_time"]:
+                    self.log(
+                        "test/acc_token",
+                        acc_token,
+                        on_step=False,
+                        on_epoch=True,
+                        sync_dist=True,
+                    )
+
+                # Logic for logging samples remains the same
+                if self.trainer.global_rank == 0 and hasattr(
+                    self.trainer.logger, "log_table"
+                ):
+                    generated_samples = self.tokenizer.batch_decode(
+                        generated[: self.config.sampling.num_sample_log],
+                        skip_special_tokens=True,
+                    )
+                    all_generated_samples[gen_mode] = generated_samples
+
+            # Logic for logging samples remains the same
+            if self.trainer.global_rank == 0 and hasattr(
+                self.trainer.logger, "log_table"
+            ):
+                _all_generated_samples = []
+                for i in range(self.config.sampling.num_sample_log):
+                    _all_generated_samples.append(
+                        list(
+                            all_generated_samples[_gen_mode][i]
+                            for _gen_mode in all_generated_samples
+                        )
+                    )
+
+                target_samples = self.tokenizer.batch_decode(
+                    batch["input_ids"][: self.config.sampling.num_sample_log],
+                    skip_special_tokens=True,
+                )
+                self.trainer.logger.log_table(
+                    key=f"test_conditioned_generation@global_step{self.global_step}",
+                    columns=[
+                        f"Generated {_gen_mode}" for _gen_mode in all_generated_samples
+                    ]
+                    + ["Target"],
+                    data=[
+                        s + [t] for s, t in zip(_all_generated_samples, target_samples)
+                    ],
+                )
+            return {"loss": losses.loss, "acc_exact": acc_exact, "acc_token": acc_token}
+
+        return losses.loss
+
+    def on_test_epoch_end(self):
+        for k, v in self.metrics.valid_nlls.items():
+            self.log(
+                name="test/" + k,
+                value=v.compute(),
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+
+        # Save test metrics to file
+        test_metrics_file = os.path.join(
+            self.config.checkpointing.save_dir, "test_metrics.json"
+        )
+        current_metrics = {
+            "test/" + k: v.compute().item() for k, v in self.metrics.valid_nlls.items()
+        }
+        current_metrics["epoch"] = self.current_epoch
+        current_metrics["global_step"] = self.global_step
+
+        with open(test_metrics_file, "w") as f:
+            json.dump(current_metrics, f, indent=4)
+
         self._train_mode()
 
     def configure_optimizers(self):

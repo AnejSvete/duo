@@ -158,7 +158,7 @@ def _eval_ppl(diffusion_model, config, logger, tokenizer):
         strategy=hydra.utils.instantiate(config.strategy),
         logger=wandb_logger,
     )
-    _, valid_ds = dataloader.get_dataloaders(
+    _, valid_ds, test_ds = dataloader.get_dataloaders(
         config, tokenizer, skip_train=True, valid_seed=config.seed
     )
     trainer.validate(model, valid_ds)
@@ -187,7 +187,7 @@ def _train(diffusion_model, config, logger, tokenizer):
         for _, callback in config.callbacks.items():
             callbacks.append(hydra.utils.instantiate(callback))
 
-    train_ds, valid_ds = dataloader.get_dataloaders(config, tokenizer)
+    train_ds, valid_ds, test_ds = dataloader.get_dataloaders(config, tokenizer)
     _print_batch(train_ds, valid_ds, tokenizer)
 
     if config.training.finetune_path != "":
@@ -206,6 +206,11 @@ def _train(diffusion_model, config, logger, tokenizer):
         logger=wandb_logger,
     )
     trainer.fit(model, train_ds, valid_ds, ckpt_path=ckpt_path)
+
+    # Final evaluation on test dataset
+    if test_ds is not None:
+        logger.info("Running final evaluation on test dataset.")
+        trainer.test(model, test_ds)
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="config")
