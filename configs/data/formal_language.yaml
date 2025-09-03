@@ -12,12 +12,12 @@ properties:
   num_examples_valid: 10000
   num_examples_test: 50000
   fsa_type: null
-  min_train_len: 40
-  max_train_len: 40
-  min_val_len: 40
-  max_val_len: 40
-  min_test_len: 40
-  max_test_len: 40
+  min_train_len: 32
+  max_train_len: 32
+  min_val_len: 32
+  max_val_len: 32
+  min_test_len: 32
+  max_test_len: 32
   format: trace
   num_states: null
   alphabet_size: null
