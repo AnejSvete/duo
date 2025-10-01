@@ -179,7 +179,6 @@ def get_dataset(
             if mode == "train"
             else getattr(bfvp_cfg, "num_examples_valid", 5000)
         )
-        split_name = "train" if mode == "train" else "validation"
         min_depth = getattr(
             bfvp_cfg, "min_depth_train" if mode == "train" else "min_depth_valid", 1
         )
@@ -192,7 +191,7 @@ def get_dataset(
         )
         format_mode = getattr(bfvp_cfg, "format", "trace")
         LOGGER.info(
-            f"Generating '{split_name}' bfvp data with: min_depth={min_depth}, max_depth={max_depth}, num_vars={num_vars}, fan_in={fan_in}, format={format_mode}"
+            f"Generating '{mode}' bfvp data with: min_depth={min_depth}, max_depth={max_depth}, num_vars={num_vars}, fan_in={fan_in}, format={format_mode}"
         )
         examples = bfvp.make_examples(
             num_examples=num_examples,
@@ -202,18 +201,14 @@ def get_dataset(
             fan_in=fan_in,
             mode=format_mode,
         )
-        dataset = datasets.DatasetDict(
-            {split_name: datasets.Dataset.from_list(examples)}
-        )
     elif dataset_name in FSA_CREATORS:
         lang_cfg = getattr(config.data, "properties", {})
         num_examples = getattr(lang_cfg, f"num_examples_{mode}", 50000)
-        split_name = "train" if mode == "train" else "validation"
         min_len, max_len = getattr(lang_cfg, f"min_len_{mode}", 32), getattr(
             lang_cfg, f"max_len_{mode}", 32
         )
         format_mode = getattr(lang_cfg, "format", "trace")
-        LOGGER.info(f"Generating '{split_name}' {dataset_name} data...")
+        LOGGER.info(f"Generating '{mode}' {dataset_name} data...")
         fsa = FSA_CREATORS[dataset_name]()
         symbol_map, mult_table, identity_id, _, _ = fsa.compute_syntactic_monoid()
         monoid_details = {
@@ -229,9 +224,6 @@ def get_dataset(
             max_len,
             format_mode,
         )
-        dataset = datasets.DatasetDict(
-            {split_name: datasets.Dataset.from_list(examples)}
-        )
     elif dataset_name in ARITHMETIC_CREATORS:
         arith_cfg = getattr(config.data, "properties", {})
         num_examples = (
@@ -239,7 +231,6 @@ def get_dataset(
             if mode == "train"
             else getattr(arith_cfg, "num_examples_valid", 5000)
         )
-        split_name = "train" if mode == "train" else "validation"
         min_depth = getattr(
             arith_cfg, "min_depth_train" if mode == "train" else "min_depth_valid", 1
         )
@@ -251,7 +242,7 @@ def get_dataset(
         max_val = getattr(arith_cfg, "max_val", 50)
         format_mode = getattr(arith_cfg, "format", "trace")
         LOGGER.info(
-            f"Generating '{split_name}' arithmetic data with: min_depth={min_depth}, max_depth={max_depth}, "
+            f"Generating '{mode}' arithmetic data with: min_depth={min_depth}, max_depth={max_depth}, "
             f"num_vars={num_vars}, min_val={min_val}, max_val={max_val}, format={format_mode}"
         )
         examples = arithmetic.make_examples(
@@ -263,11 +254,8 @@ def get_dataset(
             max_val=max_val,
             num_vars=num_vars,
         )
-        dataset = datasets.DatasetDict(
-            {split_name: datasets.Dataset.from_list(examples)}
-        )
 
-    data = dataset[mode]
+    dataset = datasets.Dataset.from_list(examples)
 
     def preprocess_and_tokenize(examples):
         # examples is a dict with lists when batched=True
@@ -287,7 +275,7 @@ def get_dataset(
         tokens["text"] = texts
         return tokens
 
-    tokenized_dataset = data.map(
+    tokenized_dataset = dataset.map(
         preprocess_and_tokenize,
         batched=True,
         num_proc=num_proc,
@@ -295,7 +283,6 @@ def get_dataset(
         desc="Tokenizing",
     )
 
-    # The "text" column is already included in tokenized_dataset from preprocess_and_tokenize
     tokenized_dataset.save_to_disk(_path)
     return tokenized_dataset.with_format("torch")
 
@@ -407,14 +394,13 @@ def get_dataloaders(
         )
     )
 
-    test_split = "test"
     test_set = (
         None
         if skip_test
         else get_dataset(
             config.data.language,
             tokenizer,
-            mode=test_split,
+            mode="test",
             cache_dir=config.data.cache_dir,
             block_size=config.model.length,
             num_proc=config.loader.num_workers,
