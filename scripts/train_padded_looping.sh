@@ -22,7 +22,7 @@ MODEL_LENGTH=$8
 srun python -u -m main \
   wandb.name="$TASK-padded-looping-$(date +%Y%m%d-%H%M%S)" \
   data=$TASK \
-  model=ltnano \
+  model=nano \
   algo=lt \
   algo.looping_type=log \
   model.length=$MODEL_LENGTH \

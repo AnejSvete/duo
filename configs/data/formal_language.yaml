@@ -2,8 +2,6 @@ train: null
 valid: null
 tokenizer_name_or_path: formal # The formal tokenizer includes all needed symbols
 cache_dir: /cluster/scratch/asvete/duo
-wrap: False
-streaming: False
 insert_train_eos: False
 insert_valid_eos: False
 

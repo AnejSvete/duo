@@ -84,9 +84,6 @@ def _generate_samples(diffusion_model, config, logger, tokenizer):
     )
     model.metrics.gen_ppl.reset()
     model.metrics.sample_entropy.reset()
-    if config.eval.disable_ema:
-        logger.info("Disabling EMA.")
-        model.ema = None
     stride_length = config.sampling.stride_length
     num_strides = config.sampling.num_strides
     all_samples = []
@@ -138,9 +135,6 @@ def _eval_ppl(diffusion_model, config, logger, tokenizer):
     model = _load_from_checkpoint(
         diffusion_model=diffusion_model, config=config, tokenizer=tokenizer
     )
-    if config.eval.disable_ema:
-        logger.info("Disabling EMA.")
-        model.ema = None
 
     wandb_logger = None
     if config.get("wandb", None) is not None:
@@ -227,18 +221,10 @@ def main(config):
         diffusion_model = algo.LT
     elif config.algo.name == "mdlm":
         diffusion_model = algo.MDLM
-    elif config.algo.name == "duo_base":
-        diffusion_model = algo.DUO_BASE
     elif config.algo.name == "d3pm":
         diffusion_model = algo.D3PMAbsorb
     elif config.algo.name == "sedd":
         diffusion_model = algo.SEDDAbsorb
-    elif config.algo.name == "duo":
-        diffusion_model = algo.DUO
-    elif config.algo.name == "distillation":
-        diffusion_model = algo.Distillation
-    elif config.algo.name == "ot-finetune":
-        diffusion_model = algo.OptimalTransportFinetune
     else:
         raise ValueError(f"Invalid algorithm name: {config.algo.name}")
     kwargs = {
