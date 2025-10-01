@@ -1,7 +1,7 @@
 defaults:
   - _self_
   - /callbacks: [checkpoint_every_n_steps, checkpoint_monitor, learning_rate_monitor, early_stopping]
-  - /data: bfvp
+  - /data: formal_language
   - /model: nano
   - /strategy: ddp
   - /noise: log-linear
@@ -83,8 +83,7 @@ wandb:
   id: ${.name}_${seed}
   tags:
     - ${noise.type}
-    - ${data.train}
-    - ${data.valid}
+    - ${data.language}
     - ${algo.name}
 
 hydra:
