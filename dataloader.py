@@ -131,7 +131,7 @@ def _get_split_sizes(dataset_name, config):
     elif dataset_name in FSA_CREATORS:
         lang_cfg = getattr(config.data, "properties", {})
         train_size = getattr(lang_cfg, "num_examples_train", 50000)
-        valid_size = getattr(lang_cfg, "num_examples_validation", 5000)
+        valid_size = getattr(lang_cfg, "num_examples_valid", 5000)
         test_size = getattr(lang_cfg, "num_examples_test", 5000)
     elif dataset_name in ARITHMETIC_CREATORS:
         arith_cfg = getattr(config.data, "properties", {})
@@ -274,10 +274,10 @@ def _get_base_name(dataset_name, config, mode):
     if dataset_name in BFVP_CREATORS:
         bfvp_cfg = getattr(config.data, "properties", {})
         min_depth = getattr(
-            bfvp_cfg, "min_depth_train" if mode == "train" else "min_depth_valid", 1
+            bfvp_cfg, "min_depth" if mode == "train" else "min_depth", 1
         )
         max_depth = getattr(
-            bfvp_cfg, "max_depth_train" if mode == "train" else "max_depth_valid", 3
+            bfvp_cfg, "max_depth" if mode == "train" else "max_depth", 3
         )
         num_vars = getattr(bfvp_cfg, "num_vars", 4)
         fan_in = getattr(bfvp_cfg, "fan_in", 2)
@@ -293,10 +293,10 @@ def _get_base_name(dataset_name, config, mode):
     elif dataset_name in ARITHMETIC_CREATORS:
         arith_cfg = getattr(config.data, "properties", {})
         min_depth = getattr(
-            arith_cfg, "min_depth_train" if mode == "train" else "min_depth_valid", 1
+            arith_cfg, "min_depth" if mode == "train" else "min_depth", 1
         )
         max_depth = getattr(
-            arith_cfg, "max_depth_train" if mode == "train" else "max_depth_valid", 4
+            arith_cfg, "max_depth" if mode == "train" else "max_depth", 4
         )
         num_vars = getattr(arith_cfg, "num_vars", 2)
         min_val = getattr(arith_cfg, "min_val", 0)
