@@ -203,6 +203,90 @@ def variablize_tree(
     return node
 
 
+def make_all_splits(
+    min_depth: int,
+    max_depth: int,
+    mode: str,
+    min_val: int,
+    max_val: int,
+    num_vars: int,
+    seed: int,
+    split_sizes: Dict[str, int],
+) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Generates ALL splits (train/validation/test) in a single pass with disjoint examples.
+
+    Args:
+        split_sizes: Dictionary with keys "train", "validation", "test" and values
+                     as the number of examples needed for each split.
+
+    Returns:
+        Dictionary with keys "train", "validation", "test" containing lists of examples.
+    """
+    random.seed(seed)
+
+    # Interdependent sampling: generate examples and assign to splits dynamically
+    assignment = {}  # Maps text -> assigned split
+    counts = {s: 0 for s in ["train", "validation", "test"]}
+    split_pools = {s: [] for s in ["train", "validation", "test"]}
+
+    total_needed = sum(split_sizes.values())
+    max_attempts = total_needed * 100
+    attempts = 0
+
+    while sum(counts.values()) < total_needed and attempts < max_attempts:
+        attempts += 1
+
+        # Generate a candidate example
+        depth = random.randint(min_depth, max_depth)
+        expression_tree = generate_expression_tree(depth, min_val, max_val)
+
+        text = _generate_arithmetic_text(expression_tree, mode, num_vars)
+        if text is None:
+            continue
+
+        # Check if we've seen this example before
+        if text in assignment:
+            # Already assigned to a split - add to that same split (allows duplicates within splits)
+            target_split = assignment[text]
+        else:
+            # New example - calculate which split to assign it to
+            remaining = {
+                s: max(0, split_sizes[s] - counts[s])
+                for s in ["train", "validation", "test"]
+            }
+            total_remaining = sum(remaining.values())
+
+            if total_remaining == 0:
+                break
+
+            # Probabilistically assign to a split based on remaining needs
+            p = random.random()
+            cumulative = 0.0
+            target_split = None
+            for s in ["train", "validation", "test"]:
+                cumulative += remaining[s] / total_remaining
+                if p < cumulative:
+                    target_split = s
+                    break
+
+            if target_split is None:
+                target_split = "test"  # Fallback
+
+            # Record this assignment
+            assignment[text] = target_split
+
+        # Add to the target split (allows duplicates within each split)
+        split_pools[target_split].append({"text": text})
+        counts[target_split] += 1
+
+    # Shuffle each pool
+    for pool in split_pools.values():
+        random.shuffle(pool)
+
+    return split_pools
+
+
 def make_examples(
     num_examples: int,
     min_depth: int,
@@ -211,82 +295,91 @@ def make_examples(
     min_val: int,
     max_val: int,
     num_vars: int,
+    seed: int = None,
 ) -> List[Dict[str, str]]:
     """
-    Generates a list of arithmetic expression examples.
+    Generates a list of arithmetic expression examples (backward compatibility).
     """
+    if seed is not None:
+        random.seed(seed)
+
     examples = []
     for _ in range(num_examples):
         depth = random.randint(min_depth, max_depth)
         expression_tree = generate_expression_tree(depth, min_val, max_val)
 
-        if mode == "trace":
-            text = get_prefix_reduction_trace(expression_tree)
-        elif mode == "final_value":
-            prefix_str = tree_to_prefix_str(expression_tree)
-            final_value = evaluate_expression_tree(expression_tree)
-            text = f"{prefix_str} # {final_value}"
-        elif mode == "empty_trace":
-            steps = get_prefix_reduction_steps(expression_tree)
-            initial_repr = steps[0]
-            if len(steps) > 1:
-                reduction_steps_list = steps[1:]
-                final_value = reduction_steps_list[-1]
-                padded_steps = []
-                for step in reduction_steps_list[:-1]:
-                    num_tokens = len(step.split())
-                    padded_steps.append(" ".join(["[PAD]"] * num_tokens))
-                if padded_steps:
-                    padded_trace = " [PAD] ".join(padded_steps)
-                    text = f"{initial_repr} # {padded_trace} [PAD] {final_value}"
-                else:
-                    text = f"{initial_repr} # {final_value}"
-            else:
-                text = initial_repr
-        elif mode == "lookup":
-            if num_vars <= 0:
-                raise ValueError("num_vars must be positive for 'lookup' mode.")
-
-            unique_constants = sorted(list(get_constants_from_tree(expression_tree)))
-            num_to_variablize = min(num_vars, len(unique_constants))
-
-            if num_to_variablize == 0:
-                # Fallback for simple trees with no variety in constants
-                text = get_prefix_reduction_trace(expression_tree)
-                examples.append({"text": text})
-                continue
-
-            constants_to_variablize = random.sample(unique_constants, num_to_variablize)
-
-            var_to_value_map = {
-                f"x{i+1}": val for i, val in enumerate(constants_to_variablize)
-            }
-            value_to_var_map = {val: var for var, val in var_to_value_map.items()}
-
-            variable_tree = variablize_tree(expression_tree, value_to_var_map)
-
-            assignment_parts = []
-            for var, val in sorted(
-                var_to_value_map.items(), key=lambda item: int(item[0][1:])
-            ):
-                assignment_parts.append(f"{var} {val}")
-            assignment_str = " ".join(assignment_parts)
-
-            formula_with_vars_str = tree_to_prefix_str(variable_tree)
-
-            full_trace_str = get_prefix_reduction_trace(expression_tree)
-            trace_parts = full_trace_str.split(" # ", 1)
-            reduction_trace = (
-                trace_parts[1] if len(trace_parts) == 2 else trace_parts[0]
-            )
-
-            text = f"{assignment_str} | {formula_with_vars_str} # {reduction_trace}"
-        else:
-            raise ValueError(f"Unknown format mode: {mode}")
-
-        examples.append({"text": text})
+        text = _generate_arithmetic_text(expression_tree, mode, num_vars)
+        if text is not None:
+            examples.append({"text": text})
 
     return examples
+
+
+def _generate_arithmetic_text(
+    expression_tree: Dict[str, Any], mode: str, num_vars: int
+) -> str:
+    """Helper function to generate text representation from expression tree."""
+    if mode == "trace":
+        text = get_prefix_reduction_trace(expression_tree)
+    elif mode == "final_value":
+        prefix_str = tree_to_prefix_str(expression_tree)
+        final_value = evaluate_expression_tree(expression_tree)
+        text = f"{prefix_str} # {final_value}"
+    elif mode == "empty_trace":
+        steps = get_prefix_reduction_steps(expression_tree)
+        initial_repr = steps[0]
+        if len(steps) > 1:
+            reduction_steps_list = steps[1:]
+            final_value = reduction_steps_list[-1]
+            padded_steps = []
+            for step in reduction_steps_list[:-1]:
+                num_tokens = len(step.split())
+                padded_steps.append(" ".join(["[PAD]"] * num_tokens))
+            if padded_steps:
+                padded_trace = " [PAD] ".join(padded_steps)
+                text = f"{initial_repr} # {padded_trace} [PAD] {final_value}"
+            else:
+                text = f"{initial_repr} # {final_value}"
+        else:
+            text = initial_repr
+    elif mode == "lookup":
+        if num_vars <= 0:
+            raise ValueError("num_vars must be positive for 'lookup' mode.")
+
+        unique_constants = sorted(list(get_constants_from_tree(expression_tree)))
+        num_to_variablize = min(num_vars, len(unique_constants))
+
+        if num_to_variablize == 0:
+            # Fallback for simple trees with no variety in constants
+            return get_prefix_reduction_trace(expression_tree)
+
+        constants_to_variablize = random.sample(unique_constants, num_to_variablize)
+
+        var_to_value_map = {
+            f"x{i+1}": val for i, val in enumerate(constants_to_variablize)
+        }
+        value_to_var_map = {val: var for var, val in var_to_value_map.items()}
+
+        variable_tree = variablize_tree(expression_tree, value_to_var_map)
+
+        assignment_parts = []
+        for var, val in sorted(
+            var_to_value_map.items(), key=lambda item: int(item[0][1:])
+        ):
+            assignment_parts.append(f"{var} {val}")
+        assignment_str = " ".join(assignment_parts)
+
+        formula_with_vars_str = tree_to_prefix_str(variable_tree)
+
+        full_trace_str = get_prefix_reduction_trace(expression_tree)
+        trace_parts = full_trace_str.split(" # ", 1)
+        reduction_trace = trace_parts[1] if len(trace_parts) == 2 else trace_parts[0]
+
+        text = f"{assignment_str} | {formula_with_vars_str} # {reduction_trace}"
+    else:
+        raise ValueError(f"Unknown format mode: {mode}")
+
+    return text
 
 
 if __name__ == "__main__":

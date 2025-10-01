@@ -395,6 +395,93 @@ FSA_CREATORS = {
 }
 
 
+def make_all_splits_fsa(
+    fsa: FiniteStateAutomaton,
+    monoid_details: dict,
+    min_len: int,
+    max_len: int,
+    mode: str,
+    seed: int,
+    split_sizes: Dict[str, int],
+) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Generates ALL splits (train/validation/test) in a single pass with disjoint examples.
+
+    Args:
+        split_sizes: Dictionary with keys "train", "validation", "test" and values
+                     as the number of examples needed for each split.
+
+    Returns:
+        Dictionary with keys "train", "validation", "test" containing lists of examples.
+    """
+    random.seed(seed)
+
+    symbol_map = monoid_details["symbol_map"]
+    mult_table = monoid_details["mult_table"]
+    identity_id = monoid_details["identity_id"]
+
+    # Interdependent sampling: generate examples and assign to splits dynamically
+    assignment = {}  # Maps text -> assigned split
+    counts = {s: 0 for s in ["train", "validation", "test"]}
+    split_pools = {s: [] for s in ["train", "validation", "test"]}
+
+    total_needed = sum(split_sizes.values())
+    max_attempts = total_needed * 100
+    attempts = 0
+
+    while sum(counts.values()) < total_needed and attempts < max_attempts:
+        attempts += 1
+
+        # Generate a candidate example
+        length = random.randint(min_len, max_len)
+        input_string = "".join(random.choices(fsa.alphabet, k=length))
+
+        text = _generate_fsa_text(
+            input_string, symbol_map, mult_table, identity_id, mode
+        )
+
+        # Check if we've seen this example before
+        if text in assignment:
+            # Already assigned to a split - add to that same split (allows duplicates within splits)
+            target_split = assignment[text]
+        else:
+            # New example - calculate which split to assign it to
+            remaining = {
+                s: max(0, split_sizes[s] - counts[s])
+                for s in ["train", "validation", "test"]
+            }
+            total_remaining = sum(remaining.values())
+
+            if total_remaining == 0:
+                break
+
+            # Probabilistically assign to a split based on remaining needs
+            p = random.random()
+            cumulative = 0.0
+            target_split = None
+            for s in ["train", "validation", "test"]:
+                cumulative += remaining[s] / total_remaining
+                if p < cumulative:
+                    target_split = s
+                    break
+
+            if target_split is None:
+                target_split = "test"  # Fallback
+
+            # Record this assignment
+            assignment[text] = target_split
+
+        # Add to the target split (allows duplicates within each split)
+        split_pools[target_split].append({"text": text})
+        counts[target_split] += 1
+
+    # Shuffle each pool
+    for pool in split_pools.values():
+        random.shuffle(pool)
+
+    return split_pools
+
+
 def make_fsa_examples(
     fsa: FiniteStateAutomaton,
     monoid_details: dict,
@@ -402,49 +489,64 @@ def make_fsa_examples(
     min_len: int,
     max_len: int,
     mode: str,
+    seed: int = None,
 ) -> List[Dict[str, str]]:
-    """Generates examples for a given FSA and its computed monoid."""
+    """Generates examples for a given FSA and its computed monoid (backward compatibility)."""
+    if seed is not None:
+        random.seed(seed)
+
     symbol_map = monoid_details["symbol_map"]
     mult_table = monoid_details["mult_table"]
     identity_id = monoid_details["identity_id"]
 
     examples = []
-
     for _ in range(num_examples):
-        # Generate a random string with a length in the specified range.
         length = random.randint(min_len, max_len)
         input_string = "".join(random.choices(fsa.alphabet, k=length))
 
-        trace_levels = get_monoid_trace(
-            input_string, symbol_map, mult_table, identity_id
+        text = _generate_fsa_text(
+            input_string, symbol_map, mult_table, identity_id, mode
         )
-        initial_repr = " ".join(input_string)
-
-        if mode == "trace":
-            text = f"{initial_repr} # {' | '.join(trace_levels[1:])}"
-        elif mode == "final_value":
-            text = f"{initial_repr} # {trace_levels[-1]}"
-        elif mode == "empty_trace":
-            if len(trace_levels) > 1:
-                reduction_steps_list = trace_levels[1:]
-                final_value = reduction_steps_list[-1]
-                padded_steps = []
-                for step in reduction_steps_list[:-1]:
-                    num_values = len(step.split())
-                    padded_steps.append(" ".join(["[PAD]"] * num_values))
-                if padded_steps:
-                    padded_trace = " [PAD] ".join(padded_steps)
-                    text = f"{initial_repr} # {padded_trace} [PAD] {final_value}"
-                else:
-                    text = f"{initial_repr} # {final_value}"
-            else:
-                text = f"{initial_repr} # {trace_levels[0]}"
-        else:
-            raise ValueError(f"Unknown format mode: {mode}")
         examples.append({"text": text})
 
     random.shuffle(examples)
     return examples
+
+
+def _generate_fsa_text(
+    input_string: str,
+    symbol_map: dict,
+    mult_table: list,
+    identity_id: int,
+    mode: str,
+) -> str:
+    """Helper function to generate text representation from FSA input."""
+    trace_levels = get_monoid_trace(input_string, symbol_map, mult_table, identity_id)
+    initial_repr = " ".join(input_string)
+
+    if mode == "trace":
+        text = f"{initial_repr} # {' | '.join(trace_levels[1:])}"
+    elif mode == "final_value":
+        text = f"{initial_repr} # {trace_levels[-1]}"
+    elif mode == "empty_trace":
+        if len(trace_levels) > 1:
+            reduction_steps_list = trace_levels[1:]
+            final_value = reduction_steps_list[-1]
+            padded_steps = []
+            for step in reduction_steps_list[:-1]:
+                num_values = len(step.split())
+                padded_steps.append(" ".join(["[PAD]"] * num_values))
+            if padded_steps:
+                padded_trace = " [PAD] ".join(padded_steps)
+                text = f"{initial_repr} # {padded_trace} [PAD] {final_value}"
+            else:
+                text = f"{initial_repr} # {final_value}"
+        else:
+            text = f"{initial_repr} # {trace_levels[0]}"
+    else:
+        raise ValueError(f"Unknown format mode: {mode}")
+
+    return text
 
 
 def get_monoid_size(language: str) -> int:

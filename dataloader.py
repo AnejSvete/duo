@@ -121,15 +121,155 @@ def _group_texts(examples, block_size, bos, eos):
     return result
 
 
-def get_dataset(
-    dataset_name,
-    tokenizer,
-    mode,
-    cache_dir,
-    block_size=1024,
-    num_proc=len(os.sched_getaffinity(0)),
-    config=None,
-):
+def _get_split_sizes(dataset_name, config):
+    """Helper to get the sizes of all splits for disjoint dataset generation."""
+    if dataset_name in BFVP_CREATORS:
+        bfvp_cfg = getattr(config.data, "properties", {})
+        train_size = getattr(bfvp_cfg, "num_examples_train", 50000)
+        valid_size = getattr(bfvp_cfg, "num_examples_valid", 5000)
+        test_size = getattr(bfvp_cfg, "num_examples_test", 5000)
+    elif dataset_name in FSA_CREATORS:
+        lang_cfg = getattr(config.data, "properties", {})
+        train_size = getattr(lang_cfg, "num_examples_train", 50000)
+        valid_size = getattr(lang_cfg, "num_examples_validation", 5000)
+        test_size = getattr(lang_cfg, "num_examples_test", 5000)
+    elif dataset_name in ARITHMETIC_CREATORS:
+        arith_cfg = getattr(config.data, "properties", {})
+        train_size = getattr(arith_cfg, "num_examples_train", 50000)
+        valid_size = getattr(arith_cfg, "num_examples_valid", 5000)
+        test_size = getattr(arith_cfg, "num_examples_test", 5000)
+    else:
+        train_size, valid_size, test_size = 50000, 5000, 5000
+
+    return {"train": train_size, "validation": valid_size, "test": test_size}
+
+
+def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
+    """
+    Generates ALL splits (train/validation/test) in a single pass to ensure disjoint datasets,
+    then caches each split separately.
+    """
+    LOGGER.info(f"Generating ALL splits for {dataset_name} in a single pass...")
+
+    # Get split sizes
+    split_sizes = _get_split_sizes(dataset_name, config)
+    seed = 42
+
+    # Generate all splits at once in a single pass
+    if dataset_name in BFVP_CREATORS:
+        bfvp_cfg = getattr(config.data, "properties", {})
+        min_depth = getattr(bfvp_cfg, "min_depth_train", 1)
+        max_depth = getattr(bfvp_cfg, "max_depth_train", 3)
+        num_vars = getattr(bfvp_cfg, "num_vars", 4)
+        fan_in = getattr(bfvp_cfg, "fan_in", 2)
+        format_mode = getattr(bfvp_cfg, "format", "trace")
+
+        LOGGER.info(
+            f"Generating bfvp data with: min_depth={min_depth}, max_depth={max_depth}, "
+            f"num_vars={num_vars}, fan_in={fan_in}, format={format_mode}, seed={seed}"
+        )
+        split_pools = bfvp.make_all_splits(
+            min_depth=min_depth,
+            max_depth=max_depth,
+            num_vars=num_vars,
+            fan_in=fan_in,
+            mode=format_mode,
+            seed=seed,
+            split_sizes=split_sizes,
+        )
+
+    elif dataset_name in FSA_CREATORS:
+        lang_cfg = getattr(config.data, "properties", {})
+        min_len = getattr(lang_cfg, "min_len_train", 32)
+        max_len = getattr(lang_cfg, "max_len_train", 32)
+        format_mode = getattr(lang_cfg, "format", "trace")
+
+        LOGGER.info(f"Generating {dataset_name} data with seed={seed}...")
+        fsa = FSA_CREATORS[dataset_name]()
+        symbol_map, mult_table, identity_id, _, _ = fsa.compute_syntactic_monoid()
+        monoid_details = {
+            "symbol_map": symbol_map,
+            "mult_table": mult_table,
+            "identity_id": identity_id,
+        }
+
+        from regular import make_all_splits_fsa
+        split_pools = make_all_splits_fsa(
+            fsa=fsa,
+            monoid_details=monoid_details,
+            min_len=min_len,
+            max_len=max_len,
+            mode=format_mode,
+            seed=seed,
+            split_sizes=split_sizes,
+        )
+
+    elif dataset_name in ARITHMETIC_CREATORS:
+        arith_cfg = getattr(config.data, "properties", {})
+        min_depth = getattr(arith_cfg, "min_depth_train", 1)
+        max_depth = getattr(arith_cfg, "max_depth_train", 4)
+        num_vars = getattr(arith_cfg, "num_vars", 2)
+        min_val = getattr(arith_cfg, "min_val", 0)
+        max_val = getattr(arith_cfg, "max_val", 50)
+        format_mode = getattr(arith_cfg, "format", "trace")
+
+        LOGGER.info(
+            f"Generating arithmetic data with: min_depth={min_depth}, max_depth={max_depth}, "
+            f"num_vars={num_vars}, min_val={min_val}, max_val={max_val}, format={format_mode}, seed={seed}"
+        )
+        split_pools = arithmetic.make_all_splits(
+            min_depth=min_depth,
+            max_depth=max_depth,
+            mode=format_mode,
+            min_val=min_val,
+            max_val=max_val,
+            num_vars=num_vars,
+            seed=seed,
+            split_sizes=split_sizes,
+        )
+    else:
+        raise ValueError(f"Unknown dataset: {dataset_name}")
+
+    # Now cache each split separately
+    for mode in ["train", "validation", "test"]:
+        examples = split_pools[mode]
+        dataset = datasets.Dataset.from_list(examples)
+
+        def preprocess_and_tokenize(examples):
+            texts = examples["text"]
+            tokenizer = get_tokenizer(config)
+            tokenizer.padding_side, tokenizer.truncation_side = "right", "right"
+            tokens = tokenizer(
+                texts,
+                max_length=block_size,
+                padding="max_length",
+                truncation=True,
+                add_special_tokens=True,
+                return_attention_mask=True,
+                return_token_type_ids=True,
+            )
+            tokens["text"] = texts
+            return tokens
+
+        tokenized_dataset = dataset.map(
+            preprocess_and_tokenize,
+            batched=True,
+            num_proc=num_proc,
+            load_from_cache_file=True,
+            desc=f"Tokenizing {mode}",
+        )
+
+        # Get the cache path for this mode
+        base_name = _get_base_name(dataset_name, config, mode)
+        filename = f"{base_name}_{mode}_bs{block_size}.dat"
+        _path = os.path.join(config.data.cache_dir, filename)
+
+        tokenized_dataset.save_to_disk(_path)
+        LOGGER.info(f"Saved {mode} dataset to: {_path}")
+
+
+def _get_base_name(dataset_name, config, mode):
+    """Helper to generate base name for cache files."""
     if dataset_name in BFVP_CREATORS:
         bfvp_cfg = getattr(config.data, "properties", {})
         min_depth = getattr(
@@ -141,14 +281,14 @@ def get_dataset(
         num_vars = getattr(bfvp_cfg, "num_vars", 4)
         fan_in = getattr(bfvp_cfg, "fan_in", 2)
         format_str = getattr(bfvp_cfg, "format", "trace").replace("_", "-")
-        base_name = f"{dataset_name}_mind{min_depth}_maxd{max_depth}_nv{num_vars}_fi{fan_in}_f-{format_str}"
+        return f"{dataset_name}_mind{min_depth}_maxd{max_depth}_nv{num_vars}_fi{fan_in}_f-{format_str}"
     elif dataset_name in FSA_CREATORS:
         lang_cfg = getattr(config.data, "properties", {})
         min_len, max_len = getattr(lang_cfg, f"min_len_{mode}", 32), getattr(
             lang_cfg, f"max_len_{mode}", 32
         )
         format_str = getattr(lang_cfg, "format", "trace").replace("_", "-")
-        base_name = f"{dataset_name}_minl{min_len}_maxl{max_len}_f-{format_str}"
+        return f"{dataset_name}_minl{min_len}_maxl{max_len}_f-{format_str}"
     elif dataset_name in ARITHMETIC_CREATORS:
         arith_cfg = getattr(config.data, "properties", {})
         min_depth = getattr(
@@ -161,130 +301,39 @@ def get_dataset(
         min_val = getattr(arith_cfg, "min_val", 0)
         max_val = getattr(arith_cfg, "max_val", 50)
         format_str = getattr(arith_cfg, "format", "trace").replace("_", "-")
-        base_name = f"{dataset_name}_mind{min_depth}_maxd{max_depth}_nv{num_vars}_minv{min_val}_maxv{max_val}_f-{format_str}"
+        return f"{dataset_name}_mind{min_depth}_maxd{max_depth}_nv{num_vars}_minv{min_val}_maxv{max_val}_f-{format_str}"
     else:
-        base_name = dataset_name
+        return dataset_name
 
-    filename = f"{base_name}_{mode}_bs{block_size}.dat"
-    _path = os.path.join(cache_dir, filename)
-    if utils.fsspec_exists(_path):
-        LOGGER.info(f"Loading data from: {_path}")
-        return datasets.load_from_disk(_path).with_format("torch")
-    LOGGER.info(f"Generating new data at: {_path}")
 
-    if dataset_name in BFVP_CREATORS:
-        bfvp_cfg = getattr(config.data, "properties", {})
-        num_examples = (
-            getattr(bfvp_cfg, "num_examples_train", 50000)
-            if mode == "train"
-            else getattr(bfvp_cfg, "num_examples_valid", 5000)
-        )
-        min_depth = getattr(
-            bfvp_cfg, "min_depth_train" if mode == "train" else "min_depth_valid", 1
-        )
-        max_depth = getattr(
-            bfvp_cfg, "max_depth_train" if mode == "train" else "max_depth_valid", 3
-        )
-        num_vars, fan_in = (
-            getattr(bfvp_cfg, "num_vars", 4),
-            getattr(bfvp_cfg, "fan_in", 2),
-        )
-        format_mode = getattr(bfvp_cfg, "format", "trace")
-        LOGGER.info(
-            f"Generating '{mode}' bfvp data with: min_depth={min_depth}, max_depth={max_depth}, num_vars={num_vars}, fan_in={fan_in}, format={format_mode}"
-        )
-        examples = bfvp.make_examples(
-            num_examples=num_examples,
-            min_depth=min_depth,
-            max_depth=max_depth,
-            num_vars=num_vars,
-            fan_in=fan_in,
-            mode=format_mode,
-        )
-    elif dataset_name in FSA_CREATORS:
-        lang_cfg = getattr(config.data, "properties", {})
-        num_examples = getattr(lang_cfg, f"num_examples_{mode}", 50000)
-        min_len, max_len = getattr(lang_cfg, f"min_len_{mode}", 32), getattr(
-            lang_cfg, f"max_len_{mode}", 32
-        )
-        format_mode = getattr(lang_cfg, "format", "trace")
-        LOGGER.info(f"Generating '{mode}' {dataset_name} data...")
-        fsa = FSA_CREATORS[dataset_name]()
-        symbol_map, mult_table, identity_id, _, _ = fsa.compute_syntactic_monoid()
-        monoid_details = {
-            "symbol_map": symbol_map,
-            "mult_table": mult_table,
-            "identity_id": identity_id,
-        }
-        examples = make_fsa_examples(
-            fsa,
-            monoid_details,
-            num_examples,
-            min_len,
-            max_len,
-            format_mode,
-        )
-    elif dataset_name in ARITHMETIC_CREATORS:
-        arith_cfg = getattr(config.data, "properties", {})
-        num_examples = (
-            getattr(arith_cfg, "num_examples_train", 50000)
-            if mode == "train"
-            else getattr(arith_cfg, "num_examples_valid", 5000)
-        )
-        min_depth = getattr(
-            arith_cfg, "min_depth_train" if mode == "train" else "min_depth_valid", 1
-        )
-        max_depth = getattr(
-            arith_cfg, "max_depth_train" if mode == "train" else "max_depth_valid", 4
-        )
-        num_vars = getattr(arith_cfg, "num_vars", 2)
-        min_val = getattr(arith_cfg, "min_val", 0)
-        max_val = getattr(arith_cfg, "max_val", 50)
-        format_mode = getattr(arith_cfg, "format", "trace")
-        LOGGER.info(
-            f"Generating '{mode}' arithmetic data with: min_depth={min_depth}, max_depth={max_depth}, "
-            f"num_vars={num_vars}, min_val={min_val}, max_val={max_val}, format={format_mode}"
-        )
-        examples = arithmetic.make_examples(
-            num_examples=num_examples,
-            min_depth=min_depth,
-            max_depth=max_depth,
-            mode=format_mode,
-            min_val=min_val,
-            max_val=max_val,
-            num_vars=num_vars,
-        )
+def get_dataset(
+    dataset_name,
+    tokenizer,
+    mode,
+    cache_dir,
+    block_size=1024,
+    num_proc=len(os.sched_getaffinity(0)),
+    config=None,
+):
+    # Check if ALL splits are cached
+    all_modes = ["train", "validation", "test"]
+    all_paths = {}
+    for m in all_modes:
+        base_name = _get_base_name(dataset_name, config, m)
+        filename = f"{base_name}_{m}_bs{block_size}.dat"
+        all_paths[m] = os.path.join(cache_dir, filename)
 
-    dataset = datasets.Dataset.from_list(examples)
+    # If any split is missing, regenerate ALL splits
+    if not all(utils.fsspec_exists(p) for p in all_paths.values()):
+        LOGGER.info(f"Cache miss. Generating all splits for {dataset_name}...")
+        _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc)
+    else:
+        LOGGER.info(f"Cache hit for all splits of {dataset_name}")
 
-    def preprocess_and_tokenize(examples):
-        # examples is a dict with lists when batched=True
-        texts = examples["text"]
-        tokenizer.padding_side, tokenizer.truncation_side = "right", "right"
-
-        tokens = tokenizer(
-            texts,
-            max_length=block_size,
-            padding="max_length",
-            truncation=True,
-            add_special_tokens=True,
-            return_attention_mask=True,
-            return_token_type_ids=True,
-        )
-        # Keep the original text in the tokenized output
-        tokens["text"] = texts
-        return tokens
-
-    tokenized_dataset = dataset.map(
-        preprocess_and_tokenize,
-        batched=True,
-        num_proc=num_proc,
-        load_from_cache_file=True,
-        desc="Tokenizing",
-    )
-
-    tokenized_dataset.save_to_disk(_path)
-    return tokenized_dataset.with_format("torch")
+    # Load the requested split
+    _path = all_paths[mode]
+    LOGGER.info(f"Loading {mode} data from: {_path}")
+    return datasets.load_from_disk(_path).with_format("torch")
 
 
 def get_tokenizer(config):

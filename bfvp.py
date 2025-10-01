@@ -195,6 +195,90 @@ def get_prefix_reduction_trace(start_tree: Dict[str, Any]) -> str:
     return f"{steps[0]} # {' | '.join(steps[1:])}"
 
 
+def make_all_splits(
+    min_depth: int,
+    max_depth: int,
+    num_vars: int,
+    fan_in: int,
+    mode: str,
+    seed: int,
+    split_sizes: Dict[str, int],
+) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Generates ALL splits (train/validation/test) in a single pass with disjoint examples.
+
+    Args:
+        split_sizes: Dictionary with keys "train", "validation", "test" and values
+                     as the number of examples needed for each split.
+
+    Returns:
+        Dictionary with keys "train", "validation", "test" containing lists of examples.
+    """
+    random.seed(seed)
+
+    # Interdependent sampling: generate examples and assign to splits dynamically
+    assignment = {}  # Maps text -> assigned split
+    counts = {s: 0 for s in ["train", "validation", "test"]}
+    split_pools = {s: [] for s in ["train", "validation", "test"]}
+
+    total_needed = sum(split_sizes.values())
+    max_attempts = total_needed * 100
+    attempts = 0
+
+    while sum(counts.values()) < total_needed and attempts < max_attempts:
+        attempts += 1
+
+        # Generate a candidate example
+        current_depth = random.randint(min_depth, max_depth)
+        expression_tree = generate_formula_tree(current_depth, num_vars, fan_in)
+        variables = get_variables_from_tree(expression_tree)
+        assignments = {var: random.choice([True, False]) for var in variables}
+        substituted_tree = substitute_vars_in_tree(expression_tree, assignments)
+
+        text = _generate_text_from_tree(substituted_tree, expression_tree, assignments, mode)
+
+        # Check if we've seen this example before
+        if text in assignment:
+            # Already assigned to a split - add to that same split (allows duplicates within splits)
+            target_split = assignment[text]
+        else:
+            # New example - calculate which split to assign it to
+            remaining = {
+                s: max(0, split_sizes[s] - counts[s])
+                for s in ["train", "validation", "test"]
+            }
+            total_remaining = sum(remaining.values())
+
+            if total_remaining == 0:
+                break
+
+            # Probabilistically assign to a split based on remaining needs
+            p = random.random()
+            cumulative = 0.0
+            target_split = None
+            for s in ["train", "validation", "test"]:
+                cumulative += remaining[s] / total_remaining
+                if p < cumulative:
+                    target_split = s
+                    break
+
+            if target_split is None:
+                target_split = "test"  # Fallback
+
+            # Record this assignment
+            assignment[text] = target_split
+
+        # Add to the target split (allows duplicates within each split)
+        split_pools[target_split].append({"text": text})
+        counts[target_split] += 1
+
+    # Shuffle each pool
+    for pool in split_pools.values():
+        random.shuffle(pool)
+
+    return split_pools
+
+
 def make_examples(
     num_examples: int,
     min_depth: int,
@@ -202,79 +286,79 @@ def make_examples(
     num_vars: int,
     fan_in: int,
     mode: str,
+    seed: int = None,
 ) -> List[Dict[str, str]]:
     """
-    Generates formulas based on the specified mode.
+    Generates formulas based on the specified mode (backward compatibility).
     """
+    if seed is not None:
+        random.seed(seed)
+
     examples = []
     for _ in range(num_examples):
-        # For each example, choose a random depth between min_depth and max_depth
         current_depth = random.randint(min_depth, max_depth)
         expression_tree = generate_formula_tree(current_depth, num_vars, fan_in)
-
         variables = get_variables_from_tree(expression_tree)
         assignments = {var: random.choice([True, False]) for var in variables}
         substituted_tree = substitute_vars_in_tree(expression_tree, assignments)
 
-        if mode == "trace":
-            text = get_prefix_reduction_trace(substituted_tree)
-        elif mode == "final_value":
-            prefix_str = tree_to_prefix_str(substituted_tree)
-            final_value = evaluate_expression_tree(substituted_tree)
-            text = f"{prefix_str} # {final_value}"
-        elif mode == "empty_trace":
-            steps = get_prefix_reduction_steps(substituted_tree)
-            initial_repr = steps[0]
-            if len(steps) > 1:
-                reduction_steps_list = steps[1:]
-                final_value = reduction_steps_list[-1]
-                padded_steps = []
-                # Create padded strings for each intermediate step
-                for step in reduction_steps_list[:-1]:
-                    num_tokens = len(step.split())
-                    padded_steps.append(" ".join(["[PAD]"] * num_tokens))
-                # Join the padded steps and append the final value
-                if padded_steps:
-                    padded_trace = " [PAD] ".join(padded_steps)
-                    text = f"{initial_repr} # {padded_trace} [PAD] {final_value}"
-                else:
-                    # Case where there's only one reduction step
-                    text = f"{initial_repr} # {final_value}"
-            else:
-                # If there are no reduction steps, just use the initial representation
-                text = initial_repr
-        elif mode == "lookup":
-            # Create the variable assignment string, sorting for consistency.
-            assignment_parts = []
-            # Sort keys by the integer value of the variable name (e.g., x1, x2, x10)
-            sorted_vars = sorted(list(assignments.keys()), key=lambda v: int(v[1:]))
-            for var in sorted_vars:
-                value = assignments[var]
-                assignment_parts.append(f"{var} {'T' if value else 'F'}")
-            assignment_str = " ".join(assignment_parts)
-
-            # Get the formula with variables.
-            initial_formula_str = tree_to_prefix_str(expression_tree)
-
-            # Get the full reduction trace of the substituted tree.
-            full_trace_str = get_prefix_reduction_trace(substituted_tree)
-
-            # The trace string might just be the final value if no reduction happens.
-            # We need to extract the part after the '#', if it exists.
-            trace_parts = full_trace_str.split(" # ", 1)
-            if len(trace_parts) == 2:
-                reduction_trace = trace_parts[1]
-            else:
-                # If there's no '#', the trace is just the final value.
-                reduction_trace = trace_parts[0]
-
-            text = f"{assignment_str} | {initial_formula_str} # {reduction_trace}"
-        else:
-            raise ValueError(f"Unknown format mode: {mode}")
-
+        text = _generate_text_from_tree(
+            substituted_tree, expression_tree, assignments, mode
+        )
         examples.append({"text": text})
 
     return examples
+
+
+def _generate_text_from_tree(
+    substituted_tree: Dict[str, Any],
+    expression_tree: Dict[str, Any],
+    assignments: Dict[str, bool],
+    mode: str,
+) -> str:
+    """Helper function to generate text representation from trees."""
+    if mode == "trace":
+        text = get_prefix_reduction_trace(substituted_tree)
+    elif mode == "final_value":
+        prefix_str = tree_to_prefix_str(substituted_tree)
+        final_value = evaluate_expression_tree(substituted_tree)
+        text = f"{prefix_str} # {final_value}"
+    elif mode == "empty_trace":
+        steps = get_prefix_reduction_steps(substituted_tree)
+        initial_repr = steps[0]
+        if len(steps) > 1:
+            reduction_steps_list = steps[1:]
+            final_value = reduction_steps_list[-1]
+            padded_steps = []
+            for step in reduction_steps_list[:-1]:
+                num_tokens = len(step.split())
+                padded_steps.append(" ".join(["[PAD]"] * num_tokens))
+            if padded_steps:
+                padded_trace = " [PAD] ".join(padded_steps)
+                text = f"{initial_repr} # {padded_trace} [PAD] {final_value}"
+            else:
+                text = f"{initial_repr} # {final_value}"
+        else:
+            text = initial_repr
+    elif mode == "lookup":
+        assignment_parts = []
+        sorted_vars = sorted(list(assignments.keys()), key=lambda v: int(v[1:]))
+        for var in sorted_vars:
+            value = assignments[var]
+            assignment_parts.append(f"{var} {'T' if value else 'F'}")
+        assignment_str = " ".join(assignment_parts)
+        initial_formula_str = tree_to_prefix_str(expression_tree)
+        full_trace_str = get_prefix_reduction_trace(substituted_tree)
+        trace_parts = full_trace_str.split(" # ", 1)
+        if len(trace_parts) == 2:
+            reduction_trace = trace_parts[1]
+        else:
+            reduction_trace = trace_parts[0]
+        text = f"{assignment_str} | {initial_formula_str} # {reduction_trace}"
+    else:
+        raise ValueError(f"Unknown format mode: {mode}")
+
+    return text
 
 
 if __name__ == "__main__":
