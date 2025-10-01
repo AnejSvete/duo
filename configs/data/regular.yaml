@@ -1,0 +1,7 @@
+defaults:
+  - formal_language
+
+properties:
+  format: trace
+  num_states: null
+  alphabet_size: null
