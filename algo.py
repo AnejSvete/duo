@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 
+import diffusion
 import trainer_base
 
 
@@ -265,7 +266,7 @@ class LT(trainer_base.TrainerBase):
         return None
 
 
-class MDLM(trainer_base.AbsorbingState):
+class MDLM(diffusion.AbsorbingState):
     def __init__(self, config, tokenizer):
         super().__init__(config, tokenizer)
         self._validate_configuration()
@@ -531,7 +532,7 @@ class MDLM(trainer_base.AbsorbingState):
         return x
 
 
-class D3PMAbsorb(trainer_base.AbsorbingState):
+class D3PMAbsorb(diffusion.AbsorbingState):
     def __init__(self, config, tokenizer):
         super().__init__(config, tokenizer)
         self._validate_configuration()
@@ -575,7 +576,7 @@ class D3PMAbsorb(trainer_base.AbsorbingState):
         return self._reconstruction_loss(x0) + diffusion_loss
 
 
-class SEDDAbsorb(trainer_base.AbsorbingState):
+class SEDDAbsorb(diffusion.AbsorbingState):
     def __init__(self, config, tokenizer):
         super().__init__(config, tokenizer)
         self._validate_configuration()
