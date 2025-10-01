@@ -1,7 +1,0 @@
-defaults:
-  - formal_language
-
-train: same_start_end
-valid: same_start_end
-properties:
-  fsa_type: same_start_end

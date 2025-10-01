@@ -1,7 +1,0 @@
-defaults:
-  - formal_language
-
-train: contains_ab
-valid: contains_ab
-properties:
-  fsa_type: contains_ab

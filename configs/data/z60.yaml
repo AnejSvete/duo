@@ -1,7 +1,0 @@
-defaults:
-  - formal_language
-
-train: z60
-valid: z60
-properties:
-  fsa_type: z60

@@ -126,15 +126,10 @@ def get_dataset(
     tokenizer,
     mode,
     cache_dir,
-    insert_eos=True,
     block_size=1024,
     num_proc=len(os.sched_getaffinity(0)),
     config=None,
 ):
-    eos_tag = ""
-    if not insert_eos:
-        eos_tag = "_eosFalse"
-
     if dataset_name in BFVP_CREATORS:
         bfvp_cfg = getattr(config.data, "properties", {})
         min_depth = getattr(
@@ -170,7 +165,7 @@ def get_dataset(
     else:
         base_name = dataset_name
 
-    filename = f"{base_name}_{mode}_bs{block_size}_{eos_tag}.dat"
+    filename = f"{base_name}_{mode}_bs{block_size}.dat"
     _path = os.path.join(cache_dir, filename)
     if utils.fsspec_exists(_path):
         LOGGER.info(f"Loading data from: {_path}")
@@ -306,49 +301,42 @@ def get_dataset(
 
 
 def get_tokenizer(config):
-    if config.data.tokenizer_name_or_path == "formal":
-        language = config.data.train
-        monoid_size = None
-        num_vars = None
-        min_val = None
-        max_val = None
-        format_mode = "trace"
-        # Pre-compute monoid size or num_vars for dynamic tokenizer vocab
-        if language in BFVP_CREATORS:
-            bfvp_cfg = getattr(config.data, "properties", {})
-            num_vars = getattr(bfvp_cfg, "num_vars", 4)
-            format_mode = getattr(bfvp_cfg, "format", "trace")
-            LOGGER.info(
-                f"Language '{language}' requires {num_vars} variables. Creating dynamic tokenizer."
-            )
-        elif language in FSA_CREATORS:
-            monoid_size = get_monoid_size(language)
-            LOGGER.info(
-                f"Language '{language}' requires a monoid of size {monoid_size}. Creating dynamic tokenizer."
-            )
-        elif language in ARITHMETIC_CREATORS:
-            arith_cfg = getattr(config.data, "properties", {})
-            num_vars = getattr(arith_cfg, "num_vars", 2)
-            min_val = getattr(arith_cfg, "min_val", 0)
-            max_val = getattr(arith_cfg, "max_val", 50)
-            format_mode = getattr(arith_cfg, "format", "trace")
-            LOGGER.info(
-                f"Language '{language}' requires {num_vars} variables and values in [{min_val}, {max_val}]. Creating dynamic tokenizer."
-            )
-        tokenizer = FormalTokenizer(
-            language=language,
-            monoid_size=monoid_size,
-            num_vars=num_vars,
-            min_val=min_val,
-            max_val=max_val,
-            format_mode=format_mode,
+    language = config.data.language
+    monoid_size = None
+    num_vars = None
+    min_val = None
+    max_val = None
+    format_mode = "trace"
+    # Pre-compute monoid size or num_vars for dynamic tokenizer vocab
+    if language in BFVP_CREATORS:
+        bfvp_cfg = getattr(config.data, "properties", {})
+        num_vars = getattr(bfvp_cfg, "num_vars", 4)
+        format_mode = getattr(bfvp_cfg, "format", "trace")
+        LOGGER.info(
+            f"Language '{language}' requires {num_vars} variables. Creating dynamic tokenizer."
         )
-    elif config.data.tokenizer_name_or_path == "bert-base-uncased":
-        tokenizer = transformers.BertTokenizer.from_pretrained("bert-base-uncased")
-    else:
-        tokenizer = transformers.AutoTokenizer.from_pretrained(
-            config.data.tokenizer_name_or_path
+    elif language in FSA_CREATORS:
+        monoid_size = get_monoid_size(language)
+        LOGGER.info(
+            f"Language '{language}' requires a monoid of size {monoid_size}. Creating dynamic tokenizer."
         )
+    elif language in ARITHMETIC_CREATORS:
+        arith_cfg = getattr(config.data, "properties", {})
+        num_vars = getattr(arith_cfg, "num_vars", 2)
+        min_val = getattr(arith_cfg, "min_val", 0)
+        max_val = getattr(arith_cfg, "max_val", 50)
+        format_mode = getattr(arith_cfg, "format", "trace")
+        LOGGER.info(
+            f"Language '{language}' requires {num_vars} variables and values in [{min_val}, {max_val}]. Creating dynamic tokenizer."
+        )
+    tokenizer = FormalTokenizer(
+        language=language,
+        monoid_size=monoid_size,
+        num_vars=num_vars,
+        min_val=min_val,
+        max_val=max_val,
+        format_mode=format_mode,
+    )
 
     if isinstance(
         tokenizer, (transformers.GPT2TokenizerFast, transformers.GPT2Tokenizer)
@@ -395,10 +383,9 @@ def get_dataloaders(
         None
         if skip_train
         else get_dataset(
-            config.data.train,
+            config.data.language,
             tokenizer,
             mode="train",
-            insert_eos=config.data.insert_train_eos,
             cache_dir=config.data.cache_dir,
             block_size=config.model.length,
             num_proc=config.loader.num_workers,
@@ -410,11 +397,10 @@ def get_dataloaders(
         None
         if skip_valid
         else get_dataset(
-            config.data.valid,
+            config.data.language,
             tokenizer,
             mode="validation",
             cache_dir=config.data.cache_dir,
-            insert_eos=config.data.insert_valid_eos,
             block_size=config.model.length,
             num_proc=config.loader.num_workers,
             config=config,
@@ -426,11 +412,10 @@ def get_dataloaders(
         None
         if skip_test
         else get_dataset(
-            config.data.test,
+            config.data.language,
             tokenizer,
             mode=test_split,
             cache_dir=config.data.cache_dir,
-            insert_eos=config.data.insert_test_eos,
             block_size=config.model.length,
             num_proc=config.loader.num_workers,
             config=config,

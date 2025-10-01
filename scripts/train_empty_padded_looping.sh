@@ -10,7 +10,7 @@
 module load stack/2024-06 python/3.12.8 eth_proxy
 source /cluster/home/asvete/duo/bin/activate
 
-TASK=$1
+LANGUAGE=$1
 MIN_TRAIN_LENGTH=$2
 MAX_TRAIN_LENGTH=$3
 MIN_VAL_LENGTH=$4
@@ -20,8 +20,8 @@ MAX_TEST_LENGTH=$7
 MODEL_LENGTH=$8
 
 srun python -u -m main \
-  wandb.name="$TASK-empty-padded-looping-$(date +%Y%m%d-%H%M%S)" \
-  data=$TASK \
+  wandb.name="$LANGUAGE-empty-padded-looping-$(date +%Y%m%d-%H%M%S)" \
+  data.language=$LANGUAGE \
   model=nano \
   algo=lt \
   algo.looping_type=log \

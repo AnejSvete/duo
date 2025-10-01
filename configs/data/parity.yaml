@@ -1,7 +1,0 @@
-defaults:
-  - formal_language
-
-train: parity
-valid: parity
-properties:
-  fsa_type: parity

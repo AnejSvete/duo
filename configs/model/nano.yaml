@@ -1,9 +1,8 @@
 name: nano
-type: ddit
-hidden_size: 256
+hidden_size: 128
 cond_dim: 256
 length: 256
-n_blocks: 4
+n_blocks: 2
 n_heads: 8
 scale_by_sigma: True
 dropout: 0.1

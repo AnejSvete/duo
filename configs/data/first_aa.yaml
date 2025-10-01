@@ -1,7 +1,0 @@
-defaults:
-  - formal_language
-
-train: first_aa
-valid: first_aa
-properties:
-  fsa_type: first_aa

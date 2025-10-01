@@ -447,19 +447,19 @@ def make_fsa_examples(
     return examples
 
 
-def get_monoid_size(fsa_type: str) -> int:
-    if fsa_type not in FSA_CREATORS:
-        raise ValueError(f"Unknown FSA type: {fsa_type}")
-    fsa = FSA_CREATORS[fsa_type]()
+def get_monoid_size(language: str) -> int:
+    if language not in FSA_CREATORS:
+        raise ValueError(f"Unknown language: {language}")
+    fsa = FSA_CREATORS[language]()
     _, _, _, monoid_size, _ = fsa.compute_syntactic_monoid()
     return monoid_size
 
 
-def get_alphabet(fsa_type: str) -> List[str]:
-    """Returns the alphabet for a given FSA type."""
-    if fsa_type not in FSA_CREATORS:
-        raise ValueError(f"Unknown FSA type: {fsa_type}")
-    fsa = FSA_CREATORS[fsa_type]()
+def get_alphabet(language: str) -> List[str]:
+    """Returns the alphabet for a given language."""
+    if language not in FSA_CREATORS:
+        raise ValueError(f"Unknown language: {language}")
+    fsa = FSA_CREATORS[language]()
     return fsa.alphabet
 
 
@@ -471,7 +471,7 @@ def main():
     )
 
     parser.add_argument(
-        "--fsa-type",
+        "--language",
         type=str,
         required=True,
         choices=sorted(FSA_CREATORS.keys()),
@@ -515,11 +515,11 @@ def main():
 
     args = parser.parse_args()
 
-    print(f"--- 🚀 Running FSA: {args.fsa_type} 🚀 ---")
+    print(f"--- 🚀 Running FSA: {args.language} 🚀 ---")
 
     try:
         # Create FSA and compute monoid details ONCE for efficiency
-        fsa = FSA_CREATORS[args.fsa_type]()
+        fsa = FSA_CREATORS[args.language]()
         (
             symbol_map,
             mult_table,

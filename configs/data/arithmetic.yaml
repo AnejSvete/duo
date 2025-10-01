@@ -1,8 +1,7 @@
 defaults:
   - formal_language
 
-train: arithmetic
-valid: arithmetic
+language: arithmetic
 properties:
   num_vars: 2
   min_val: 0

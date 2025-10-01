@@ -1,7 +1,0 @@
-defaults:
-  - formal_language
-
-train: mod_3
-valid: mod_3
-properties:
-  fsa_type: mod_3

@@ -1,7 +1,0 @@
-defaults:
-  - formal_language
-
-train: ab_star
-valid: ab_star
-properties:
-  fsa_type: ab_star

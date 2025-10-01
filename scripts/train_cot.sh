@@ -10,7 +10,7 @@
 module load stack/2024-06 python/3.12.8 eth_proxy
 source /cluster/home/asvete/duo/bin/activate
 
-TASK=$1
+LANGUAGE=$1
 MIN_TRAIN_LENGTH=$2
 MAX_TRAIN_LENGTH=$3
 MIN_VAL_LENGTH=$4
@@ -22,8 +22,8 @@ MODEL_LENGTH=$8
 echo "Using model length: $MODEL_LENGTH"
 
 srun python -u -m main \
-  wandb.name="$TASK-cot-$(date +%Y%m%d-%H%M%S)" \
-  data=$TASK \
+  wandb.name="$LANGUAGE-cot-$(date +%Y%m%d-%H%M%S)" \
+  data.language=$LANGUAGE \
   model=nano \
   algo=ar \
   model.length=$MODEL_LENGTH \

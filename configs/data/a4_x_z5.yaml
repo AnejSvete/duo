@@ -1,7 +1,0 @@
-defaults:
-  - formal_language
-
-train: a4_x_z5
-valid: a4_x_z5
-properties:
-  fsa_type: a4_x_z5
