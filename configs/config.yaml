@@ -88,7 +88,7 @@ wandb:
 
 hydra:
   run:
-    dir: /cluster/scratch/asvete/duo/outputs/${data.train}/${now:%Y.%m.%d}/${now:%H%M%S}
+    dir: /cluster/scratch/asvete/duo/outputs/${data.language}/${now:%Y.%m.%d}/${now:%H%M%S}
   job:
     chdir: true
 
