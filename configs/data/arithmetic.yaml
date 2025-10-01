@@ -6,5 +6,6 @@ properties:
   num_vars: 2
   min_val: 0
   max_val: 50
-  max_depth: 7
+  min_depth: 2
+  max_depth: 5
   format: trace

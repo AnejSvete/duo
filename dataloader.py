@@ -158,8 +158,8 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
     # Generate all splits at once in a single pass
     if dataset_name in BFVP_CREATORS:
         bfvp_cfg = getattr(config.data, "properties", {})
-        min_depth = getattr(bfvp_cfg, "min_depth_train", 1)
-        max_depth = getattr(bfvp_cfg, "max_depth_train", 3)
+        min_depth = getattr(bfvp_cfg, "min_depth", 1)
+        max_depth = getattr(bfvp_cfg, "max_depth", 3)
         num_vars = getattr(bfvp_cfg, "num_vars", 4)
         fan_in = getattr(bfvp_cfg, "fan_in", 2)
         format_mode = getattr(bfvp_cfg, "format", "trace")
@@ -194,6 +194,7 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
         }
 
         from regular import make_all_splits_fsa
+
         split_pools = make_all_splits_fsa(
             fsa=fsa,
             monoid_details=monoid_details,
@@ -206,8 +207,8 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
 
     elif dataset_name in ARITHMETIC_CREATORS:
         arith_cfg = getattr(config.data, "properties", {})
-        min_depth = getattr(arith_cfg, "min_depth_train", 1)
-        max_depth = getattr(arith_cfg, "max_depth_train", 4)
+        min_depth = getattr(arith_cfg, "min_depth", 1)
+        max_depth = getattr(arith_cfg, "max_depth", 4)
         num_vars = getattr(arith_cfg, "num_vars", 2)
         min_val = getattr(arith_cfg, "min_val", 0)
         max_val = getattr(arith_cfg, "max_val", 50)
