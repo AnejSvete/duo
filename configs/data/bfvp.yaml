@@ -3,8 +3,8 @@ defaults:
 
 language: bfvp
 properties:
-  num_vars: 3
-  min_depth: 2
-  max_depth: 6
-  fan_in: 3
+  num_vars: 2
+  min_depth: 1
+  max_depth: 5
+  fan_in: 2
   format: trace
