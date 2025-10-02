@@ -19,7 +19,7 @@ MIN_TEST_LENGTH=$6
 MAX_TEST_LENGTH=$7
 MODEL_LENGTH=$8
 
-if [ "$LANGUAGE" = "bvfp" ]; then
+if [ "$LANGUAGE" = "bfvp" ]; then
   DATA_CLASS="bfvp"
 elif [ "$LANGUAGE" = "arithmetic" ]; then
   DATA_CLASS="arithmetic"
