@@ -144,6 +144,78 @@ def _get_split_sizes(dataset_name, config):
     return {"train": train_size, "validation": valid_size, "test": test_size}
 
 
+def _compute_dataset_statistics(split_pools, dataset_name):
+    """
+    Compute and print comprehensive statistics for all dataset splits.
+
+    Args:
+        split_pools: Dictionary with keys "train", "validation", "test" containing lists of examples
+        dataset_name: Name of the dataset
+    """
+    import numpy as np
+
+    LOGGER.info(f"\n{'='*80}")
+    LOGGER.info(f"DATASET STATISTICS: {dataset_name}")
+    LOGGER.info(f"{'='*80}")
+
+    for split_name in ["train", "validation", "test"]:
+        examples = split_pools[split_name]
+        texts = [ex["text"] for ex in examples]
+
+        # Compute lengths (in tokens, space-separated)
+        lengths = [len(text.split()) for text in texts]
+
+        LOGGER.info(f"\n{split_name.upper()} Split:")
+        LOGGER.info(f"  Number of examples: {len(examples)}")
+        LOGGER.info(f"  Number of unique strings: {len(set(texts))}")
+
+        # Length statistics
+        if lengths:
+            LOGGER.info("\n  Length Statistics (tokens):")
+            LOGGER.info(f"    Min: {min(lengths)}")
+            LOGGER.info(f"    Max: {max(lengths)}")
+            LOGGER.info(f"    Mean: {np.mean(lengths):.2f}")
+            LOGGER.info(f"    Median: {np.median(lengths):.2f}")
+            LOGGER.info(f"    Std: {np.std(lengths):.2f}")
+
+            # Quantiles
+            quantiles = [0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
+            LOGGER.info("    Quantiles:")
+            for q in quantiles:
+                LOGGER.info(f"      {int(q*100)}%: {np.quantile(lengths, q):.2f}")
+
+        # Label statistics (extract labels after "#" delimiter)
+        labels = []
+        for text in texts:
+            if "#" in text:
+                # Get the part after "#" and extract the final label
+                completion_part = text.split("#")[1].strip()
+                if "|" in completion_part:
+                    # For trace format, get the last part after final "|"
+                    final_label = completion_part.split("|")[-1].strip()
+                else:
+                    # For final_value format, the whole completion is the label
+                    final_label = completion_part
+                labels.append(final_label)
+
+        if labels:
+            unique_labels = sorted(set(labels))
+            label_counts = {label: labels.count(label) for label in unique_labels}
+
+            LOGGER.info("\n  Label Statistics:")
+            LOGGER.info(f"    Number of unique labels: {len(unique_labels)}")
+            LOGGER.info("    Label distribution:")
+
+            # Show label proportions
+            total = len(labels)
+            for label in unique_labels:
+                count = label_counts[label]
+                proportion = count / total * 100
+                LOGGER.info(f"      '{label}': {count} ({proportion:.2f}%)")
+
+    LOGGER.info(f"\n{'='*80}\n")
+
+
 def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
     """
     Generates ALL splits (train/validation/test) in a single pass to ensure disjoint datasets,
@@ -230,6 +302,9 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
         )
     else:
         raise ValueError(f"Unknown dataset: {dataset_name}")
+
+    # Print dataset statistics after generation
+    _compute_dataset_statistics(split_pools, dataset_name)
 
     # Now cache each split separately
     for mode in ["train", "validation", "test"]:
