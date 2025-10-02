@@ -5,11 +5,11 @@ properties:
   num_examples_train: 200000
   num_examples_valid: 40000
   num_examples_test: 80000
-  min_train_len: 20
-  max_train_len: 20
-  min_val_len: 20
-  max_val_len: 20
-  min_test_len: 20
-  max_test_len: 20
+  min_train_len: null
+  max_train_len: null
+  min_val_len: null
+  max_val_len: null
+  min_test_len: null
+  max_test_len: null
   format: trace
   

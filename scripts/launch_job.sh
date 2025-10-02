@@ -4,12 +4,12 @@
 
 LANGUAGE=$1
 FLAG=$2
-MIN_TRAIN_LENGTH=${3:-20}
-MAX_TRAIN_LENGTH=${4:-20}
-MIN_VAL_LENGTH=${5:-20}
-MAX_VAL_LENGTH=${6:-20}
-MIN_TEST_LENGTH=${7:-20}
-MAX_TEST_LENGTH=${8:-20}
+MIN_TRAIN_LENGTH=${3:-40}
+MAX_TRAIN_LENGTH=${4:-40}
+MIN_VAL_LENGTH=${5:-40}
+MAX_VAL_LENGTH=${6:-40}
+MIN_TEST_LENGTH=${7:-40}
+MAX_TEST_LENGTH=${8:-40}
 # Set model lengths based on language and max train length
 if [ "$LANGUAGE" = "arithmetic" ]; then
     SHORT_MODEL_LENGTH=96
