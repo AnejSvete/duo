@@ -230,15 +230,21 @@ def _prepare_data(config, logger, tokenizer):
 def main(config):
     """Main entry point for training."""
     L.seed_everything(config.seed)
-    _print_config(config, resolve=True, save_cfg=True)
 
     logger = utils.get_logger(__name__)
     tokenizer = dataloader.get_tokenizer(config)
 
-    # Handle data preparation mode separately (doesn't need model)
+    # Handle data preparation mode separately (doesn't need model or full config)
     if config.mode == "prepare_data":
+        logger.info("Mode: Data Preparation Only")
+        logger.info(f"Language: {config.data.language}")
+        logger.info(f"Format: {config.data.properties.format}")
+        logger.info(f"Model Length: {config.model.length}")
         _prepare_data(config, logger, tokenizer)
         return
+
+    # For training modes, print full config
+    _print_config(config, resolve=True, save_cfg=True)
 
     # Initialize model for other modes
     if config.algo.name == "ar":

@@ -107,6 +107,7 @@ Per language, trains:
 │ ⏩ bfvp - final_value format        │
 │ ⏩ bfvp - empty_trace format        │
 │                                     │
+│ CPU only, no GPU needed!            │
 │ ~5-30 minutes                       │
 └─────────────────────────────────────┘
                  ↓
