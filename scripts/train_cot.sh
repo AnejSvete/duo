@@ -11,13 +11,7 @@ module load stack/2024-06 python/3.12.8 eth_proxy
 source /cluster/home/asvete/duo/bin/activate
 
 LANGUAGE=$1
-MIN_TRAIN_LENGTH=$2
-MAX_TRAIN_LENGTH=$3
-MIN_VAL_LENGTH=$4
-MAX_VAL_LENGTH=$5
-MIN_TEST_LENGTH=$6
-MAX_TEST_LENGTH=$7
-MODEL_LENGTH=$8
+MODEL_LENGTH=$2
 
 if [ "$LANGUAGE" = "bfvp" ]; then
   DATA_CLASS="bfvp"
@@ -27,8 +21,6 @@ else
   DATA_CLASS="regular"
 fi
 
-echo "Using model length: $MODEL_LENGTH"
-
 srun python -u -m main \
   wandb.name="$LANGUAGE-cot-$(date +%Y%m%d-%H%M%S)" \
   data=$DATA_CLASS \
@@ -36,10 +28,4 @@ srun python -u -m main \
   model=nano \
   algo=ar \
   model.length=$MODEL_LENGTH \
-  data.properties.format=trace \
-  data.properties.min_train_len=$MIN_TRAIN_LENGTH \
-  data.properties.max_train_len=$MAX_TRAIN_LENGTH \
-  data.properties.min_val_len=$MIN_VAL_LENGTH \
-  data.properties.max_val_len=$MAX_VAL_LENGTH \
-  data.properties.min_test_len=$MIN_TEST_LENGTH \
-  data.properties.max_test_len=$MAX_TEST_LENGTH
+  data.properties.format=trace
