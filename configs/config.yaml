@@ -10,7 +10,7 @@ defaults:
 
 mode: train  # train / ppl_eval / sample_eval
 
-seed: 1
+seed: 2
 
 loader:
   global_batch_size: 512
