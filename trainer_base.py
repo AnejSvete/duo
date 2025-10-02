@@ -374,6 +374,17 @@ class TrainerBase(L.LightningModule):
         current_metrics["epoch"] = self.current_epoch
         current_metrics["global_step"] = self.global_step
 
+        # Also save all logged metrics (including decoding strategy metrics)
+        # Get all callback metrics that were logged this epoch
+        if hasattr(self.trainer, 'callback_metrics'):
+            for metric_name, metric_value in self.trainer.callback_metrics.items():
+                if metric_name not in current_metrics and metric_name not in ["epoch", "global_step"]:
+                    # Only save validation metrics and avoid duplicates
+                    if isinstance(metric_value, torch.Tensor):
+                        current_metrics[metric_name] = metric_value.item()
+                    elif isinstance(metric_value, (int, float)):
+                        current_metrics[metric_name] = metric_value
+
         if os.path.exists(val_metrics_file):
             with open(val_metrics_file, "r") as f:
                 all_metrics = json.load(f)
@@ -562,6 +573,15 @@ class TrainerBase(L.LightningModule):
         }
         current_metrics["epoch"] = self.current_epoch
         current_metrics["global_step"] = self.global_step
+
+        # Also save all logged metrics (including decoding strategy metrics)
+        if hasattr(self.trainer, 'callback_metrics'):
+            for metric_name, metric_value in self.trainer.callback_metrics.items():
+                if metric_name not in current_metrics and metric_name not in ["epoch", "global_step"]:
+                    if isinstance(metric_value, torch.Tensor):
+                        current_metrics[metric_name] = metric_value.item()
+                    elif isinstance(metric_value, (int, float)):
+                        current_metrics[metric_name] = metric_value
 
         with open(test_metrics_file, "w") as f:
             json.dump(current_metrics, f, indent=4)
