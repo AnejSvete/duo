@@ -13,6 +13,20 @@ Research codebase for studying computational expressivity of different sequence 
 
 Focus areas: Boolean Formula Value Problems (BFVP), arithmetic expression evaluation, finite state automata (FSAs), and parity.
 
+## Quick Start
+
+**Launch an experiment (recommended):**
+```bash
+./scripts/launch_smart.sh my_experiment bfvp parity arithmetic
+```
+
+This automatically:
+1. Prepares all data formats in parallel
+2. Launches all 8 algorithm variants per language
+3. Creates analysis scripts
+
+**See [QUICK_START.md](QUICK_START.md) for complete workflow.**
+
 ## Setup Commands
 
 ```bash
@@ -39,15 +53,26 @@ python main.py data=bfvp algo=ar model=nano data.properties.format=trace
 
 # Example: Train looping transformer with log depth
 python main.py data=parity algo=lt model=nano algo.looping_type=log
+
+# Prepare data only (no training)
+python main.py mode=prepare_data data=bfvp model.length=256 data.properties.format=trace
 ```
 
-**Via Slurm scripts** (designed for cluster deployment):
+**Via Slurm (recommended):**
 ```bash
 mkdir watch_folder  # Create log directory first
 
-# Submit job with task and length parameters
-sbatch scripts/train_looping.sh <task> <min_train> <max_train> <min_val> <max_val> <min_test> <max_test> <model_length>
+# Launch full experiment (data prep + all algorithms)
+./scripts/launch_smart.sh my_experiment bfvp parity arithmetic
 ```
+
+See [QUICK_START.md](QUICK_START.md) for complete workflow.
+
+**Available modes:**
+- `mode=train` (default) - Full training
+- `mode=prepare_data` - Only prepare and cache data
+- `mode=ppl_eval` - Perplexity evaluation
+- `mode=sample_eval` - Generate samples
 
 Available scripts in [scripts/](scripts/):
 - `train_classifier.sh` - LT with constant depth (single-pass classifier)

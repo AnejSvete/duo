@@ -232,19 +232,17 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
         bfvp_cfg = getattr(config.data, "properties", {})
         min_depth = getattr(bfvp_cfg, "min_depth", 3)
         max_depth = getattr(bfvp_cfg, "max_depth", 8)
-        num_vars = getattr(bfvp_cfg, "num_vars", 4)
-        fan_in = getattr(bfvp_cfg, "fan_in", 2)
+        num_vars = getattr(bfvp_cfg, "num_vars", 2)
         format_mode = getattr(bfvp_cfg, "format", "trace")
 
         LOGGER.info(
             f"Generating bfvp data with: min_depth={min_depth}, max_depth={max_depth}, "
-            f"num_vars={num_vars}, fan_in={fan_in}, format={format_mode}, seed={seed}"
+            f"num_vars={num_vars}, format={format_mode}, seed={seed}"
         )
         split_pools = bfvp.make_all_splits(
             min_depth=min_depth,
             max_depth=max_depth,
             num_vars=num_vars,
-            fan_in=fan_in,
             mode=format_mode,
             seed=seed,
             split_sizes=split_sizes,
@@ -281,14 +279,13 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
         arith_cfg = getattr(config.data, "properties", {})
         min_depth = getattr(arith_cfg, "min_depth", 3)
         max_depth = getattr(arith_cfg, "max_depth", 8)
-        num_vars = getattr(arith_cfg, "num_vars", 2)
         min_val = getattr(arith_cfg, "min_val", 0)
         max_val = getattr(arith_cfg, "max_val", 50)
         format_mode = getattr(arith_cfg, "format", "trace")
 
         LOGGER.info(
             f"Generating arithmetic data with: min_depth={min_depth}, max_depth={max_depth}, "
-            f"num_vars={num_vars}, min_val={min_val}, max_val={max_val}, format={format_mode}, seed={seed}"
+            f"min_val={min_val}, max_val={max_val}, format={format_mode}, seed={seed}"
         )
         split_pools = arithmetic.make_all_splits(
             min_depth=min_depth,
@@ -296,7 +293,6 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
             mode=format_mode,
             min_val=min_val,
             max_val=max_val,
-            num_vars=num_vars,
             seed=seed,
             split_sizes=split_sizes,
         )
@@ -354,10 +350,9 @@ def _get_base_name(dataset_name, config, mode):
         max_depth = getattr(
             bfvp_cfg, "max_depth" if mode == "train" else "max_depth", 3
         )
-        num_vars = getattr(bfvp_cfg, "num_vars", 4)
-        fan_in = getattr(bfvp_cfg, "fan_in", 2)
+        num_vars = getattr(bfvp_cfg, "num_vars", 2)
         format_str = getattr(bfvp_cfg, "format", "trace").replace("_", "-")
-        return f"{dataset_name}_mind{min_depth}_maxd{max_depth}_nv{num_vars}_fi{fan_in}_f-{format_str}"
+        return f"{dataset_name}_mind{min_depth}_maxd{max_depth}_nv{num_vars}_f-{format_str}"
     elif dataset_name in FSA_CREATORS:
         lang_cfg = getattr(config.data, "properties", {})
         min_len, max_len = getattr(lang_cfg, f"min_len_{mode}", 32), getattr(
@@ -373,11 +368,10 @@ def _get_base_name(dataset_name, config, mode):
         max_depth = getattr(
             arith_cfg, "max_depth" if mode == "train" else "max_depth", 4
         )
-        num_vars = getattr(arith_cfg, "num_vars", 2)
         min_val = getattr(arith_cfg, "min_val", 0)
         max_val = getattr(arith_cfg, "max_val", 50)
         format_str = getattr(arith_cfg, "format", "trace").replace("_", "-")
-        return f"{dataset_name}_mind{min_depth}_maxd{max_depth}_nv{num_vars}_minv{min_val}_maxv{max_val}_f-{format_str}"
+        return f"{dataset_name}_mind{min_depth}_maxd{max_depth}_minv{min_val}_maxv{max_val}_f-{format_str}"
     else:
         return dataset_name
 
@@ -422,7 +416,7 @@ def get_tokenizer(config):
     # Pre-compute monoid size or num_vars for dynamic tokenizer vocab
     if language in BFVP_CREATORS:
         bfvp_cfg = getattr(config.data, "properties", {})
-        num_vars = getattr(bfvp_cfg, "num_vars", 4)
+        num_vars = getattr(bfvp_cfg, "num_vars", 2)
         format_mode = getattr(bfvp_cfg, "format", "trace")
         LOGGER.info(
             f"Language '{language}' requires {num_vars} variables. Creating dynamic tokenizer."
@@ -434,12 +428,12 @@ def get_tokenizer(config):
         )
     elif language in ARITHMETIC_CREATORS:
         arith_cfg = getattr(config.data, "properties", {})
-        num_vars = getattr(arith_cfg, "num_vars", 2)
+        num_vars = 2  # Fixed to 2 variables for arithmetic
         min_val = getattr(arith_cfg, "min_val", 0)
         max_val = getattr(arith_cfg, "max_val", 50)
         format_mode = getattr(arith_cfg, "format", "trace")
         LOGGER.info(
-            f"Language '{language}' requires {num_vars} variables and values in [{min_val}, {max_val}]. Creating dynamic tokenizer."
+            f"Language '{language}' requires 2 variables and values in [{min_val}, {max_val}]. Creating dynamic tokenizer."
         )
     tokenizer = FormalTokenizer(
         language=language,

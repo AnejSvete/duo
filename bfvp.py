@@ -8,20 +8,16 @@ BFVP_CREATORS = {
 }
 
 
-def generate_formula_tree(depth: int, num_vars: int, fan_in: int) -> Dict[str, Any]:
+def generate_formula_tree(depth: int, num_vars: int) -> Dict[str, Any]:
     """
-    Generates an expression tree for a formula with a single, constant fan-in.
+    Generates an expression tree for a formula with fan-in equal to num_vars.
     """
     if num_vars <= 0:
         raise ValueError("num_vars must be positive.")
     if depth < 0:
         raise ValueError("depth must be non-negative.")
-    if fan_in < 2:
-        raise ValueError("fan_in must be at least 2.")
-    if fan_in > num_vars:
-        raise ValueError(
-            "fan_in cannot be greater than the number of unique variables."
-        )
+    if num_vars < 2:
+        raise ValueError("num_vars must be at least 2.")
 
     variables = [f"x{i}" for i in range(1, num_vars + 1)]
 
@@ -32,14 +28,14 @@ def generate_formula_tree(depth: int, num_vars: int, fan_in: int) -> Dict[str, A
 
         op = random.choice(["and", "or"])
 
-        # Determine children based on depth using the single fixed fan_in value.
+        # Determine children based on depth using num_vars as fan-in.
         if current_depth == 1:
             # Nodes connected to leaves sample unique variables.
-            leaf_vars = random.sample(variables, fan_in)
+            leaf_vars = random.sample(variables, num_vars)
             children = [{"var": var} for var in leaf_vars]
         else:
             # Intermediate nodes recurse.
-            children = [gen(current_depth - 1) for _ in range(fan_in)]
+            children = [gen(current_depth - 1) for _ in range(num_vars)]
 
         # Randomly add negations to children.
         final_children = []
@@ -199,7 +195,6 @@ def make_all_splits(
     min_depth: int,
     max_depth: int,
     num_vars: int,
-    fan_in: int,
     mode: str,
     seed: int,
     split_sizes: Dict[str, int],
@@ -230,7 +225,7 @@ def make_all_splits(
 
         # Generate a candidate example
         current_depth = random.randint(min_depth, max_depth)
-        expression_tree = generate_formula_tree(current_depth, num_vars, fan_in)
+        expression_tree = generate_formula_tree(current_depth, num_vars)
         variables = get_variables_from_tree(expression_tree)
         assignments = {var: random.choice([True, False]) for var in variables}
         substituted_tree = substitute_vars_in_tree(expression_tree, assignments)
@@ -284,7 +279,6 @@ def make_examples(
     min_depth: int,
     max_depth: int,
     num_vars: int,
-    fan_in: int,
     mode: str,
     seed: int = None,
 ) -> List[Dict[str, str]]:
@@ -297,7 +291,7 @@ def make_examples(
     examples = []
     for _ in range(num_examples):
         current_depth = random.randint(min_depth, max_depth)
-        expression_tree = generate_formula_tree(current_depth, num_vars, fan_in)
+        expression_tree = generate_formula_tree(current_depth, num_vars)
         variables = get_variables_from_tree(expression_tree)
         assignments = {var: random.choice([True, False]) for var in variables}
         substituted_tree = substitute_vars_in_tree(expression_tree, assignments)
@@ -380,14 +374,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num_vars",
         type=int,
-        default=5,
-        help="Number of unique variables to choose from.",
-    )
-    parser.add_argument(
-        "--fan_in",
-        type=int,
         default=2,
-        help="Fixed fan-in for all nodes.",
+        help="Number of unique variables (also used as fan-in for all nodes).",
     )
     parser.add_argument(
         "--format",
@@ -405,8 +393,7 @@ if __name__ == "__main__":
     print(
         f"Generating {args.num_examples} examples with tree depth from {args.min_depth} to {args.max_depth}."
     )
-    print(f"Variable pool size: {args.num_vars}")
-    print(f"Fan-in: {args.fan_in}")
+    print(f"Number of variables (and fan-in): {args.num_vars}")
     print(f"Output format: '{args.format}'")
 
     examples = make_examples(
@@ -414,7 +401,6 @@ if __name__ == "__main__":
         min_depth=args.min_depth,
         max_depth=args.max_depth,
         num_vars=args.num_vars,
-        fan_in=args.fan_in,
         mode=args.format,
     )
 

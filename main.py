@@ -207,6 +207,25 @@ def _train(diffusion_model, config, logger, tokenizer):
         trainer.test(model, test_ds)
 
 
+def _prepare_data(config, logger, tokenizer):
+    """Prepare and cache data without training."""
+    logger.info("Starting Data Preparation.")
+    logger.info(
+        f"Preparing data for: {config.data.language}, format: {config.data.properties.format}"
+    )
+
+    # Just load the dataloaders - this triggers data generation and caching
+    train_ds, valid_ds, test_ds = dataloader.get_dataloaders(config, tokenizer)
+
+    # Print info about what was generated
+    logger.info(f"Train dataset size: {len(train_ds.dataset)}")
+    logger.info(f"Validation dataset size: {len(valid_ds.dataset)}")
+    if test_ds is not None:
+        logger.info(f"Test dataset size: {len(test_ds.dataset)}")
+
+    logger.info("Data preparation complete. Data is now cached and ready for training.")
+
+
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(config):
     """Main entry point for training."""
@@ -215,6 +234,13 @@ def main(config):
 
     logger = utils.get_logger(__name__)
     tokenizer = dataloader.get_tokenizer(config)
+
+    # Handle data preparation mode separately (doesn't need model)
+    if config.mode == "prepare_data":
+        _prepare_data(config, logger, tokenizer)
+        return
+
+    # Initialize model for other modes
     if config.algo.name == "ar":
         diffusion_model = algo.AR
     elif config.algo.name == "lt":

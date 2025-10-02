@@ -209,7 +209,6 @@ def make_all_splits(
     mode: str,
     min_val: int,
     max_val: int,
-    num_vars: int,
     seed: int,
     split_sizes: Dict[str, int],
 ) -> Dict[str, List[Dict[str, str]]]:
@@ -241,7 +240,7 @@ def make_all_splits(
         depth = random.randint(min_depth, max_depth)
         expression_tree = generate_expression_tree(depth, min_val, max_val)
 
-        text = _generate_arithmetic_text(expression_tree, mode, num_vars)
+        text = _generate_arithmetic_text(expression_tree, mode)
         if text is None:
             continue
 
@@ -294,7 +293,6 @@ def make_examples(
     mode: str,
     min_val: int,
     max_val: int,
-    num_vars: int,
     seed: int = None,
 ) -> List[Dict[str, str]]:
     """
@@ -308,7 +306,7 @@ def make_examples(
         depth = random.randint(min_depth, max_depth)
         expression_tree = generate_expression_tree(depth, min_val, max_val)
 
-        text = _generate_arithmetic_text(expression_tree, mode, num_vars)
+        text = _generate_arithmetic_text(expression_tree, mode)
         if text is not None:
             examples.append({"text": text})
 
@@ -316,7 +314,7 @@ def make_examples(
 
 
 def _generate_arithmetic_text(
-    expression_tree: Dict[str, Any], mode: str, num_vars: int
+    expression_tree: Dict[str, Any], mode: str
 ) -> str:
     """Helper function to generate text representation from expression tree."""
     if mode == "trace":
@@ -343,8 +341,7 @@ def _generate_arithmetic_text(
         else:
             text = initial_repr
     elif mode == "lookup":
-        if num_vars <= 0:
-            raise ValueError("num_vars must be positive for 'lookup' mode.")
+        num_vars = 2  # Fixed to 2 variables for lookup mode
 
         unique_constants = sorted(list(get_constants_from_tree(expression_tree)))
         num_to_variablize = min(num_vars, len(unique_constants))
@@ -415,17 +412,11 @@ if __name__ == "__main__":
         help="Maximum value for operands and results.",
     )
     parser.add_argument(
-        "--num_vars",
-        type=int,
-        default=2,
-        help="Number of unique variables to create for 'lookup' mode.",
-    )
-    parser.add_argument(
         "--format",
         type=str,
         default="trace",
         choices=["trace", "final_value", "empty_trace", "lookup"],
-        help="Output format. 'lookup' mode creates variables.",
+        help="Output format. 'lookup' mode creates 2 variables.",
     )
 
     args = parser.parse_args()
@@ -437,7 +428,7 @@ if __name__ == "__main__":
     )
     print(f"Output Format: '{args.format}'")
     if args.format == "lookup":
-        print(f"Variables per example: up to {args.num_vars}")
+        print(f"Variables per example: up to 2")
 
     generated_examples = make_examples(
         num_examples=args.num_examples,
@@ -446,7 +437,6 @@ if __name__ == "__main__":
         mode=args.format,
         min_val=args.min_val,
         max_val=args.max_val,
-        num_vars=args.num_vars,
     )
 
     print("\n--- Generated Examples ---")

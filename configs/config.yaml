@@ -8,7 +8,7 @@ defaults:
   - /lr_scheduler: constant_warmup
   - /algo: mdlm
 
-mode: train  # train / ppl_eval / sample_eval
+mode: train  # train / prepare_data / ppl_eval / sample_eval
 
 seed: 2
 
