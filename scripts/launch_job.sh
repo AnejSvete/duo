@@ -12,11 +12,11 @@ MIN_TEST_LENGTH=${7:-40}
 MAX_TEST_LENGTH=${8:-40}
 # Set model lengths based on language and max train length
 if [ "$LANGUAGE" = "arithmetic" ]; then
-    SHORT_MODEL_LENGTH=96
-    LONG_MODEL_LENGTH=192
+    SHORT_MODEL_LENGTH=512
+    LONG_MODEL_LENGTH=1024
 elif [ "$LANGUAGE" = "bfvp" ]; then
-    SHORT_MODEL_LENGTH=96
-    LONG_MODEL_LENGTH=192
+    SHORT_MODEL_LENGTH=512
+    LONG_MODEL_LENGTH=1024
 else
     SHORT_MODEL_LENGTH=$(( MAX_TRAIN_LENGTH * 3 / 2 ))
     LONG_MODEL_LENGTH=$(( MAX_TRAIN_LENGTH * 3 ))

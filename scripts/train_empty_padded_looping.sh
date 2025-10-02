@@ -19,8 +19,17 @@ MIN_TEST_LENGTH=$6
 MAX_TEST_LENGTH=$7
 MODEL_LENGTH=$8
 
+if [ "$LANGUAGE" = "bfvp" ]; then
+  DATA_CLASS="bfvp"
+elif [ "$LANGUAGE" = "arithmetic" ]; then
+  DATA_CLASS="arithmetic"
+else
+  DATA_CLASS="regular"
+fi
+
 srun python -u -m main \
   wandb.name="$LANGUAGE-empty-padded-looping-$(date +%Y%m%d-%H%M%S)" \
+  data=$DATA_CLASS \
   data.language=$LANGUAGE \
   model=nano \
   algo=lt \
