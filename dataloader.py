@@ -474,15 +474,14 @@ def get_dataloaders(
     valid_seed=None,
 ):
     num_gpus = torch.cuda.device_count()
-    if (
-        config.loader.global_batch_size
-        % (num_gpus * config.trainer.accumulate_grad_batches)
-        != 0
-    ):
+    # Protect against zero GPUs (e.g., CPU-only machines) to avoid ZeroDivisionError.
+    effective_num_gpus = max(1, num_gpus)
+    effective_accum = max(1, int(config.trainer.accumulate_grad_batches))
+    if config.loader.global_batch_size % (effective_num_gpus * effective_accum) != 0:
         raise ValueError(
             "Global batch size not divisible by number of GPUs and gradient accumulation steps."
         )
-    if config.loader.eval_global_batch_size % num_gpus != 0:
+    if config.loader.eval_global_batch_size % effective_num_gpus != 0:
         raise ValueError("Eval batch size not divisible by number of GPUs.")
 
     train_set = (
