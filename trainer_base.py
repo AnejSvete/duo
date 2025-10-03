@@ -246,7 +246,13 @@ class TrainerBase(L.LightningModule):
                 sync_dist=True,
             )
 
-            if gen_mode in ["default", "one_at_a_time"]:
+            # Also log top_k as default for fair comparison with other models
+            if gen_mode == "top_k" and self.config.algo.name == "mdlm":
+                self.log("val/default_acc_exact", acc_exact, on_step=False, on_epoch=True, sync_dist=True)
+                self.log("val/default_acc_token", acc_token, on_step=False, on_epoch=True, sync_dist=True)
+                self.log("val/default_correct_prediction", correct_prediction, on_step=False, on_epoch=True, sync_dist=True)
+
+            if gen_mode in ["default", "one_at_a_time", "top_k"]:
                 self.log(
                     "val/acc_token",
                     acc_token,
@@ -510,7 +516,13 @@ class TrainerBase(L.LightningModule):
                 sync_dist=True,
             )
 
-            if gen_mode in ["default", "one_at_a_time"]:
+            # Also log top_k as default for fair comparison with other models
+            if gen_mode == "top_k" and self.config.algo.name == "mdlm":
+                self.log("test/default_acc_exact", acc_exact, on_step=False, on_epoch=True, sync_dist=True)
+                self.log("test/default_acc_token", acc_token, on_step=False, on_epoch=True, sync_dist=True)
+                self.log("test/default_correct_prediction", correct_prediction, on_step=False, on_epoch=True, sync_dist=True)
+
+            if gen_mode in ["default", "one_at_a_time", "top_k"]:
                 self.log(
                     "test/acc_token",
                     acc_token,

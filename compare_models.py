@@ -72,6 +72,20 @@ def extract_run_metadata(run_dir: Path) -> Dict:
         except Exception as e:
             print(f"Warning: Could not parse config for {run_dir}: {e}")
 
+    # Try to infer from parent directory structure (e.g., experiments/exp_name/language/algo/)
+    parent_parts = list(run_dir.parents)
+    if len(parent_parts) >= 2:
+        # Parent directory might be the language (e.g., .../bfvp/cot/)
+        potential_language = run_dir.parent.name
+        known_tasks = [
+            "bfvp", "arithmetic", "parity", "contains_a", "ab_star",
+            "mod_3", "even_pairs", "cycle", "dyck", "a5", "a10", "a15"
+        ]
+        if potential_language in known_tasks:
+            if "language" not in metadata:
+                metadata["language"] = potential_language
+                metadata["task"] = potential_language
+
     # Try to infer from directory name (common pattern: task-algo-timestamp)
     parts = run_dir.name.split("-")
     if len(parts) >= 2:
@@ -99,6 +113,23 @@ def extract_run_metadata(run_dir: Path) -> Dict:
                 else:
                     metadata["algo"] = part
                 break
+
+    # Try to infer algo from current directory name
+    if "algo" not in metadata:
+        algo_mapping = {
+            "classifier": "lt-constant",
+            "looping": "lt-log",
+            "padded_looping": "lt-log-padded",
+            "empty_padded_looping": "lt-log-empty",
+            "cot": "ar-cot",
+            "mdm": "mdlm",
+            "padding": "lt-constant-padded",
+            "empty_padding": "lt-constant-empty",
+        }
+        if run_dir.name in algo_mapping:
+            metadata["algo"] = algo_mapping[run_dir.name]
+        elif run_dir.name in ["ar", "lt", "mdlm", "d3pm", "sedd"]:
+            metadata["algo"] = run_dir.name
 
     # Set defaults if not found
     if "language" not in metadata:

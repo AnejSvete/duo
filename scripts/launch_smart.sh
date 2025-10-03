@@ -181,6 +181,70 @@ echo "Scheduled ${#TRAINING_JOBS[@]} training jobs: ${TRAINING_JOBS[*]}"
 echo ""
 
 # ============================================================================
+# STAGE 3: Schedule analysis job (depends on all training jobs)
+# ============================================================================
+
+echo "STAGE 3: Scheduling analysis job (will run after all training completes)..."
+echo ""
+
+# Create dependency string for all training jobs
+TRAIN_DEPENDENCY=$(IFS=:; echo "${TRAINING_JOBS[*]}")
+
+# Create analysis script that will be submitted
+ANALYSIS_BATCH_SCRIPT="${EXPERIMENT_DIR}/run_analysis.sh"
+cat > "$ANALYSIS_BATCH_SCRIPT" <<'ANALYSIS_BATCH_EOF'
+#!/bin/bash
+#SBATCH -J analysis
+#SBATCH -o watch_folder/%x_%j.out
+#SBATCH --mem-per-cpu=16000
+#SBATCH -t 01:00:00
+#SBATCH --open-mode=append
+
+module load stack/2024-06 python/3.12.8 eth_proxy
+source /cluster/home/asvete/duo/bin/activate
+
+ANALYSIS_BATCH_EOF
+
+cat >> "$ANALYSIS_BATCH_SCRIPT" <<EOF
+SCRATCH_DIR="$SCRATCH_DIR"
+EXPERIMENT_NAME="$EXPERIMENT_NAME"
+EXPERIMENT_DIR="$EXPERIMENT_DIR"
+SCRATCH_EXPERIMENT_DIR="\$SCRATCH_DIR/\$EXPERIMENT_NAME"
+
+echo "Analyzing: \$EXPERIMENT_NAME"
+NUM_RUNS=\$(find "\$SCRATCH_EXPERIMENT_DIR" -name "validation_metrics.json" 2>/dev/null | wc -l)
+EXPECTED=${#TRAINING_JOBS[@]}
+
+echo "Progress: \$NUM_RUNS / \$EXPECTED runs completed"
+echo ""
+
+if [ \$NUM_RUNS -eq 0 ]; then
+    echo "ERROR: No completed runs found!"
+    exit 1
+fi
+
+echo "Running analysis..."
+# Use wildcard expansion for all subdirectories (handles language/algo structure)
+srun python compare_models.py \\
+    --run_dirs \$SCRATCH_EXPERIMENT_DIR/*/* \\
+    --output_dir "\$EXPERIMENT_DIR"/analysis
+
+echo ""
+echo "✓ Analysis complete! Results in: \$EXPERIMENT_DIR/analysis/"
+EOF
+
+chmod +x "$ANALYSIS_BATCH_SCRIPT"
+
+# Submit analysis job with dependency on all training jobs
+ANALYSIS_JOB=$(sbatch \
+    --job-name="${EXPERIMENT_NAME}-analysis" \
+    --dependency=afterok:$TRAIN_DEPENDENCY \
+    "$ANALYSIS_BATCH_SCRIPT" | grep -oP '\d+$')
+
+echo "  Scheduled analysis job: $ANALYSIS_JOB (depends on all training jobs)"
+echo ""
+
+# ============================================================================
 # Create helper scripts
 # ============================================================================
 
@@ -207,8 +271,9 @@ if [ \$NUM_RUNS -eq 0 ]; then
 fi
 
 echo "Running analysis..."
+# Use wildcard expansion for all subdirectories (handles language/algo structure)
 python compare_models.py \\
-    --run_dirs "\$SCRATCH_EXPERIMENT_DIR"/*/* \\
+    --run_dirs \$SCRATCH_EXPERIMENT_DIR/*/* \\
     --output_dir "$EXPERIMENT_DIR"/analysis
 
 echo ""
@@ -226,6 +291,9 @@ cat >> "$EXPERIMENT_DIR/status.sh" <<EOF
 SCRATCH_DIR="$SCRATCH_DIR"
 EXPERIMENT_NAME="$EXPERIMENT_NAME"
 SCRATCH_EXPERIMENT_DIR="\$SCRATCH_DIR/\$EXPERIMENT_NAME"
+DATA_PREP_JOBS=(${DATA_PREP_JOBS[*]})
+TRAINING_JOBS=(${TRAINING_JOBS[*]})
+ANALYSIS_JOB=$ANALYSIS_JOB
 
 echo "========================================"
 echo "Status: $EXPERIMENT_NAME"
@@ -233,19 +301,25 @@ echo "========================================"
 echo ""
 
 echo "Data Preparation Jobs:"
-squeue -j $(IFS=,; echo "${DATA_PREP_JOBS[*]}") --format="%.18i %.40j %.8T %.10M" 2>/dev/null || echo "  All data prep complete"
+squeue -j \$(IFS=,; echo "\${DATA_PREP_JOBS[*]}") --format="%.18i %.40j %.8T %.10M" 2>/dev/null || echo "  All data prep complete"
 
 echo ""
 echo "Training Jobs:"
-squeue -u \$USER | grep "${EXPERIMENT_NAME}-" 2>/dev/null || echo "  No training jobs in queue"
+squeue -j \$(IFS=,; echo "\${TRAINING_JOBS[*]}") --format="%.18i %.40j %.8T %.10M %.9l" 2>/dev/null || echo "  All training jobs complete"
+
+echo ""
+echo "Analysis Job:"
+squeue -j \$ANALYSIS_JOB --format="%.18i %.40j %.8T %.10M" 2>/dev/null || echo "  Analysis complete (or not started)"
 
 echo ""
 NUM_COMPLETED=\$(find "\$SCRATCH_EXPERIMENT_DIR" -name "validation_metrics.json" 2>/dev/null | wc -l)
-echo "Completed: \$NUM_COMPLETED / ${#TRAINING_JOBS[@]} training runs"
+echo "Completed: \$NUM_COMPLETED / \${#TRAINING_JOBS[@]} training runs"
 
 echo ""
 echo "Data location: \$SCRATCH_EXPERIMENT_DIR"
-echo "To analyze: $EXPERIMENT_DIR/analyze.sh"
+echo "Analysis results: $EXPERIMENT_DIR/analysis/"
+echo ""
+echo "To manually re-run analysis: $EXPERIMENT_DIR/analyze.sh"
 EOF
 
 chmod +x "$EXPERIMENT_DIR/status.sh"
@@ -263,27 +337,31 @@ cat <<EOF
 Pipeline:
   1. Data Prep:  ${#DATA_PREP_JOBS[@]} jobs (running now)
   2. Training:   ${#TRAINING_JOBS[@]} jobs (will auto-start when data ready)
+  3. Analysis:   1 job (will auto-start when training complete)
 
 Languages: ${LANGUAGES[*]}
 Outputs: $SCRATCH_DIR/$EXPERIMENT_NAME/
 Scripts: $EXPERIMENT_DIR/
 
-Data Prep Jobs: ${DATA_PREP_JOBS[*]}
-Training Jobs: ${TRAINING_JOBS[*]}
+Job IDs:
+  Data Prep: ${DATA_PREP_JOBS[*]}
+  Training:  ${TRAINING_JOBS[*]}
+  Analysis:  $ANALYSIS_JOB
 
 Commands:
 
-  # Check status (shows both stages)
+  # Check status (shows all stages)
   $EXPERIMENT_DIR/status.sh
 
   # Check queue
   squeue -u \$USER
 
   # View logs
-  tail -f watch_folder/dataprep-*        # Data prep
-  tail -f watch_folder/${EXPERIMENT_NAME}-*  # Training
+  tail -f watch_folder/dataprep-*           # Data prep
+  tail -f watch_folder/${EXPERIMENT_NAME}-* # Training
+  tail -f watch_folder/analysis-*           # Analysis
 
-  # When complete, analyze
+  # Manually re-run analysis (if needed)
   $EXPERIMENT_DIR/analyze.sh
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -291,7 +369,8 @@ Commands:
 Workflow:
   ⏳ Data prep jobs running now (~5-30 min)
   ⏸️  Training jobs queued (will auto-start after data prep)
-  🎯 Analysis ready when all jobs complete
+  ⏸️  Analysis job queued (will auto-start after training)
+  🎯 Fully automated - just wait for completion!
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
