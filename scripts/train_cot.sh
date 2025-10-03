@@ -10,8 +10,9 @@
 module load stack/2024-06 python/3.12.8 eth_proxy
 source /cluster/home/asvete/duo/bin/activate
 
-LANGUAGE=$1
-MODEL_LENGTH=$2
+# Accept params from env vars (set by launch_smart.sh) or command line args
+LANGUAGE=${LANGUAGE:-$1}
+MODEL_LENGTH=${MODEL_LENGTH:-$2}
 
 if [ "$LANGUAGE" = "bfvp" ]; then
   DATA_CLASS="bfvp"
@@ -21,6 +22,12 @@ else
   DATA_CLASS="regular"
 fi
 
+# Build Hydra args
+HYDRA_ARGS=""
+if [ -n "$OUTPUT_DIR" ]; then
+  HYDRA_ARGS="hydra.run.dir=$OUTPUT_DIR"
+fi
+
 srun python -u -m main \
   wandb.name="$LANGUAGE-cot-$(date +%Y%m%d-%H%M%S)" \
   data=$DATA_CLASS \
@@ -28,4 +35,5 @@ srun python -u -m main \
   model=nano \
   algo=ar \
   model.length=$MODEL_LENGTH \
-  data.properties.format=trace
+  data.properties.format=trace \
+  $HYDRA_ARGS

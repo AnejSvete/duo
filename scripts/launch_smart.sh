@@ -37,7 +37,8 @@ shift
 LANGUAGES=("$@")
 
 # Configuration
-EXPERIMENT_DIR="experiments/${EXPERIMENT_NAME}"
+SCRATCH_DIR="/cluster/scratch/asvete/duo/outputs"
+EXPERIMENT_DIR="experiments/${EXPERIMENT_NAME}"  # For helper scripts only
 mkdir -p "$EXPERIMENT_DIR"
 mkdir -p watch_folder
 
@@ -159,15 +160,15 @@ for lang in "${LANGUAGES[@]}"; do
 
         echo "  Scheduling: $lang × $algo (depends on data prep job $dep_job)"
 
-        OUTPUT_DIR="${EXPERIMENT_DIR}/${lang}/${algo}"
-        mkdir -p "$OUTPUT_DIR"
+        # Output to scratch (has space), not home
+        OUTPUT_DIR="${SCRATCH_DIR}/${EXPERIMENT_NAME}/${lang}/${algo}"
 
         # Submit with dependency on specific data prep job
         JOB_ID=$(sbatch \
             --job-name="${EXPERIMENT_NAME}-${lang}-${algo}" \
             --dependency=afterok:$dep_job \
-            --export=ALL,OUTPUT_DIR=$OUTPUT_DIR \
-            scripts/$script $lang $length | grep -oP '\d+$')
+            --export=ALL,OUTPUT_DIR=$OUTPUT_DIR,LANGUAGE=$lang,MODEL_LENGTH=$length \
+            scripts/$script | grep -oP '\d+$')
 
         TRAINING_JOBS+=($JOB_ID)
 
@@ -189,10 +190,12 @@ cat > "$EXPERIMENT_DIR/analyze.sh" <<'ANALYSIS_EOF'
 ANALYSIS_EOF
 
 cat >> "$EXPERIMENT_DIR/analyze.sh" <<EOF
-EXPERIMENT_DIR="$EXPERIMENT_DIR"
+SCRATCH_DIR="$SCRATCH_DIR"
+EXPERIMENT_NAME="$EXPERIMENT_NAME"
+SCRATCH_EXPERIMENT_DIR="\$SCRATCH_DIR/\$EXPERIMENT_NAME"
 
 echo "Analyzing: $EXPERIMENT_NAME"
-NUM_RUNS=\$(find "\$EXPERIMENT_DIR" -name "validation_metrics.json" 2>/dev/null | wc -l)
+NUM_RUNS=\$(find "\$SCRATCH_EXPERIMENT_DIR" -name "validation_metrics.json" 2>/dev/null | wc -l)
 EXPECTED=${#TRAINING_JOBS[@]}
 
 echo "Progress: \$NUM_RUNS / \$EXPECTED runs completed"
@@ -205,11 +208,11 @@ fi
 
 echo "Running analysis..."
 python compare_models.py \\
-    --run_dirs "\$EXPERIMENT_DIR"/*/* \\
-    --output_dir "\$EXPERIMENT_DIR"/analysis
+    --run_dirs "\$SCRATCH_EXPERIMENT_DIR"/*/* \\
+    --output_dir "$EXPERIMENT_DIR"/analysis
 
 echo ""
-echo "✓ Results in: \$EXPERIMENT_DIR/analysis/"
+echo "✓ Results in: $EXPERIMENT_DIR/analysis/"
 EOF
 
 chmod +x "$EXPERIMENT_DIR/analyze.sh"
@@ -220,6 +223,10 @@ cat > "$EXPERIMENT_DIR/status.sh" <<'STATUS_EOF'
 STATUS_EOF
 
 cat >> "$EXPERIMENT_DIR/status.sh" <<EOF
+SCRATCH_DIR="$SCRATCH_DIR"
+EXPERIMENT_NAME="$EXPERIMENT_NAME"
+SCRATCH_EXPERIMENT_DIR="\$SCRATCH_DIR/\$EXPERIMENT_NAME"
+
 echo "========================================"
 echo "Status: $EXPERIMENT_NAME"
 echo "========================================"
@@ -230,14 +237,15 @@ squeue -j $(IFS=,; echo "${DATA_PREP_JOBS[*]}") --format="%.18i %.40j %.8T %.10M
 
 echo ""
 echo "Training Jobs:"
-squeue -u \$USER --name="${EXPERIMENT_NAME}-*" --format="%.18i %.40j %.8T %.10M %.9l" 2>/dev/null || echo "  No training jobs in queue"
+squeue -u \$USER | grep "${EXPERIMENT_NAME}-" 2>/dev/null || echo "  No training jobs in queue"
 
 echo ""
-NUM_COMPLETED=\$(find "$EXPERIMENT_DIR" -name "validation_metrics.json" 2>/dev/null | wc -l)
+NUM_COMPLETED=\$(find "\$SCRATCH_EXPERIMENT_DIR" -name "validation_metrics.json" 2>/dev/null | wc -l)
 echo "Completed: \$NUM_COMPLETED / ${#TRAINING_JOBS[@]} training runs"
 
 echo ""
-echo "To analyze: ./$EXPERIMENT_DIR/analyze.sh"
+echo "Data location: \$SCRATCH_EXPERIMENT_DIR"
+echo "To analyze: $EXPERIMENT_DIR/analyze.sh"
 EOF
 
 chmod +x "$EXPERIMENT_DIR/status.sh"
@@ -257,7 +265,8 @@ Pipeline:
   2. Training:   ${#TRAINING_JOBS[@]} jobs (will auto-start when data ready)
 
 Languages: ${LANGUAGES[*]}
-Output: $EXPERIMENT_DIR/
+Outputs: $SCRATCH_DIR/$EXPERIMENT_NAME/
+Scripts: $EXPERIMENT_DIR/
 
 Data Prep Jobs: ${DATA_PREP_JOBS[*]}
 Training Jobs: ${TRAINING_JOBS[*]}
