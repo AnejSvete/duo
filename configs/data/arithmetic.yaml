@@ -7,4 +7,3 @@ properties:
   max_val: 50
   min_depth: 1
   max_depth: 4
-  format: trace
