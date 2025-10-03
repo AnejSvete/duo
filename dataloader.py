@@ -355,8 +355,8 @@ def _get_base_name(dataset_name, config, mode):
         return f"{dataset_name}_mind{min_depth}_maxd{max_depth}_nv{num_vars}_f-{format_str}"
     elif dataset_name in FSA_CREATORS:
         lang_cfg = getattr(config.data, "properties", {})
-        min_len, max_len = getattr(lang_cfg, f"min_len_{mode}", 32), getattr(
-            lang_cfg, f"max_len_{mode}", 32
+        min_len, max_len = getattr(lang_cfg, f"min_{mode}_len", 32), getattr(
+            lang_cfg, f"max_{mode}_len", 32
         )
         format_str = getattr(lang_cfg, "format", "trace").replace("_", "-")
         return f"{dataset_name}_minl{min_len}_maxl{max_len}_f-{format_str}"
