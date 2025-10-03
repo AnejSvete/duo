@@ -5,5 +5,5 @@ language: bfvp
 properties:
   num_vars: 2
   min_depth: 1
-  max_depth: 4
+  max_depth: 3
   format: trace
