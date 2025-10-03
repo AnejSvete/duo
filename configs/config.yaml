@@ -63,7 +63,7 @@ trainer:
   accelerator: cuda
   num_nodes: 1
   devices: ${device_count:}
-  accumulate_grad_batches: "${div_up:${loader.global_batch_size}, ${eval:max(1, ${trainer.devices}) * ${loader.batch_size} * ${trainer.num_nodes}}}"
+  accumulate_grad_batches: ${eval:"-(-${loader.global_batch_size} // (max(1, ${trainer.devices}) * ${loader.batch_size} * ${trainer.num_nodes}))"}
   gradient_clip_val: 1.0
   num_sanity_val_steps: 2
   max_steps: 20_000
