@@ -836,6 +836,10 @@ def generate_comprehensive_report(run_dirs: List[Path], output_dir: Path):
     print("=" * 80)
     print(f"Analyzing {len(run_dirs)} runs...")
     print()
+    print("Run directories:")
+    for run_dir in run_dirs:
+        print(f"  - {run_dir}")
+    print()
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -843,6 +847,11 @@ def generate_comprehensive_report(run_dirs: List[Path], output_dir: Path):
     print("Loading validation metrics...")
     all_val_metrics = load_all_validation_metrics(run_dirs)
     print(f"Loaded validation metrics from {len(all_val_metrics)} runs")
+    if all_val_metrics:
+        print("Runs with validation metrics:")
+        for run_name, run_data in all_val_metrics.items():
+            metadata = run_data["metadata"]
+            print(f"  - {run_name}: language={metadata.get('language')}, algo={metadata.get('algo')}")
     print()
 
     print("Loading test metrics...")
