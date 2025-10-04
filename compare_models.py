@@ -41,6 +41,33 @@ plt.rcParams.update(
     }
 )
 
+# Human-readable metric names
+METRIC_NAME_MAP = {
+    "acc_exact": "Exact Match Accuracy",
+    "acc_token": "Token Accuracy",
+    "correct_prediction": "Final Token Accuracy",
+    "nll": "Negative Log-Likelihood",
+    "ppl": "Perplexity",
+    "bpd": "Bits Per Dimension",
+    "loss": "Loss",
+    "lr": "Learning Rate",
+}
+
+
+def humanize_metric_name(metric_name: str) -> str:
+    """Convert metric name to human-readable format."""
+    # Check if we have a direct mapping
+    if metric_name in METRIC_NAME_MAP:
+        return METRIC_NAME_MAP[metric_name]
+
+    # Check with val/ or test/ prefix removed
+    clean_name = metric_name.replace("val/", "").replace("test/", "")
+    if clean_name in METRIC_NAME_MAP:
+        return METRIC_NAME_MAP[clean_name]
+
+    # Otherwise, convert underscores to spaces and title case
+    return metric_name.replace("_", " ").title()
+
 
 def extract_run_metadata(run_dir: Path) -> Dict:
     """Extract metadata about the run from directory name and config."""
@@ -49,7 +76,31 @@ def extract_run_metadata(run_dir: Path) -> Dict:
         "run_name": run_dir.name,
     }
 
-    # Try to parse config if available
+    # Try to infer from parent directory structure FIRST (e.g., experiments/exp_name/language/algo/)
+    # This takes priority over config file to handle experiment-specific naming like a5/a10/a15
+    parent_parts = list(run_dir.parents)
+    if len(parent_parts) >= 2:
+        # Parent directory might be the language (e.g., .../a5/cot/)
+        potential_language = run_dir.parent.name
+        known_tasks = [
+            "bfvp",
+            "arithmetic",
+            "parity",
+            "contains_a",
+            "ab_star",
+            "mod_3",
+            "even_pairs",
+            "cycle",
+            "dyck",
+            "a5",
+            "a10",
+            "a15",
+        ]
+        if potential_language in known_tasks:
+            metadata["language"] = potential_language
+            metadata["task"] = potential_language
+
+    # Try to parse config if available (but don't override directory-based language)
     config_file = run_dir / "config_tree.txt"
     if config_file.exists():
         try:
@@ -59,32 +110,31 @@ def extract_run_metadata(run_dir: Path) -> Dict:
                 # Extract algo name
                 for line in content.split("\n"):
                     line = line.strip()
-                    if line.startswith("name:") and "algo" in content[:content.index(line) if line in content else 0]:
+                    if (
+                        line.startswith("name:")
+                        and "algo"
+                        in content[: content.index(line) if line in content else 0]
+                    ):
                         metadata["algo"] = line.split("name:")[-1].strip()
-                    # Extract language/task
-                    if line.startswith("language:"):
-                        metadata["language"] = line.split("language:")[-1].strip()
-                    # Also check for data.language
-                    if "data.language:" in line or (line.startswith("language:") and "data:" in content[:max(0, content.index(line) - 100):content.index(line) if line in content else 0]):
-                        lang = line.split(":")[-1].strip()
-                        if lang:
-                            metadata["language"] = lang
+                    # Extract language/task only if not already set from directory
+                    if "language" not in metadata:
+                        if line.startswith("language:"):
+                            metadata["language"] = line.split("language:")[-1].strip()
+                        # Also check for data.language
+                        if "data.language:" in line or (
+                            line.startswith("language:")
+                            and "data:"
+                            in content[
+                                : max(0, content.index(line) - 100) : (
+                                    content.index(line) if line in content else 0
+                                )
+                            ]
+                        ):
+                            lang = line.split(":")[-1].strip()
+                            if lang:
+                                metadata["language"] = lang
         except Exception as e:
             print(f"Warning: Could not parse config for {run_dir}: {e}")
-
-    # Try to infer from parent directory structure (e.g., experiments/exp_name/language/algo/)
-    parent_parts = list(run_dir.parents)
-    if len(parent_parts) >= 2:
-        # Parent directory might be the language (e.g., .../bfvp/cot/)
-        potential_language = run_dir.parent.name
-        known_tasks = [
-            "bfvp", "arithmetic", "parity", "contains_a", "ab_star",
-            "mod_3", "even_pairs", "cycle", "dyck", "a5", "a10", "a15"
-        ]
-        if potential_language in known_tasks:
-            if "language" not in metadata:
-                metadata["language"] = potential_language
-                metadata["task"] = potential_language
 
     # Try to infer from directory name (common pattern: task-algo-timestamp)
     parts = run_dir.name.split("-")
@@ -93,8 +143,15 @@ def extract_run_metadata(run_dir: Path) -> Dict:
         potential_task = parts[0]
         # Check if it's a known task
         known_tasks = [
-            "bfvp", "arithmetic", "parity", "contains_a", "ab_star",
-            "mod_3", "even_pairs", "cycle", "dyck"
+            "bfvp",
+            "arithmetic",
+            "parity",
+            "contains_a",
+            "ab_star",
+            "mod_3",
+            "even_pairs",
+            "cycle",
+            "dyck",
         ]
         if potential_task in known_tasks:
             metadata["task"] = potential_task
@@ -213,7 +270,28 @@ def plot_validation_trends(
         metadata = run_data["metadata"]
 
         if metric_name not in df.columns:
-            print(f"Warning: {metric_name} not found in {run_name}")
+            # Only warn if this is an unexpected missing metric
+            # MDLM has diffusion-specific metrics, AR/LT only have default metrics
+            algo = metadata.get("algo", "")
+            is_diffusion = (
+                "mdlm" in algo.lower()
+                or "d3pm" in algo.lower()
+                or "sedd" in algo.lower()
+            )
+            is_diffusion_metric = any(
+                x in metric_name
+                for x in [
+                    "random",
+                    "top_k",
+                    "one_level",
+                    "all_at_once",
+                    "one_at_a_time",
+                ]
+            )
+
+            # Only warn if it's unexpected (non-diffusion algo missing non-diffusion metric, or vice versa)
+            if not (is_diffusion_metric and not is_diffusion):
+                print(f"Warning: {metric_name} not found in {run_name}")
             continue
 
         x = df[x_axis].values
@@ -256,17 +334,13 @@ def plot_all_validation_metrics(
     all_metric_names = set()
     for run_data in all_metrics.values():
         df = run_data["data"]
-        metric_cols = [
-            col for col in df.columns if col not in ["epoch", "global_step"]
-        ]
+        metric_cols = [col for col in df.columns if col not in ["epoch", "global_step"]]
         all_metric_names.update(metric_cols)
 
     print(f"Found {len(all_metric_names)} unique metrics: {sorted(all_metric_names)}")
 
     for metric_name in sorted(all_metric_names):
-        plot_validation_trends(
-            all_metrics, save_dir, metric_name, x_axis, smoothing
-        )
+        plot_validation_trends(all_metrics, save_dir, metric_name, x_axis, smoothing)
 
 
 def compare_decoding_strategies(
@@ -285,10 +359,21 @@ def compare_decoding_strategies(
         metadata = run_data["metadata"]
 
         # Look for strategy-specific metrics (val/{strategy}_acc_*)
-        strategy_cols = [col for col in df.columns if any(
-            strategy in col for strategy in
-            ["random", "top_k", "one_level", "all_at_once", "one_at_a_time", "default"]
-        )]
+        strategy_cols = [
+            col
+            for col in df.columns
+            if any(
+                strategy in col
+                for strategy in [
+                    "random",
+                    "top_k",
+                    "one_level",
+                    "all_at_once",
+                    "one_at_a_time",
+                    "default",
+                ]
+            )
+        ]
 
         if strategy_cols:
             strategy_metrics[run_name] = {
@@ -364,28 +449,75 @@ def create_test_metrics_comparison_table(
         print("No test metrics to compare")
         return
 
-    # Collect all metrics
+    # Collect all metrics - expand MDLM into multiple rows
     rows = []
     for run_name, run_data in all_test_metrics.items():
         data = run_data["data"]
         metadata = run_data["metadata"]
+        algo = metadata.get("algo", "unknown")
 
-        row = {
-            "Run": run_name,
-            "Algorithm": metadata.get("algo", "unknown"),
-            "Task": metadata.get("task", "unknown"),
-        }
+        # Check if this is a diffusion model
+        is_diffusion = (
+            "mdlm" in algo.lower() or "d3pm" in algo.lower() or "sedd" in algo.lower()
+        )
 
-        # Add all numeric metrics
-        for k, v in data.items():
-            if k not in ["epoch", "global_step"] and isinstance(v, (int, float)):
-                # Clean metric name
-                clean_name = k.replace("test/", "").replace("trainer/", "")
-                row[clean_name] = v
+        if is_diffusion:
+            # Create separate rows for each decoding strategy
+            decoding_strategies = [
+                "random",
+                "top_k",
+                "one_level",
+                "all_at_once",
+                "one_at_a_time",
+            ]
 
-        rows.append(row)
+            for strategy in decoding_strategies:
+                row = {
+                    "Algorithm": f"{algo} ({strategy})",
+                    "Task": metadata.get("task", "unknown"),
+                }
+
+                # Add metrics for this specific strategy
+                for k, v in data.items():
+                    if k not in ["epoch", "global_step"] and isinstance(
+                        v, (int, float)
+                    ):
+                        clean_name = k.replace("test/", "").replace("trainer/", "")
+                        # Only include this metric if it's for this strategy or is a general metric
+                        if f"{strategy}_" in k or not any(
+                            s in k for s in decoding_strategies
+                        ):
+                            # Remove strategy prefix from metric name
+                            clean_name = clean_name.replace(f"{strategy}_", "")
+                            row[clean_name] = v
+
+                # Only add row if it has metrics beyond just Algorithm and Task
+                if len(row) > 2:
+                    rows.append(row)
+        else:
+            # Non-diffusion models: single row
+            row = {
+                "Algorithm": algo,
+                "Task": metadata.get("task", "unknown"),
+            }
+
+            # Add all numeric metrics
+            for k, v in data.items():
+                if k not in ["epoch", "global_step"] and isinstance(v, (int, float)):
+                    # Clean metric name
+                    clean_name = k.replace("test/", "").replace("trainer/", "")
+                    row[clean_name] = v
+
+            rows.append(row)
 
     df = pd.DataFrame(rows)
+
+    # Rename columns to human-readable names
+    column_rename = {}
+    for col in df.columns:
+        if col not in ["Algorithm", "Task"]:
+            column_rename[col] = humanize_metric_name(col)
+    df = df.rename(columns=column_rename)
 
     # Save as CSV
     csv_path = save_dir / "test_metrics_comparison.csv"
@@ -480,7 +612,9 @@ def plot_test_metrics_bar_comparison(
 
         # Create bar plot with colors by algorithm
         unique_algos = list(set(algos))
-        algo_colors = dict(zip(unique_algos, sns.color_palette("husl", len(unique_algos))))
+        algo_colors = dict(
+            zip(unique_algos, sns.color_palette("husl", len(unique_algos)))
+        )
         colors = [algo_colors[algo] for algo in algos]
 
         bars = ax.bar(range(len(run_names)), values, color=colors)
@@ -505,9 +639,9 @@ def plot_test_metrics_bar_comparison(
 
         # Add legend for algorithms
         from matplotlib.patches import Patch
+
         legend_elements = [
-            Patch(facecolor=algo_colors[algo], label=algo)
-            for algo in unique_algos
+            Patch(facecolor=algo_colors[algo], label=algo) for algo in unique_algos
         ]
         ax.legend(handles=legend_elements, title="Algorithm", loc="best")
 
@@ -548,7 +682,9 @@ def plot_final_performance_heatmap(
         return
 
     # Create heatmap
-    fig, ax = plt.subplots(figsize=(max(12, len(df.columns) * 1.2), max(8, len(df) * 0.8)))
+    fig, ax = plt.subplots(
+        figsize=(max(12, len(df.columns) * 1.2), max(8, len(df) * 0.8))
+    )
 
     sns.heatmap(
         df,
@@ -572,7 +708,9 @@ def plot_final_performance_heatmap(
     plt.close()
 
 
-def group_runs_by_language(all_val_metrics: Dict, all_test_metrics: Dict) -> Dict[str, Dict]:
+def group_runs_by_language(
+    all_val_metrics: Dict, all_test_metrics: Dict
+) -> Dict[str, Dict]:
     """Group runs by language/task."""
     languages = {}
 
@@ -619,7 +757,9 @@ def create_cross_language_summary(languages: Dict[str, Dict], output_dir: Path):
             avg_metrics = {}
             for metrics in metrics_list:
                 for k, v in metrics.items():
-                    if k not in ["epoch", "global_step"] and isinstance(v, (int, float)):
+                    if k not in ["epoch", "global_step"] and isinstance(
+                        v, (int, float)
+                    ):
                         if k not in avg_metrics:
                             avg_metrics[k] = []
                         avg_metrics[k].append(v)
@@ -627,12 +767,16 @@ def create_cross_language_summary(languages: Dict[str, Dict], output_dir: Path):
             # Compute averages
             best_metrics = {k: np.mean(v) for k, v in avg_metrics.items()}
 
-            summary_data.append({
-                "Language": lang,
-                "Algorithm": algo,
-                **{k.replace("test/", "").replace("trainer/", ""): v
-                   for k, v in best_metrics.items()}
-            })
+            summary_data.append(
+                {
+                    "Language": lang,
+                    "Algorithm": algo,
+                    **{
+                        k.replace("test/", "").replace("trainer/", ""): v
+                        for k, v in best_metrics.items()
+                    },
+                }
+            )
 
     if not summary_data:
         print("No cross-language data to summarize")
@@ -656,7 +800,9 @@ def create_cross_language_summary(languages: Dict[str, Dict], output_dir: Path):
         pivot = df.pivot(index="Language", columns="Algorithm", values=metric)
 
         # Create heatmap
-        fig, ax = plt.subplots(figsize=(max(10, len(pivot.columns) * 2), max(6, len(pivot) * 1)))
+        fig, ax = plt.subplots(
+            figsize=(max(10, len(pivot.columns) * 2), max(6, len(pivot) * 1))
+        )
 
         sns.heatmap(
             pivot,
@@ -710,74 +856,48 @@ def generate_comprehensive_report(run_dirs: List[Path], output_dir: Path):
     print(f"Found {len(languages)} languages: {list(languages.keys())}")
     print()
 
-    # Generate per-language analyses
-    if len(languages) > 1:
-        print("=" * 80)
-        print("PER-LANGUAGE ANALYSIS")
-        print("=" * 80)
+    # Generate per-language analyses (always do this, even for single language)
+    print("=" * 80)
+    print("PER-LANGUAGE ANALYSIS")
+    print("=" * 80)
 
-        for lang, runs in languages.items():
-            print(f"\nAnalyzing language: {lang}")
-            print("-" * 40)
+    for lang, runs in languages.items():
+        print(f"\n{'='*80}")
+        print(f"ANALYZING LANGUAGE/TASK: {lang.upper()}")
+        print(f"{'='*80}")
 
-            lang_dir = output_dir / f"by_language/{lang}"
-            lang_dir.mkdir(parents=True, exist_ok=True)
+        lang_dir = output_dir / lang
+        lang_dir.mkdir(parents=True, exist_ok=True)
 
-            val_runs = runs.get("val", {})
-            test_runs = runs.get("test", {})
+        val_runs = runs.get("val", {})
+        test_runs = runs.get("test", {})
 
-            print(f"  - {len(val_runs)} runs with validation metrics")
-            print(f"  - {len(test_runs)} runs with test metrics")
-
-            # Generate validation trend plots for this language
-            if val_runs:
-                plot_all_validation_metrics(
-                    val_runs, lang_dir, x_axis="global_step", smoothing=1
-                )
-                plot_all_validation_metrics(
-                    val_runs, lang_dir, x_axis="epoch", smoothing=1
-                )
-                compare_decoding_strategies(val_runs, lang_dir)
-
-            # Generate test metric comparisons for this language
-            if test_runs:
-                create_test_metrics_comparison_table(test_runs, lang_dir)
-                plot_test_metrics_bar_comparison(test_runs, lang_dir)
-                plot_final_performance_heatmap(test_runs, lang_dir)
-
+        print(f"  - {len(val_runs)} runs with validation metrics")
+        print(f"  - {len(test_runs)} runs with test metrics")
         print()
+
+        # Generate validation trend plots for this language
+        if val_runs:
+            plot_all_validation_metrics(
+                val_runs, lang_dir, x_axis="global_step", smoothing=1
+            )
+            plot_all_validation_metrics(val_runs, lang_dir, x_axis="epoch", smoothing=1)
+            compare_decoding_strategies(val_runs, lang_dir)
+
+        # Generate test metric comparisons for this language
+        if test_runs:
+            create_test_metrics_comparison_table(test_runs, lang_dir)
+            plot_test_metrics_bar_comparison(test_runs, lang_dir)
+            plot_final_performance_heatmap(test_runs, lang_dir)
+
+    print()
+
+    # Only create cross-language summary if multiple languages
+    if len(languages) > 1:
         print("=" * 80)
         print("CROSS-LANGUAGE SUMMARY")
         print("=" * 80)
         create_cross_language_summary(languages, output_dir)
-
-    # Also generate combined analysis across all runs
-    print("=" * 80)
-    print("COMBINED ANALYSIS (ALL LANGUAGES)")
-    print("=" * 80)
-
-    combined_dir = output_dir / "combined"
-    combined_dir.mkdir(parents=True, exist_ok=True)
-
-    # Generate validation trend plots
-    if all_val_metrics:
-        print("Generating combined validation trend plots...")
-        plot_all_validation_metrics(
-            all_val_metrics, combined_dir, x_axis="global_step", smoothing=1
-        )
-        plot_all_validation_metrics(
-            all_val_metrics, combined_dir, x_axis="epoch", smoothing=1
-        )
-        compare_decoding_strategies(all_val_metrics, combined_dir)
-        print()
-
-    # Generate test metric comparisons
-    if all_test_metrics:
-        print("Generating combined test metric comparisons...")
-        create_test_metrics_comparison_table(all_test_metrics, combined_dir)
-        plot_test_metrics_bar_comparison(all_test_metrics, combined_dir)
-        plot_final_performance_heatmap(all_test_metrics, combined_dir)
-        print()
 
     print("=" * 80)
     print("REPORT GENERATION COMPLETE")
@@ -785,15 +905,13 @@ def generate_comprehensive_report(run_dirs: List[Path], output_dir: Path):
     print(f"All outputs saved to: {output_dir}")
     print()
     print("Directory structure:")
+    for lang in languages.keys():
+        print(f"  - {lang}/ (analysis for {lang})")
     if len(languages) > 1:
-        print("  - by_language/{lang}/ (per-language analyses)")
-        print("  - combined/ (all runs together)")
         print("  - cross_language_*.png (language comparison heatmaps)")
         print("  - cross_language_summary.csv (summary table)")
-    else:
-        print("  - combined/ (all analyses)")
     print()
-    print("Each directory contains:")
+    print("Each language directory contains:")
     print("  - validation_trends_*.png (validation curves)")
     print("  - decoding_strategies_*.png (strategy comparisons)")
     print("  - test_metrics_comparison.csv (detailed comparison)")
