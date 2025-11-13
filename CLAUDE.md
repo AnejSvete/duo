@@ -91,6 +91,26 @@ python main.py mode=ppl_eval eval.checkpoint_path=path/to/checkpoint.ckpt
 python main.py mode=sample_eval eval.checkpoint_path=path/to/checkpoint.ckpt
 ```
 
+### Curriculum Learning
+
+Enable progressive training on longer sequences:
+
+```bash
+# Train with curriculum learning (4 bins, 5 epochs each)
+python main.py data=bfvp algo=ar curriculum.enabled=true curriculum.num_bins=4 curriculum.epochs_per_bin=5
+
+# Customize curriculum settings
+python main.py data=parity algo=lt curriculum.enabled=true curriculum.num_bins=3 curriculum.epochs_per_bin=8 curriculum.overlap=0.3
+```
+
+Key parameters:
+- `curriculum.enabled`: Enable/disable curriculum learning
+- `curriculum.num_bins`: Number of length bins (default: 4)
+- `curriculum.epochs_per_bin`: Epochs per bin (default: 5)
+- `curriculum.overlap`: Overlap ratio between bins 0-1 (default: 0.2)
+
+See [CURRICULUM_LEARNING.md](CURRICULUM_LEARNING.md) for details.
+
 ### Analysis
 
 Use [analyze_metrics.py](analyze_metrics.py) to generate plots from saved metrics:

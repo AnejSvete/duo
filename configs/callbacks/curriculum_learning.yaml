@@ -1,0 +1,8 @@
+curriculum_learning:
+  _target_: curriculum_callback.CurriculumLearningCallback
+  enabled: ${curriculum.enabled}
+  num_bins: ${curriculum.num_bins}
+  epochs_per_bin: ${curriculum.epochs_per_bin}
+  overlap: ${curriculum.overlap}
+  min_train_len: ${data.properties.min_train_len}
+  max_train_len: ${data.properties.max_train_len}

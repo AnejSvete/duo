@@ -2,9 +2,9 @@ defaults:
   - formal_language
 
 properties:
-  min_train_len: 32
-  max_train_len: 40
-  min_val_len: 36
-  max_val_len: 40
-  min_test_len: 38
-  max_test_len: 40
+  min_train_len: 16
+  max_train_len: 24
+  min_val_len: 20
+  max_val_len: 24
+  min_test_len: 22
+  max_test_len: 24

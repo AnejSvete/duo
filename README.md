@@ -129,6 +129,26 @@ python main.py data=parity \
   data.properties.max_val_len=64
 ```
 
+### Curriculum Learning
+
+Train progressively on longer sequences for improved convergence:
+
+```bash
+python main.py data=bfvp algo=ar \
+  curriculum.enabled=true \
+  curriculum.num_bins=4 \
+  curriculum.epochs_per_bin=5 \
+  curriculum.overlap=0.2
+```
+
+**Parameters:**
+- `curriculum.enabled` - Enable/disable curriculum learning
+- `curriculum.num_bins` - Number of difficulty levels (default: 4)
+- `curriculum.epochs_per_bin` - Epochs per difficulty level (default: 5)
+- `curriculum.overlap` - Overlap between consecutive bins (0-1, default: 0.2)
+
+See [CURRICULUM_LEARNING.md](CURRICULUM_LEARNING.md) for detailed documentation.
+
 ## Analysis
 
 Generate plots from saved metrics:
