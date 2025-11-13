@@ -55,6 +55,8 @@ class CurriculumLearningCallback(Callback):
         self.epochs_in_current_bin = 0
         self.bin_boundaries = None
         self.tokenizer = None  # Will be set during setup
+        self.original_train_dataloader = None  # Store original dataloader
+        self.filtered_dataloader = None  # Current filtered dataloader
 
         if not enabled:
             LOGGER.info("Curriculum learning is disabled")
@@ -66,6 +68,13 @@ class CurriculumLearningCallback(Callback):
 
         # Store tokenizer for later use
         self.tokenizer = pl_module.tokenizer
+
+        # Store reference to the Lightning module to modify its dataloader
+        self.pl_module = pl_module
+
+        # Store the original train_dataloader method if not already stored
+        if self.original_train_dataloader is None:
+            self.original_train_dataloader = pl_module.train_dataloader
 
         # Get length range from config if not provided
         if self.min_train_len is None or self.max_train_len is None:
@@ -244,8 +253,22 @@ class CurriculumLearningCallback(Callback):
             # Attach tokenizer to new dataloader for compatibility
             new_dataloader.tokenizer = self.tokenizer
 
-            # Replace the trainer's dataloader
-            trainer.train_dataloader = new_dataloader
+            # Store the filtered dataloader
+            self.filtered_dataloader = new_dataloader
+
+            # Replace dataloader by overriding the train_dataloader method on the Lightning module
+            # This is the most reliable way that works across Lightning versions
+            callback_self = self  # Capture in closure
+
+            def curriculum_train_dataloader():
+                """Return the curriculum-filtered dataloader."""
+                if callback_self.filtered_dataloader is not None:
+                    return callback_self.filtered_dataloader
+                # Fallback to original
+                return callback_self.original_train_dataloader() if callable(callback_self.original_train_dataloader) else callback_self.original_train_dataloader
+
+            # Replace the method
+            self.pl_module.train_dataloader = curriculum_train_dataloader
         else:
             LOGGER.warning(
                 f"No examples found in length range [{min_len}, {max_len}]. "
