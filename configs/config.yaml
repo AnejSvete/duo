@@ -13,10 +13,10 @@ mode: train  # train / prepare_data / ppl_eval / sample_eval
 seed: 2
 
 loader:
-  global_batch_size: 2048
+  global_batch_size: 1024
   eval_global_batch_size: ${.global_batch_size}
   # Note: batch_size and eval_batch_size are **per machine**
-  batch_size: 2048
+  batch_size: 1024
   eval_batch_size: 2048
   num_workers: ${eval:"len(__import__('os').sched_getaffinity(0))"}
   pin_memory: True
@@ -67,7 +67,7 @@ trainer:
   gradient_clip_val: 1.0
   num_sanity_val_steps: 2
   max_steps: 5000
-  log_every_n_steps: 25
+  log_every_n_steps: 10
   limit_train_batches: 1.0   # train on full dataset, can be used to toggle quick run
   limit_val_batches: 1.0     # validate on full dataset, can be used to toggle quick run
   val_check_interval: 0.5
