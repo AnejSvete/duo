@@ -119,17 +119,29 @@ class LengthStratifiedMetrics:
             # Not enough data to create bins
             return
 
-        # Assign each length to a bin
-        for length, metric_values in zip(self.all_lengths,
-                                         zip(*[self.overall_metrics[m]
-                                              for m in self.overall_metrics])):
+        # Build a list of metric names to maintain consistent ordering
+        metric_names = list(self.overall_metrics.keys())
+        if not metric_names:
+            return
+
+        # Verify all metrics have the same length
+        num_samples = len(self.all_lengths)
+        for metric_name in metric_names:
+            if len(self.overall_metrics[metric_name]) != num_samples:
+                raise ValueError(
+                    f"Metric {metric_name} has {len(self.overall_metrics[metric_name])} values "
+                    f"but expected {num_samples}"
+                )
+
+        # Assign each sample to its appropriate bin
+        for i, length in enumerate(self.all_lengths):
             # Find which bin this length belongs to
             bin_idx = np.digitize(length, self.bin_edges[1:-1])
             bin_idx = min(bin_idx, len(self.bin_labels) - 1)  # Clamp to valid range
 
-            # Add metrics to this bin
-            for metric_name, metric_value in zip(self.overall_metrics.keys(),
-                                                 metric_values):
+            # Add all metrics for this sample to the bin
+            for metric_name in metric_names:
+                metric_value = self.overall_metrics[metric_name][i]
                 self.bin_metrics[bin_idx][metric_name].append(metric_value)
 
     def compute(self) -> typing.Dict[str, typing.Any]:

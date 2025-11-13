@@ -5,7 +5,7 @@ This document describes the length-stratified metrics feature that tracks model 
 ## Overview
 
 The length-stratified metrics system automatically:
-1. **Bins sequences** by length into percentile-based groups (default: 10 bins/deciles)
+1. **Bins sequences** by length into percentile-based groups (default: 4 bins/quartiles)
 2. **Tracks all accuracy metrics** separately for each length bin
 3. **Logs to W&B** with detailed per-bin metrics
 4. **Saves to JSON** files with complete stratification data
@@ -115,29 +115,29 @@ Length-stratified metrics are saved to `validation_metrics.json` and `test_metri
 
 ### Number of Bins
 
-By default, sequences are divided into **10 bins** (deciles). To change this, modify the initialization in [trainer_base.py](trainer_base.py):
+By default, sequences are divided into **4 bins** (quartiles). To change this, modify the initialization in [trainer_base.py](trainer_base.py):
 
 ```python
-# Default: 10 bins
-self.val_length_metrics = PerGenerationModeMetrics(num_bins=10)
-self.test_length_metrics = PerGenerationModeMetrics(num_bins=10)
+# Default: 4 bins (quartiles)
+self.val_length_metrics = PerGenerationModeMetrics(num_bins=4)
+self.test_length_metrics = PerGenerationModeMetrics(num_bins=4)
 
 # Example: 5 bins (quintiles)
 self.val_length_metrics = PerGenerationModeMetrics(num_bins=5)
 self.test_length_metrics = PerGenerationModeMetrics(num_bins=5)
 
-# Example: 20 bins (vigintiles)
-self.val_length_metrics = PerGenerationModeMetrics(num_bins=20)
-self.test_length_metrics = PerGenerationModeMetrics(num_bins=20)
+# Example: 10 bins (deciles)
+self.val_length_metrics = PerGenerationModeMetrics(num_bins=10)
+self.test_length_metrics = PerGenerationModeMetrics(num_bins=10)
 ```
 
 ### Binning Strategy
 
 The system uses **percentile-based binning** by default, which ensures roughly equal numbers of samples per bin. Bins are computed from the observed length distribution in the validation/test set.
 
-For a dataset with lengths ranging from 20 to 100, with 10 bins:
-- Bins are created at the 0th, 10th, 20th, ..., 100th percentiles
-- Each bin contains approximately 10% of the samples
+For a dataset with lengths ranging from 20 to 100, with 4 bins (quartiles):
+- Bins are created at the 0th, 25th, 50th, 75th, and 100th percentiles
+- Each bin contains approximately 25% of the samples
 - Bin edges adapt to the actual length distribution
 
 ## Implementation Details

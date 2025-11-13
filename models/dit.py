@@ -279,7 +279,7 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         self.vocab_embed = EmbeddingLayer(dim, vocab_size)
         if not self.causal:
             self.sigma_map = TimestepEmbedder(cond_dim)
-        self.rotary_emb = Rotary(dim // config.model.n_heads, base=1000)
+        self.rotary_emb = Rotary(dim // config.model.n_heads, base=500)
 
         blocks = []
         for _ in range(config.model.n_blocks):

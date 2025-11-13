@@ -6,13 +6,17 @@ import trainer_base
 
 
 class AR(trainer_base.TrainerBase):
-    def generate_conditioned(self, prompts, targets, mode="random", top_k=1):
+    def generate_conditioned(self, prompts, targets=None, mode="random", top_k_fn="half_remaining"):
         """
         Generate completions conditioned on prompts using efficient, vectorized
         autoregressive decoding. This version uses a deterministic greedy strategy.
 
-        prompts: (batch, seq) tensor (padded with pad_token_id)
-        targets: (batch, seq) tensor (padded with pad_token_id)
+        Args:
+            prompts: (batch, seq) tensor (padded with pad_token_id)
+            targets: (batch, seq) tensor (padded with pad_token_id) - unused but kept for compatibility
+            mode: Generation mode (unused for AR, always autoregressive)
+            top_k_fn: Unused for AR (always greedy decoding)
+
         Returns: (batch, seq) tensor containing the prompts and generated completions.
         """
         _, seq_len = prompts.shape
@@ -122,7 +126,7 @@ class AR(trainer_base.TrainerBase):
 
 
 class LT(trainer_base.TrainerBase):
-    def generate_conditioned(self, prompts, targets=None, **kwargs):
+    def generate_conditioned(self, prompts, targets=None, mode="random", top_k_fn="half_remaining"):
         """
         Generate symbols for all masked positions at once using a deterministic
         greedy decoding strategy. This is a non-autoregressive, single-step process.
@@ -130,8 +134,9 @@ class LT(trainer_base.TrainerBase):
         Args:
             prompts (torch.Tensor): A (batch, seq) tensor with masked positions
                                     indicated by `self.mask_index`.
-            targets (torch.Tensor, optional): This parameter is ignored.
-            **kwargs: Any additional keyword arguments (like 'mode' or 'top_k') are ignored.
+            targets (torch.Tensor, optional): Unused but kept for compatibility.
+            mode: Generation mode (unused for LT, always single-pass)
+            top_k_fn: Unused for LT (always greedy decoding)
 
         Returns:
             torch.Tensor: A (batch, seq) tensor with the masked positions filled in.
@@ -335,11 +340,35 @@ class MDLM(diffusion.AbsorbingState):
         model_output[unmasked_indices, xt[unmasked_indices]] = 0
         return model_output
 
-    def generate_conditioned(self, prompts, targets, mode="random", top_k=1):
+    def generate_conditioned(self, prompts, targets, mode="random", top_k_fn="half_remaining"):
         """
         Generate completions conditioned on prompts, using the specified unmasking mode.
-        prompts: (batch, seq) tensor (padded)
-        targets: (batch, seq) tensor (padded)
+
+        Args:
+            prompts: (batch, seq) tensor (padded)
+            targets: (batch, seq) tensor (padded)
+            mode: Unmasking strategy. Options:
+                - "random": randomly select positions following MDM masking schedule
+                - "top_k": select k positions with highest confidence
+                - "top_k_margin": select k positions with largest margin between top 2 predictions
+                - "autoregressive": unmask leftmost masked token (left-to-right)
+                - "one_level": unmask one hierarchical level at a time
+                - "all_at_once": unmask all positions at once
+            top_k_fn: Strategy for determining k (number of positions to unmask per step).
+                      Options:
+                      - "half_remaining" (default): k = max(1, remaining // 2)
+                      - int: constant k value
+                      - callable: custom function taking state dict and returning k
+                      State dict for callable contains: {
+                          'x': current sequence tensor,
+                          'prompts': original prompts,
+                          'targets': target sequences,
+                          'num_remaining_masks': number of masks left per sequence,
+                          'total_masks': original number of masks per sequence,
+                          'step': current generation step,
+                          'finished': boolean mask of finished sequences
+                      }
+
         Returns: (batch, seq) tensor (same shape as prompts)
         """
         batch_size, seq_len = prompts.shape
@@ -352,6 +381,26 @@ class MDLM(diffusion.AbsorbingState):
         prompt_lens = (
             (prompts != self.tokenizer.pad_token_id) & (prompts != self.mask_index)
         ).sum(dim=1)
+
+        # Track initial number of masks for masking schedule
+        total_masks = (prompts == self.mask_index).sum(dim=1)
+
+        # Setup top_k function based on input type
+        if isinstance(top_k_fn, int):
+            # Constant k value
+            constant_k = top_k_fn
+            def compute_k(state):
+                return constant_k
+        elif top_k_fn == "half_remaining":
+            def compute_k(state):
+                return torch.maximum(
+                    torch.ones_like(state['num_remaining_masks']),
+                    state['num_remaining_masks'] // 2
+                )
+        elif callable(top_k_fn):
+            compute_k = top_k_fn
+        else:
+            raise ValueError(f"Unknown top_k_fn: {top_k_fn}")
 
         # The main generation loop continues as long as there are masks to fill.
         for tstep in range(seq_len):
@@ -375,23 +424,48 @@ class MDLM(diffusion.AbsorbingState):
             # Create a mask for rows that are not yet finished.
             unfinished_mask = ~finished
 
+            # Compute current state for k function
+            num_remaining_masks = mask_pos.sum(dim=1)
+            state = {
+                'x': x,
+                'prompts': prompts,
+                'targets': targets,
+                'num_remaining_masks': num_remaining_masks,
+                'total_masks': total_masks,
+                'step': tstep,
+                'finished': finished
+            }
+
             if mode == "random":
-                # For each unfinished sequence, pick top_k random masked positions to fill.
+                # Follow MDM masking schedule: sample number of masks to remove
+                # at each step following the reverse diffusion process.
+                # The number of positions to unmask follows: n_unmask ~ Uniform(0, n_remaining)
+                # or can be controlled by compute_k function.
+
+                # For each sequence, determine how many positions to unmask
+                k_value = compute_k(state)
+
+                # Handle both scalar and tensor returns from compute_k
+                if isinstance(k_value, int):
+                    k_per_sequence = torch.full((batch_size,), k_value, device=prompts.device)
+                else:
+                    k_per_sequence = k_value.to(prompts.device)
+
+                # Ensure k doesn't exceed available masks or sequence length
+                k_per_sequence = torch.minimum(k_per_sequence, num_remaining_masks)
+                k_per_sequence = torch.minimum(k_per_sequence, torch.tensor(x.shape[1], device=prompts.device))
+
+                # Use max k for the topk operation
+                k = int(k_per_sequence.max().item())
+                if k == 0:
+                    continue
+                actual_k = k_per_sequence
 
                 # 1. Create random weights for all positions.
                 rand_weights = torch.rand(x.shape, device=prompts.device)
 
                 # 2. Ignore non-masked positions by setting their weights to a negative value.
                 rand_weights[~mask_pos] = -1.0
-
-                # 3. Determine the actual number of positions to fill for each sequence.
-                # This is the minimum of top_k and the number of available masks.
-                num_masks_per_item = mask_pos.sum(dim=1)
-                # Ensure k is not larger than the sequence length to avoid errors with topk.
-                k = min(top_k, x.shape[1])
-                actual_k = torch.min(
-                    torch.tensor(k, device=prompts.device), num_masks_per_item
-                )
 
                 # 4. Find the indices of the top_k largest random weights for each row.
                 # These are our randomly chosen positions. We run topk with a fixed k
@@ -428,16 +502,28 @@ class MDLM(diffusion.AbsorbingState):
                         x[i, positions] = values
 
             elif mode == "top_k":
-                # For each unfinished sequence, fill the top_k most confident masked positions.
+                # For each unfinished sequence, fill the k most confident masked positions.
 
                 confidences, best_tokens = probs.max(dim=-1)
                 confidences[~mask_pos] = -1.0
 
-                num_masks_per_item = mask_pos.sum(dim=1)
-                k = min(top_k, confidences.shape[1])
-                actual_k = torch.min(
-                    torch.tensor(k, device=prompts.device), num_masks_per_item
-                )
+                # Get k from compute_k function
+                k_value = compute_k(state)
+
+                # Handle both scalar and tensor returns from compute_k
+                if isinstance(k_value, int):
+                    k_per_sequence = torch.full((batch_size,), k_value, device=prompts.device)
+                else:
+                    k_per_sequence = k_value.to(prompts.device)
+
+                # Ensure k doesn't exceed available masks or sequence length
+                k_per_sequence = torch.minimum(k_per_sequence, num_remaining_masks)
+                k_per_sequence = torch.minimum(k_per_sequence, torch.tensor(confidences.shape[1], device=prompts.device))
+
+                k = int(k_per_sequence.max().item())
+                if k == 0:
+                    continue
+                actual_k = k_per_sequence
 
                 if actual_k.max() > 0:
                     _, topk_pos = torch.topk(confidences, k=k, dim=1)
@@ -452,6 +538,72 @@ class MDLM(diffusion.AbsorbingState):
                             positions = topk_pos[i, :num_valid]
                             values = tokens_to_insert[i, :num_valid]
                             x[i, positions] = values
+
+            elif mode == "top_k_margin":
+                # For each unfinished sequence, fill the k positions with the largest
+                # margin between the top and second-top probability.
+
+                # Get top-2 probabilities for each position
+                top2_probs, top2_indices = torch.topk(probs, k=2, dim=-1)
+                # Compute margin (difference between first and second)
+                margins = top2_probs[:, :, 0] - top2_probs[:, :, 1]
+                # Set margin to -1 for non-masked positions
+                margins[~mask_pos] = -1.0
+                # Best token is the top-1
+                best_tokens = top2_indices[:, :, 0]
+
+                # Get k from compute_k function
+                k_value = compute_k(state)
+
+                # Handle both scalar and tensor returns from compute_k
+                if isinstance(k_value, int):
+                    k_per_sequence = torch.full((batch_size,), k_value, device=prompts.device)
+                else:
+                    k_per_sequence = k_value.to(prompts.device)
+
+                # Ensure k doesn't exceed available masks or sequence length
+                k_per_sequence = torch.minimum(k_per_sequence, num_remaining_masks)
+                k_per_sequence = torch.minimum(k_per_sequence, torch.tensor(margins.shape[1], device=prompts.device))
+
+                k = int(k_per_sequence.max().item())
+                if k == 0:
+                    continue
+                actual_k = k_per_sequence
+
+                if actual_k.max() > 0:
+                    _, topk_pos = torch.topk(margins, k=k, dim=1)
+                    tokens_to_insert = torch.gather(best_tokens, 1, topk_pos)
+
+                    # Only update valid top-k positions for unfinished sequences
+                    for i in range(batch_size):
+                        if not unfinished_mask[i]:
+                            continue
+                        num_valid = actual_k[i].item()
+                        if num_valid > 0:
+                            positions = topk_pos[i, :num_valid]
+                            values = tokens_to_insert[i, :num_valid]
+                            x[i, positions] = values
+
+            elif mode == "autoregressive":
+                # For each unfinished sequence, fill the leftmost masked position.
+
+                # Get the indices of sequences that still have masks.
+                rows_to_update = unfinished_mask.nonzero(as_tuple=True)[0]
+
+                if rows_to_update.numel() > 0:
+                    # Find the position of the first mask for each of these active sequences.
+                    first_mask_indices = (
+                        (x[rows_to_update] == self.mask_index).float().argmax(dim=1)
+                    )
+
+                    # Get the probability distributions at these specific positions.
+                    probs_to_use = probs[rows_to_update, first_mask_indices, :]
+
+                    # Select the most likely token for each position (greedy decoding).
+                    next_tokens = probs_to_use.argmax(dim=-1)
+
+                    # Place the newly generated tokens into the correct positions in `x`.
+                    x[rows_to_update, first_mask_indices] = next_tokens
 
             elif mode == "one_level":
                 for i in range(batch_size):
@@ -474,27 +626,6 @@ class MDLM(diffusion.AbsorbingState):
                         x[i, start:end] = probs[i, start:end].argmax(dim=-1)
 
                     prompt_lens[i] = end
-
-            elif mode == "one_at_a_time":
-                # For each unfinished sequence, fill the single, left-most masked position.
-
-                # Get the indices of sequences that still have masks.
-                rows_to_update = unfinished_mask.nonzero(as_tuple=True)[0]
-
-                if rows_to_update.numel() > 0:
-                    # Find the position of the first mask for each of these active sequences.
-                    first_mask_indices = (
-                        (x[rows_to_update] == self.mask_index).float().argmax(dim=1)
-                    )
-
-                    # Get the probability distributions at these specific positions.
-                    probs_to_use = probs[rows_to_update, first_mask_indices, :]
-
-                    # Select the most likely token for each position (greedy decoding).
-                    next_tokens = probs_to_use.argmax(dim=-1)
-
-                    # Place the newly generated tokens into the correct positions in `x`.
-                    x[rows_to_update, first_mask_indices] = next_tokens
 
             elif mode == "all_at_once":
 

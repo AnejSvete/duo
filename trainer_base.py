@@ -89,9 +89,9 @@ class TrainerBase(L.LightningModule):
             eval_ppl_batch_size=self.config.eval.perplexity_batch_size,
         )
 
-        # Length-stratified metrics for validation and testing
-        self.val_length_metrics = PerGenerationModeMetrics(num_bins=10)
-        self.test_length_metrics = PerGenerationModeMetrics(num_bins=10)
+        # Length-stratified metrics for validation and testing (quartiles)
+        self.val_length_metrics = PerGenerationModeMetrics(num_bins=4)
+        self.test_length_metrics = PerGenerationModeMetrics(num_bins=4)
 
         self.lr = self.config.optim.lr
         self.sampling_eps = self.config.training.sampling_eps
@@ -212,23 +212,21 @@ class TrainerBase(L.LightningModule):
         )
 
         # Generate completions conditioned on prompts
-        top_k = getattr(self.config.eval, "top_k", 1)
-
-        gen_modes = (
-            ["random", "top_k", "one_level", "all_at_once", "one_at_a_time"]
-            if self.config.algo.name == "mdlm"
-            else ["default"]
-        )
+        # Get evaluation configurations (mode, top_k_fn, suffix combinations)
+        eval_configs = self._get_eval_configs()
 
         # Compute sequence lengths (number of non-padding tokens in targets)
         target_mask = targets != self.tokenizer.pad_token_id
         seq_lengths = target_mask.sum(dim=1)  # (batch_size,)
 
-        for gen_mode in gen_modes:
+        for gen_mode, top_k_fn, suffix in eval_configs:
             # Pass the `targets` tensor for shape compatibility, as required by the function signature.
             generated = self.generate_conditioned(
-                prompts, targets, mode=gen_mode, top_k=top_k
+                prompts, targets, mode=gen_mode, top_k_fn=top_k_fn
             )
+
+            # Create display name for logging
+            display_mode = f"{gen_mode}{suffix}"
 
             # Compute accuracy (exact match and token-level)
             acc_exact, acc_token, correct_prediction = self._compute_accuracy(
@@ -242,7 +240,7 @@ class TrainerBase(L.LightningModule):
 
             # Update length-stratified metrics
             self.val_length_metrics.update(
-                mode=gen_mode,
+                mode=display_mode,
                 lengths=seq_lengths,
                 per_sample_metrics={
                     'acc_exact': acc_exact_per_sample,
@@ -252,34 +250,38 @@ class TrainerBase(L.LightningModule):
             )
 
             self.log(
-                f"val/{gen_mode}_acc_exact",
+                f"val/{display_mode}_acc_exact",
                 acc_exact,
                 on_step=False,
                 on_epoch=True,
                 sync_dist=True,
             )
             self.log(
-                f"val/{gen_mode}_acc_token",
+                f"val/{display_mode}_acc_token",
                 acc_token,
                 on_step=False,
                 on_epoch=True,
                 sync_dist=True,
             )
             self.log(
-                f"val/{gen_mode}_correct_prediction",
+                f"val/{display_mode}_correct_prediction",
                 correct_prediction,
                 on_step=False,
                 on_epoch=True,
                 sync_dist=True,
             )
 
-            # Also log top_k as default for fair comparison with other models
-            if gen_mode == "top_k" and self.config.algo.name == "mdlm":
+            # Also log top_k_half as default for fair comparison with other models
+            # top_k with half_remaining is the canonical default for MDLM
+            if gen_mode == "top_k" and suffix == "_half" and self.config.algo.name == "mdlm":
                 self.log("val/default_acc_exact", acc_exact, on_step=False, on_epoch=True, sync_dist=True)
                 self.log("val/default_acc_token", acc_token, on_step=False, on_epoch=True, sync_dist=True)
                 self.log("val/default_correct_prediction", correct_prediction, on_step=False, on_epoch=True, sync_dist=True)
 
-            if gen_mode in ["default", "one_at_a_time", "top_k"]:
+            # Log primary accuracy metric for default configurations only
+            # For MDLM: top_k_half (top_k with half_remaining)
+            # For AR/LT: default mode
+            if display_mode in ["default", "top_k_half"]:
                 self.log(
                     "val/acc_token",
                     acc_token,
@@ -296,7 +298,7 @@ class TrainerBase(L.LightningModule):
                     generated[: self.config.sampling.num_sample_log],
                     skip_special_tokens=True,
                 )
-                all_generated_samples[gen_mode] = generated_samples
+                all_generated_samples[display_mode] = generated_samples
 
         # Logic for logging samples remains the same
         if self.trainer.global_rank == 0 and hasattr(self.trainer.logger, "log_table"):
@@ -420,10 +422,54 @@ class TrainerBase(L.LightningModule):
 
         return acc_exact_per_sample, acc_token_per_sample, correct_prediction_per_sample
 
-    def generate_conditioned(self, prompts, mode="random", top_k=1):
+    def _get_eval_configs(self):
+        """
+        Get list of (mode, top_k_fn, suffix) tuples for evaluation.
+
+        Returns:
+            List of tuples: (mode_name, top_k_fn, display_suffix)
+            where top_k_fn can be "half_remaining", an int, or a callable
+        """
+        if self.config.algo.name == "mdlm":
+            # Get constant k value from config
+            constant_k = getattr(self.config.eval, "top_k", 1)
+
+            eval_configs = []
+
+            # Random mode always follows MDM masking schedule (no strategy variants)
+            eval_configs.append(("random", "half_remaining", ""))
+
+            # Top-k modes with different strategies
+            for mode in ["top_k", "top_k_margin"]:
+                eval_configs.append((mode, "half_remaining", "_half"))
+                eval_configs.append((mode, constant_k, "_const"))
+
+            # Other modes (no strategy variants)
+            for mode in ["autoregressive", "one_level", "all_at_once"]:
+                eval_configs.append((mode, "half_remaining", ""))
+
+            return eval_configs
+        else:
+            return [("default", "half_remaining", "")]
+
+    def generate_conditioned(self, prompts, targets=None, mode="random", top_k_fn="half_remaining"):
+        """
+        Generate completions conditioned on prompts.
+
+        Args:
+            prompts: (batch, seq) tensor with masked positions
+            targets: (batch, seq) tensor (optional, used by some algorithms for shape/structure)
+            mode: Generation mode (varies by algorithm)
+            top_k_fn: Strategy for determining k (number of positions to unmask per step).
+                      Options:
+                      - "half_remaining" (default): k = max(1, remaining // 2)
+                      - int: constant k value
+                      - callable: custom function taking state dict and returning k
+
+        Returns:
+            (batch, seq) tensor of generated completions
+        """
         # Stub: implement in subclass or algo
-        # prompts: (batch, seq) tensor
-        # Return: (batch, seq) tensor of generated completions (same length as targets)
         raise NotImplementedError(
             "Implement prompt-conditioned generation with unmasking modes in subclass/algo."
         )
@@ -555,23 +601,21 @@ class TrainerBase(L.LightningModule):
         )
 
         # Generate completions conditioned on prompts
-        top_k = getattr(self.config.eval, "top_k", 1)
-
-        gen_modes = (
-            ["random", "top_k", "one_level", "all_at_once", "one_at_a_time"]
-            if self.config.algo.name == "mdlm"
-            else ["default"]
-        )
+        # Get evaluation configurations (mode, top_k_fn, suffix combinations)
+        eval_configs = self._get_eval_configs()
 
         # Compute sequence lengths (number of non-padding tokens in targets)
         target_mask = targets != self.tokenizer.pad_token_id
         seq_lengths = target_mask.sum(dim=1)  # (batch_size,)
 
-        for gen_mode in gen_modes:
+        for gen_mode, top_k_fn, suffix in eval_configs:
             # Pass the `targets` tensor for shape compatibility, as required by the function signature.
             generated = self.generate_conditioned(
-                prompts, targets, mode=gen_mode, top_k=top_k
+                prompts, targets, mode=gen_mode, top_k_fn=top_k_fn
             )
+
+            # Create display name for logging
+            display_mode = f"{gen_mode}{suffix}"
 
             # Compute accuracy (exact match and token-level)
             acc_exact, acc_token, correct_prediction = self._compute_accuracy(
@@ -585,7 +629,7 @@ class TrainerBase(L.LightningModule):
 
             # Update length-stratified metrics
             self.test_length_metrics.update(
-                mode=gen_mode,
+                mode=display_mode,
                 lengths=seq_lengths,
                 per_sample_metrics={
                     'acc_exact': acc_exact_per_sample,
@@ -595,34 +639,38 @@ class TrainerBase(L.LightningModule):
             )
 
             self.log(
-                f"test/{gen_mode}_acc_exact",
+                f"test/{display_mode}_acc_exact",
                 acc_exact,
                 on_step=False,
                 on_epoch=True,
                 sync_dist=True,
             )
             self.log(
-                f"test/{gen_mode}_acc_token",
+                f"test/{display_mode}_acc_token",
                 acc_token,
                 on_step=False,
                 on_epoch=True,
                 sync_dist=True,
             )
             self.log(
-                f"test/{gen_mode}_correct_prediction",
+                f"test/{display_mode}_correct_prediction",
                 correct_prediction,
                 on_step=False,
                 on_epoch=True,
                 sync_dist=True,
             )
 
-            # Also log top_k as default for fair comparison with other models
-            if gen_mode == "top_k" and self.config.algo.name == "mdlm":
+            # Also log top_k_half as default for fair comparison with other models
+            # top_k with half_remaining is the canonical default for MDLM
+            if gen_mode == "top_k" and suffix == "_half" and self.config.algo.name == "mdlm":
                 self.log("test/default_acc_exact", acc_exact, on_step=False, on_epoch=True, sync_dist=True)
                 self.log("test/default_acc_token", acc_token, on_step=False, on_epoch=True, sync_dist=True)
                 self.log("test/default_correct_prediction", correct_prediction, on_step=False, on_epoch=True, sync_dist=True)
 
-            if gen_mode in ["default", "one_at_a_time", "top_k"]:
+            # Log primary accuracy metric for default configurations only
+            # For MDLM: top_k_half (top_k with half_remaining)
+            # For AR/LT: default mode
+            if display_mode in ["default", "top_k_half"]:
                 self.log(
                     "test/acc_token",
                     acc_token,
@@ -639,7 +687,7 @@ class TrainerBase(L.LightningModule):
                     generated[: self.config.sampling.num_sample_log],
                     skip_special_tokens=True,
                 )
-                all_generated_samples[gen_mode] = generated_samples
+                all_generated_samples[display_mode] = generated_samples
 
         # Logic for logging samples remains the same
         if self.trainer.global_rank == 0 and hasattr(self.trainer.logger, "log_table"):

@@ -174,7 +174,7 @@ class LT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
 
         # Initial layers (Block 'A')
         self.vocab_embed = EmbeddingLayer(dim, vocab_size)
-        self.rotary_emb = Rotary(dim // config.model.n_heads, base=1000)
+        self.rotary_emb = Rotary(dim // config.model.n_heads, base=500)
 
         # Repeating layers (Block 'B')
         blocks = []
