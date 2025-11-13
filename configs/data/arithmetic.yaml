@@ -7,3 +7,7 @@ properties:
   max_val: 50
   min_depth: 1
   max_depth: 4
+  # Length-based curriculum parameters (for filtering by final sequence length)
+  # Estimated from tree depth: depth 1-4 produces varying lengths depending on format
+  min_train_len: 5     # Conservative minimum
+  max_train_len: 150   # Conservative maximum with buffer

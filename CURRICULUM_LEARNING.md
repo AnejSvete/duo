@@ -68,8 +68,22 @@ curriculum:
   - Higher values create smoother transitions
 
 The length range is determined by the data configuration:
-- `data.properties.min_train_len`: Minimum sequence length
-- `data.properties.max_train_len`: Maximum sequence length
+- `data.properties.min_train_len`: Minimum sequence length (in tokens)
+- `data.properties.max_train_len`: Maximum sequence length (in tokens)
+
+### Important Note on Depth-Based Tasks
+
+For tasks like **BFVP** and **arithmetic** that generate examples based on tree depth (not directly by length):
+- The curriculum still operates on **sequence length** (number of tokens), not depth
+- `min_train_len` and `max_train_len` should cover the range of lengths produced by your depth settings
+- Example: BFVP with `min_depth=1, max_depth=5` produces sequences from ~5 to ~280 tokens
+- The curriculum will filter examples by their actual tokenized length
+- This means shallower trees (which tend to produce shorter sequences) are learned first
+
+**Config examples:**
+- **BFVP**: `min_train_len: 5, max_train_len: 300` (for depth 1-5)
+- **Arithmetic**: `min_train_len: 5, max_train_len: 150` (for depth 1-4)
+- **FSA tasks**: Use the explicit length ranges from data generation
 
 ## Usage Examples
 
@@ -176,6 +190,13 @@ The callback determines sequence length by:
 2. Fallback to counting `input_ids` that aren't padding tokens
 3. Includes the example if length falls within `[min_len, max_len]` for current bin
 
+**For depth-based tasks (BFVP, Arithmetic):**
+- Examples are generated with random depths from `[min_depth, max_depth]`
+- Each tree of depth D is converted to a token sequence
+- The curriculum filters based on final token count, not original depth
+- Generally: deeper trees → longer sequences (but with variation)
+- This provides a natural correlation between depth and curriculum progression
+
 ## Monitoring
 
 The callback logs detailed information during training:
@@ -263,8 +284,26 @@ No examples found in length range [X, Y]. Keeping full dataset.
 
 **Solution**:
 - Check your `min_train_len` and `max_train_len` settings
+- For BFVP/arithmetic: Ensure length range covers sequences produced by your depth settings
 - Reduce `num_bins` to create wider bins
 - Increase `overlap` to ensure bins capture more examples
+
+**To determine correct length ranges for BFVP/arithmetic:**
+```bash
+# Quick analysis of actual sequence lengths
+python -c "
+import random, bfvp
+lengths = []
+for _ in range(100):
+    tree = bfvp.generate_formula_tree(random.randint(1, 5), 2)
+    vars = bfvp.get_variables_from_tree(tree)
+    assigns = {v: random.choice([True, False]) for v in vars}
+    sub = bfvp.substitute_vars_in_tree(tree, assigns)
+    text = bfvp._generate_text_from_tree(sub, tree, assigns, 'trace')
+    lengths.append(len(text.split()))
+print(f'Min: {min(lengths)}, Max: {max(lengths)}')
+"
+```
 
 ### Training seems slow
 

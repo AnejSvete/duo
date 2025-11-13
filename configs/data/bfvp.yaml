@@ -6,3 +6,7 @@ properties:
   num_vars: 2
   min_depth: 1
   max_depth: 5
+  # Length-based curriculum parameters (for filtering by final sequence length)
+  # Measured from actual generation: depth 1-5 produces lengths ~5-280 tokens
+  min_train_len: 5     # Minimum observed length
+  max_train_len: 300   # Maximum observed length + buffer

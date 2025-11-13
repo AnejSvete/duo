@@ -3,14 +3,15 @@
 
 # Example 1: BFVP with chain-of-thought and curriculum learning
 # Trains on 4 bins of increasing length, 5 epochs per bin
+# Note: BFVP uses tree depth for generation, but curriculum filters by sequence length
 echo "Example 1: BFVP with curriculum learning"
 python main.py \
   data=bfvp \
   algo=ar \
   model=nano \
   data.properties.format=trace \
-  data.properties.min_train_len=16 \
-  data.properties.max_train_len=64 \
+  data.properties.min_depth=1 \
+  data.properties.max_depth=5 \
   curriculum.enabled=true \
   curriculum.num_bins=4 \
   curriculum.epochs_per_bin=5 \
@@ -35,13 +36,14 @@ python main.py \
 
 # Example 3: MDLM on arithmetic with smooth curriculum
 # High overlap for very gradual transitions
+# Note: Arithmetic uses tree depth for generation, curriculum filters by sequence length
 echo "Example 3: MDLM with smooth curriculum"
 python main.py \
   data=arithmetic \
   algo=mdlm \
   model=nano \
-  data.properties.min_train_len=12 \
-  data.properties.max_train_len=48 \
+  data.properties.min_depth=1 \
+  data.properties.max_depth=4 \
   curriculum.enabled=true \
   curriculum.num_bins=5 \
   curriculum.epochs_per_bin=4 \
@@ -55,8 +57,8 @@ python main.py \
   data=bfvp \
   algo=ar \
   model=nano \
-  data.properties.min_train_len=16 \
-  data.properties.max_train_len=32 \
+  data.properties.min_depth=1 \
+  data.properties.max_depth=3 \
   curriculum.enabled=true \
   curriculum.num_bins=2 \
   curriculum.epochs_per_bin=3 \
@@ -69,7 +71,7 @@ python main.py \
   data=bfvp \
   algo=ar \
   model=nano \
-  data.properties.min_train_len=16 \
-  data.properties.max_train_len=64 \
+  data.properties.min_depth=1 \
+  data.properties.max_depth=5 \
   curriculum.enabled=false \
   trainer.max_steps=10000

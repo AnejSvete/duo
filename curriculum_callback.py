@@ -66,8 +66,24 @@ class CurriculumLearningCallback(Callback):
         # Get length range from config if not provided
         if self.min_train_len is None or self.max_train_len is None:
             config = pl_module.config
-            self.min_train_len = config.data.properties.min_train_len
-            self.max_train_len = config.data.properties.max_train_len
+
+            # Try to get min_train_len and max_train_len from config
+            if hasattr(config.data.properties, 'min_train_len') and hasattr(config.data.properties, 'max_train_len'):
+                self.min_train_len = config.data.properties.min_train_len
+                self.max_train_len = config.data.properties.max_train_len
+            else:
+                # For tasks like BFVP and arithmetic that don't have explicit length ranges,
+                # we need to infer them from the dataset or use reasonable defaults
+                LOGGER.error(
+                    f"Curriculum learning requires min_train_len and max_train_len to be set "
+                    f"in the data config (data.properties.min_train_len and data.properties.max_train_len). "
+                    f"For tasks like BFVP and arithmetic, these should be added to the config file "
+                    f"to specify the range of sequence lengths to use for curriculum learning."
+                )
+                raise ValueError(
+                    "min_train_len and max_train_len must be set in config.data.properties "
+                    "for curriculum learning to work."
+                )
 
         # Calculate bin boundaries with overlap
         self._compute_bin_boundaries()
