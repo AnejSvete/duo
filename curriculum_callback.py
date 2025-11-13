@@ -154,6 +154,11 @@ class CurriculumLearningCallback(Callback):
             LOGGER.info(f"   Previous length range: [{old_min}, {old_max}]")
             LOGGER.info(f"   New length range:      [{new_min}, {new_max}]")
             LOGGER.info(f"   Progress: {self.current_bin + 1}/{self.num_bins} bins")
+
+            # Special message for entering the final bin
+            if self.current_bin == self.num_bins - 1:
+                LOGGER.info("   Note: Final bin will train until max_steps is reached")
+
             LOGGER.info("=" * 80)
             LOGGER.info("")
 
@@ -161,10 +166,17 @@ class CurriculumLearningCallback(Callback):
         min_len, max_len = self.bin_boundaries[self.current_bin]
 
         if not bin_changed:
-            LOGGER.info(
-                f"Epoch {trainer.current_epoch}: Training on length range [{min_len}, {max_len}] "
-                f"(bin {self.current_bin + 1}/{self.num_bins}, epoch {self.epochs_in_current_bin + 1}/{self.epochs_per_bin})"
-            )
+            # For the last bin, show "until max_steps" instead of epoch count
+            if self.current_bin == self.num_bins - 1:
+                LOGGER.info(
+                    f"Epoch {trainer.current_epoch}: Training on length range [{min_len}, {max_len}] "
+                    f"(bin {self.current_bin + 1}/{self.num_bins}, final bin - training until max_steps)"
+                )
+            else:
+                LOGGER.info(
+                    f"Epoch {trainer.current_epoch}: Training on length range [{min_len}, {max_len}] "
+                    f"(bin {self.current_bin + 1}/{self.num_bins}, epoch {self.epochs_in_current_bin + 1}/{self.epochs_per_bin})"
+                )
 
         # Apply length filter to dataloader
         self._apply_length_filter(trainer, min_len, max_len)
