@@ -54,6 +54,7 @@ class CurriculumLearningCallback(Callback):
         self.current_bin = 0
         self.epochs_in_current_bin = 0
         self.bin_boundaries = None
+        self.tokenizer = None  # Will be set during setup
 
         if not enabled:
             LOGGER.info("Curriculum learning is disabled")
@@ -62,6 +63,9 @@ class CurriculumLearningCallback(Callback):
         """Setup the curriculum learning boundaries."""
         if not self.enabled or stage != "fit":
             return
+
+        # Store tokenizer for later use
+        self.tokenizer = pl_module.tokenizer
 
         # Get length range from config if not provided
         if self.min_train_len is None or self.max_train_len is None:
@@ -124,23 +128,43 @@ class CurriculumLearningCallback(Callback):
             self.bin_boundaries.append((bin_start, bin_end))
 
     def on_train_epoch_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        """Check if we should move to the next bin at the start of each epoch."""
+        """
+        Check if we should move to the next bin at the start of each epoch.
+
+        Note: This only affects TRAINING data. Validation and test sets always use
+        the full dataset without any length filtering.
+        """
         if not self.enabled:
             return
 
         # Check if we should advance to next bin
+        bin_changed = False
         if self.epochs_in_current_bin >= self.epochs_per_bin and self.current_bin < self.num_bins - 1:
+            old_bin = self.current_bin
             self.current_bin += 1
             self.epochs_in_current_bin = 0
-            LOGGER.info(f"Advancing to curriculum bin {self.current_bin + 1}/{self.num_bins}")
+            bin_changed = True
+
+            old_min, old_max = self.bin_boundaries[old_bin]
+            new_min, new_max = self.bin_boundaries[self.current_bin]
+
+            LOGGER.info("")
+            LOGGER.info("=" * 80)
+            LOGGER.info(f"📚 CURRICULUM ADVANCEMENT: Bin {old_bin + 1} → Bin {self.current_bin + 1}")
+            LOGGER.info(f"   Previous length range: [{old_min}, {old_max}]")
+            LOGGER.info(f"   New length range:      [{new_min}, {new_max}]")
+            LOGGER.info(f"   Progress: {self.current_bin + 1}/{self.num_bins} bins")
+            LOGGER.info("=" * 80)
+            LOGGER.info("")
 
         # Get current bin boundaries
         min_len, max_len = self.bin_boundaries[self.current_bin]
 
-        LOGGER.info(
-            f"Epoch {trainer.current_epoch}: Training on length range [{min_len}, {max_len}] "
-            f"(bin {self.current_bin + 1}/{self.num_bins}, epoch {self.epochs_in_current_bin + 1}/{self.epochs_per_bin})"
-        )
+        if not bin_changed:
+            LOGGER.info(
+                f"Epoch {trainer.current_epoch}: Training on length range [{min_len}, {max_len}] "
+                f"(bin {self.current_bin + 1}/{self.num_bins}, epoch {self.epochs_in_current_bin + 1}/{self.epochs_per_bin})"
+            )
 
         # Apply length filter to dataloader
         self._apply_length_filter(trainer, min_len, max_len)
@@ -177,9 +201,8 @@ class CurriculumLearningCallback(Callback):
                 seq_len = example['attention_mask'].sum().item()
             elif 'input_ids' in example:
                 # Count tokens that are not padding
-                tokenizer = train_dataloader.tokenizer
                 input_ids = example['input_ids']
-                seq_len = (input_ids != tokenizer.pad_token_id).sum().item()
+                seq_len = (input_ids != self.tokenizer.pad_token_id).sum().item()
             else:
                 continue
 
@@ -206,7 +229,8 @@ class CurriculumLearningCallback(Callback):
                 persistent_workers=train_dataloader.persistent_workers,
                 collate_fn=train_dataloader.collate_fn,
             )
-            new_dataloader.tokenizer = train_dataloader.tokenizer
+            # Attach tokenizer to new dataloader for compatibility
+            new_dataloader.tokenizer = self.tokenizer
 
             # Replace the trainer's dataloader
             trainer.train_dataloader = new_dataloader
@@ -216,12 +240,26 @@ class CurriculumLearningCallback(Callback):
                 "Keeping full dataset."
             )
 
+    def on_validation_epoch_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
+        """Log that validation uses full dataset."""
+        _ = pl_module  # Unused but required by Lightning API
+        if self.enabled and trainer.current_epoch == 0:
+            # Only log once at the first validation to avoid spam
+            LOGGER.info(
+                "Validation/Test: Using FULL dataset (curriculum filtering only applies to training)"
+            )
+
     def on_train_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
         """Log curriculum learning completion."""
+        _ = trainer, pl_module  # Unused but required by Lightning API
         if self.enabled:
-            LOGGER.info(
-                f"Curriculum learning completed. Trained through {self.current_bin + 1}/{self.num_bins} bins."
-            )
+            LOGGER.info("")
+            LOGGER.info("=" * 80)
+            LOGGER.info("✅ Curriculum learning completed!")
+            LOGGER.info(f"   Trained through all {self.num_bins} bins")
+            LOGGER.info(f"   Final length range: {self.bin_boundaries[-1]}")
+            LOGGER.info("=" * 80)
+            LOGGER.info("")
 
     def state_dict(self):
         """Save callback state for checkpointing."""
