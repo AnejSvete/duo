@@ -11,6 +11,7 @@ import transformers
 
 import metrics
 import models
+from length_stratified_metrics import PerGenerationModeMetrics
 
 torch.set_printoptions(
     threshold=float("inf"),  # Print all elements (no truncation)
@@ -87,6 +88,10 @@ class TrainerBase(L.LightningModule):
             gen_ppl_eval_model_name_or_path=self.config.eval.gen_ppl_eval_model_name_or_path,
             eval_ppl_batch_size=self.config.eval.perplexity_batch_size,
         )
+
+        # Length-stratified metrics for validation and testing
+        self.val_length_metrics = PerGenerationModeMetrics(num_bins=10)
+        self.test_length_metrics = PerGenerationModeMetrics(num_bins=10)
 
         self.lr = self.config.optim.lr
         self.sampling_eps = self.config.training.sampling_eps
@@ -179,6 +184,7 @@ class TrainerBase(L.LightningModule):
 
     def on_validation_epoch_start(self):
         self.metrics.reset()
+        self.val_length_metrics.reset()
         self._eval_mode()
         assert self.metrics.valid_nlls.nll.mean_value == 0
         assert self.metrics.valid_nlls.nll.weight == 0
@@ -214,6 +220,10 @@ class TrainerBase(L.LightningModule):
             else ["default"]
         )
 
+        # Compute sequence lengths (number of non-padding tokens in targets)
+        target_mask = targets != self.tokenizer.pad_token_id
+        seq_lengths = target_mask.sum(dim=1)  # (batch_size,)
+
         for gen_mode in gen_modes:
             # Pass the `targets` tensor for shape compatibility, as required by the function signature.
             generated = self.generate_conditioned(
@@ -224,6 +234,23 @@ class TrainerBase(L.LightningModule):
             acc_exact, acc_token, correct_prediction = self._compute_accuracy(
                 generated, targets
             )
+
+            # Also get per-sample metrics for length stratification
+            acc_exact_per_sample, acc_token_per_sample, correct_prediction_per_sample = self._compute_accuracy_per_sample(
+                generated, targets
+            )
+
+            # Update length-stratified metrics
+            self.val_length_metrics.update(
+                mode=gen_mode,
+                lengths=seq_lengths,
+                per_sample_metrics={
+                    'acc_exact': acc_exact_per_sample,
+                    'acc_token': acc_token_per_sample,
+                    'correct_prediction': correct_prediction_per_sample,
+                }
+            )
+
             self.log(
                 f"val/{gen_mode}_acc_exact",
                 acc_exact,
@@ -356,6 +383,43 @@ class TrainerBase(L.LightningModule):
 
         return acc_exact, acc_token, correct_prediction
 
+    def _compute_accuracy_per_sample(self, generated, targets):
+        """
+        Computes per-sample accuracy metrics (returns tensors, not scalars).
+        Used for length-stratified metrics tracking.
+
+        Returns:
+            acc_exact: Tensor of shape (batch_size,) with 1.0 for exact matches, 0.0 otherwise
+            acc_token: Tensor of shape (batch_size,) with token-level accuracy per sequence
+            correct_prediction: Tensor of shape (batch_size,) with 1.0 for correct final predictions
+        """
+        # `target_mask` is True only for tokens that should be predicted.
+        target_mask = targets != self.tokenizer.pad_token_id
+
+        # 1. Exact Match Accuracy per sample
+        is_correct_or_ignored = (generated == targets) | ~target_mask
+        acc_exact_per_sample = is_correct_or_ignored.all(dim=1).float()  # (batch_size,)
+
+        # 2. Token-level Accuracy per sample
+        num_correct_per_sample = ((generated == targets) & target_mask).sum(dim=1).float()
+        num_target_per_sample = target_mask.sum(dim=1).float()
+        # Avoid division by zero
+        acc_token_per_sample = torch.where(
+            num_target_per_sample > 0,
+            num_correct_per_sample / num_target_per_sample,
+            torch.zeros_like(num_correct_per_sample)
+        )
+
+        # 3. Last Prompt Token Accuracy per sample
+        last_prompt_indices = target_mask.float().cumsum(dim=1).argmax(dim=1)
+        last_prompt_indices = torch.clamp(last_prompt_indices, 0, targets.shape[1] - 1)
+        has_prompt = target_mask.any(dim=1)
+        last_prompt_targets = targets[torch.arange(targets.shape[0]), last_prompt_indices]
+        last_prompt_preds = generated[torch.arange(generated.shape[0]), last_prompt_indices]
+        correct_prediction_per_sample = ((last_prompt_preds == last_prompt_targets) & has_prompt).float()
+
+        return acc_exact_per_sample, acc_token_per_sample, correct_prediction_per_sample
+
     def generate_conditioned(self, prompts, mode="random", top_k=1):
         # Stub: implement in subclass or algo
         # prompts: (batch, seq) tensor
@@ -368,6 +432,17 @@ class TrainerBase(L.LightningModule):
         for k, v in self.metrics.valid_nlls.items():
             self.log(
                 name=k, value=v.compute(), on_step=False, on_epoch=True, sync_dist=True
+            )
+
+        # Compute and log length-stratified metrics
+        length_stratified_logs = self.val_length_metrics.get_wandb_logs(prefix="val")
+        for metric_name, metric_value in length_stratified_logs.items():
+            self.log(
+                name=metric_name,
+                value=metric_value,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True
             )
 
         # Save validation metrics to file
@@ -390,6 +465,9 @@ class TrainerBase(L.LightningModule):
                         current_metrics[metric_name] = metric_value.item()
                     elif isinstance(metric_value, (int, float)):
                         current_metrics[metric_name] = metric_value
+
+        # Add length-stratified metrics to saved file
+        current_metrics["length_stratified"] = self.val_length_metrics.compute_all()
 
         if os.path.exists(val_metrics_file):
             with open(val_metrics_file, "r") as f:
@@ -449,6 +527,7 @@ class TrainerBase(L.LightningModule):
 
     def on_test_epoch_start(self):
         self.metrics.reset()
+        self.test_length_metrics.reset()
         self._eval_mode()
         assert self.metrics.valid_nlls.nll.mean_value == 0
         assert self.metrics.valid_nlls.nll.weight == 0
@@ -484,6 +563,10 @@ class TrainerBase(L.LightningModule):
             else ["default"]
         )
 
+        # Compute sequence lengths (number of non-padding tokens in targets)
+        target_mask = targets != self.tokenizer.pad_token_id
+        seq_lengths = target_mask.sum(dim=1)  # (batch_size,)
+
         for gen_mode in gen_modes:
             # Pass the `targets` tensor for shape compatibility, as required by the function signature.
             generated = self.generate_conditioned(
@@ -494,6 +577,23 @@ class TrainerBase(L.LightningModule):
             acc_exact, acc_token, correct_prediction = self._compute_accuracy(
                 generated, targets
             )
+
+            # Also get per-sample metrics for length stratification
+            acc_exact_per_sample, acc_token_per_sample, correct_prediction_per_sample = self._compute_accuracy_per_sample(
+                generated, targets
+            )
+
+            # Update length-stratified metrics
+            self.test_length_metrics.update(
+                mode=gen_mode,
+                lengths=seq_lengths,
+                per_sample_metrics={
+                    'acc_exact': acc_exact_per_sample,
+                    'acc_token': acc_token_per_sample,
+                    'correct_prediction': correct_prediction_per_sample,
+                }
+            )
+
             self.log(
                 f"test/{gen_mode}_acc_exact",
                 acc_exact,
@@ -576,6 +676,17 @@ class TrainerBase(L.LightningModule):
                 sync_dist=True,
             )
 
+        # Compute and log length-stratified metrics
+        length_stratified_logs = self.test_length_metrics.get_wandb_logs(prefix="test")
+        for metric_name, metric_value in length_stratified_logs.items():
+            self.log(
+                name=metric_name,
+                value=metric_value,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True
+            )
+
         # Save test metrics to file
         test_metrics_file = os.path.join(
             self.config.checkpointing.save_dir, "test_metrics.json"
@@ -594,6 +705,9 @@ class TrainerBase(L.LightningModule):
                         current_metrics[metric_name] = metric_value.item()
                     elif isinstance(metric_value, (int, float)):
                         current_metrics[metric_name] = metric_value
+
+        # Add length-stratified metrics to saved file
+        current_metrics["length_stratified"] = self.test_length_metrics.compute_all()
 
         with open(test_metrics_file, "w") as f:
             json.dump(current_metrics, f, indent=4)

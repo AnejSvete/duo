@@ -8,16 +8,15 @@ import torch
 import torch.nn as nn
 
 from .common import (
-    bias_dropout_add_scale_fused_train,
-    bias_dropout_add_scale_fused_inference,
+    EmbeddingLayer,
+    LayerNorm,
     Rotary,
     apply_rotary_pos_emb,
-    split_and_apply_rotary_pos_emb,
+    bias_dropout_add_scale_fused_inference,
+    bias_dropout_add_scale_fused_train,
     regular_attention_multi_headed,
-    LayerNorm,
-    EmbeddingLayer,
+    split_and_apply_rotary_pos_emb,
 )
-
 
 #################################################################################
 #                                 Core Model                                    #
@@ -175,7 +174,7 @@ class LT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
 
         # Initial layers (Block 'A')
         self.vocab_embed = EmbeddingLayer(dim, vocab_size)
-        self.rotary_emb = Rotary(dim // config.model.n_heads)
+        self.rotary_emb = Rotary(dim // config.model.n_heads, base=1000)
 
         # Repeating layers (Block 'B')
         blocks = []

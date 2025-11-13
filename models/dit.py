@@ -9,15 +9,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .common import (
-    bias_dropout_add_scale_fused_train,
-    bias_dropout_add_scale_fused_inference,
-    modulate_fused,
+    EmbeddingLayer,
+    LayerNorm,
     Rotary,
     apply_rotary_pos_emb,
-    split_and_apply_rotary_pos_emb,
+    bias_dropout_add_scale_fused_inference,
+    bias_dropout_add_scale_fused_train,
+    modulate_fused,
     regular_attention_multi_headed,
-    LayerNorm,
-    EmbeddingLayer,
+    split_and_apply_rotary_pos_emb,
 )
 
 
@@ -279,7 +279,7 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         self.vocab_embed = EmbeddingLayer(dim, vocab_size)
         if not self.causal:
             self.sigma_map = TimestepEmbedder(cond_dim)
-        self.rotary_emb = Rotary(dim // config.model.n_heads)
+        self.rotary_emb = Rotary(dim // config.model.n_heads, base=1000)
 
         blocks = []
         for _ in range(config.model.n_blocks):
