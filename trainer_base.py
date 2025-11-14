@@ -30,14 +30,189 @@ class Loss:
 
 
 class LogLinear(torch.nn.Module):
-    def __init__(self):
+    """
+    Log-Linear noise schedule: alpha(t) = 1 - t
+    Simple linear decay from 1 to eps.
+
+    Note: This returns dalpha/dt, not just the coefficient.
+    """
+    def __init__(self, eps=1e-3):
         super().__init__()
-        self.eps = 1e-3  # To be consistent with SEDD: https://github.com/louaaron/Score-Entropy-Discrete-Diffusion/blob/0605786da5ccb5747545e26d66fdf477187598b6/noise_lib.py#L56
+        self.eps = eps
 
     def forward(self, t):
-        t = (1 - self.eps) * t
+        """
+        Args:
+            t: timestep in [eps, 1]
+        Returns:
+            dalpha_t: derivative of alpha with respect to t
+            alpha_t: signal level at time t
+        """
+        t = (1 - self.eps) * t + self.eps
         alpha_t = 1 - t
-        dalpha_t = -(1 - self.eps)
+        dalpha_t = -(1 - self.eps) * torch.ones_like(t)
+        return dalpha_t, alpha_t
+
+
+class Cosine(torch.nn.Module):
+    """
+    Cosine noise schedule from "Improved Denoising Diffusion Probabilistic Models".
+    alpha(t) = cos^2(pi * t / 2)
+
+    Provides smoother transitions and better performance on many tasks.
+    """
+    def __init__(self, eps=1e-3):
+        super().__init__()
+        self.eps = eps
+        self.pi_over_2 = torch.pi / 2
+
+    def forward(self, t):
+        """
+        Args:
+            t: timestep in [eps, 1]
+        Returns:
+            dalpha_t: derivative of alpha with respect to t
+            alpha_t: signal level at time t
+        """
+        t = (1 - self.eps) * t + self.eps
+        # alpha(t) = cos^2(pi * t / 2)
+        alpha_t = torch.cos(self.pi_over_2 * t) ** 2
+        # dalpha/dt = 2 * cos(pi*t/2) * (-sin(pi*t/2)) * (pi/2)
+        #           = -pi * cos(pi*t/2) * sin(pi*t/2)
+        #           = -pi/2 * sin(pi*t)
+        dalpha_t = -(1 - self.eps) * self.pi_over_2 * torch.sin(torch.pi * t)
+        return dalpha_t, alpha_t
+
+
+class Linear(torch.nn.Module):
+    """
+    Linear noise schedule (in variance space): beta(t) = beta_min + t * (beta_max - beta_min)
+    Then alpha(t) = exp(-integral of beta(t))
+
+    This is the schedule used in the original DDPM paper.
+    """
+    def __init__(self, beta_min=0.1, beta_max=20.0, eps=1e-3):
+        super().__init__()
+        self.beta_min = beta_min
+        self.beta_max = beta_max
+        self.eps = eps
+
+    def forward(self, t):
+        """
+        Args:
+            t: timestep in [eps, 1]
+        Returns:
+            dalpha_t: derivative of alpha with respect to t
+            alpha_t: signal level at time t
+        """
+        t = (1 - self.eps) * t + self.eps
+        # beta(t) = beta_min + t * (beta_max - beta_min)
+        beta_t = self.beta_min + t * (self.beta_max - self.beta_min)
+        # alpha(t) = exp(-0.5 * (beta_min * t + 0.5 * (beta_max - beta_min) * t^2))
+        log_alpha_t = -0.5 * (self.beta_min * t + 0.5 * (self.beta_max - self.beta_min) * t ** 2)
+        alpha_t = torch.exp(log_alpha_t)
+        # dalpha/dt = alpha(t) * d(log_alpha)/dt
+        #           = alpha(t) * (-0.5 * (beta_min + (beta_max - beta_min) * t))
+        #           = -0.5 * alpha(t) * beta(t)
+        dalpha_t = -(1 - self.eps) * 0.5 * alpha_t * beta_t
+        return dalpha_t, alpha_t
+
+
+class Polynomial(torch.nn.Module):
+    """
+    Polynomial noise schedule: alpha(t) = (1 - t^power)
+
+    - power < 1: More noise early, slow at end (good for coarse-to-fine)
+    - power = 1: Linear (same as LogLinear)
+    - power > 1: Less noise early, fast at end
+    """
+    def __init__(self, power=2.0, eps=1e-3):
+        super().__init__()
+        self.power = power
+        self.eps = eps
+
+    def forward(self, t):
+        """
+        Args:
+            t: timestep in [eps, 1]
+        Returns:
+            dalpha_t: derivative of alpha with respect to t
+            alpha_t: signal level at time t
+        """
+        t = (1 - self.eps) * t + self.eps
+        # alpha(t) = 1 - t^power
+        alpha_t = 1 - t ** self.power
+        # dalpha/dt = -power * t^(power-1)
+        dalpha_t = -(1 - self.eps) * self.power * t ** (self.power - 1)
+        return dalpha_t, alpha_t
+
+
+class Sigmoid(torch.nn.Module):
+    """
+    Sigmoid noise schedule: alpha(t) = sigmoid((1-t) * scale - shift)
+
+    Provides smooth transitions with adjustable steepness.
+    Can concentrate the diffusion process in a specific time region.
+    """
+    def __init__(self, scale=6.0, shift=3.0, eps=1e-3):
+        super().__init__()
+        self.scale = scale
+        self.shift = shift
+        self.eps = eps
+
+    def forward(self, t):
+        """
+        Args:
+            t: timestep in [eps, 1]
+        Returns:
+            dalpha_t: derivative of alpha with respect to t
+            alpha_t: signal level at time t
+        """
+        t = (1 - self.eps) * t + self.eps
+        # alpha(t) = sigmoid((1-t) * scale - shift)
+        x = (1 - t) * self.scale - self.shift
+        alpha_t = torch.sigmoid(x)
+        # dalpha/dt = sigmoid'(x) * dx/dt
+        #           = sigmoid(x) * (1 - sigmoid(x)) * (-scale)
+        #           = -scale * alpha(t) * (1 - alpha(t))
+        dalpha_t = -(1 - self.eps) * self.scale * alpha_t * (1 - alpha_t)
+        return dalpha_t, alpha_t
+
+
+class SquaredCosine(torch.nn.Module):
+    """
+    Squared cosine schedule with offset parameter s to prevent alpha from reaching 0 too quickly.
+    From "Improved Denoising Diffusion Probabilistic Models" (Nichol & Dhariwal 2021).
+
+    alpha(t) = cos^2(pi/2 * (t + s) / (1 + s))
+
+    The offset s controls how quickly alpha decays. Common value: s = 0.008
+    """
+    def __init__(self, s=0.008, eps=1e-3):
+        super().__init__()
+        self.s = s
+        self.eps = eps
+        self.pi_over_2 = torch.pi / 2
+
+    def forward(self, t):
+        """
+        Args:
+            t: timestep in [eps, 1]
+        Returns:
+            dalpha_t: derivative of alpha with respect to t
+            alpha_t: signal level at time t
+        """
+        t = (1 - self.eps) * t + self.eps
+        # alpha_bar(t) = cos^2(pi/2 * (t + s) / (1 + s))
+        arg = self.pi_over_2 * (t + self.s) / (1 + self.s)
+        alpha_t = torch.cos(arg) ** 2
+        # dalpha/dt = 2 * cos(arg) * (-sin(arg)) * d(arg)/dt
+        #           = -2 * cos(arg) * sin(arg) * (pi/2) / (1 + s)
+        #           = -(pi / (1 + s)) * sin(2 * arg) / 2
+        #           = -(pi / (2 * (1 + s))) * sin(pi * (t + s) / (1 + s))
+        dalpha_t = -(1 - self.eps) * (torch.pi / (2 * (1 + self.s))) * torch.sin(
+            2 * arg
+        )
         return dalpha_t, alpha_t
 
 
@@ -81,8 +256,31 @@ class TrainerBase(L.LightningModule):
         self.num_tokens = self.config.model.length
         self.softplus = torch.nn.Softplus()
         self.p_nucleus = self.config.sampling.p_nucleus
-        # Noise Schedule
-        self.noise = LogLinear()
+
+        # Noise Schedule - select based on config
+        noise_type = self.config.noise.type if hasattr(self.config, 'noise') else 'log-linear'
+        noise_eps = self.config.noise.eps if hasattr(self.config.noise, 'eps') else 1e-3
+
+        if noise_type == 'log-linear':
+            self.noise = LogLinear(eps=noise_eps)
+        elif noise_type == 'cosine':
+            self.noise = Cosine(eps=noise_eps)
+        elif noise_type == 'linear':
+            beta_min = self.config.noise.beta_min if hasattr(self.config.noise, 'beta_min') else 0.1
+            beta_max = self.config.noise.beta_max if hasattr(self.config.noise, 'beta_max') else 20.0
+            self.noise = Linear(beta_min=beta_min, beta_max=beta_max, eps=noise_eps)
+        elif noise_type == 'polynomial':
+            power = self.config.noise.power if hasattr(self.config.noise, 'power') else 2.0
+            self.noise = Polynomial(power=power, eps=noise_eps)
+        elif noise_type == 'sigmoid':
+            scale = self.config.noise.scale if hasattr(self.config.noise, 'scale') else 6.0
+            shift = self.config.noise.shift if hasattr(self.config.noise, 'shift') else 3.0
+            self.noise = Sigmoid(scale=scale, shift=shift, eps=noise_eps)
+        elif noise_type == 'squared-cosine':
+            s = self.config.noise.s if hasattr(self.config.noise, 's') else 0.008
+            self.noise = SquaredCosine(s=s, eps=noise_eps)
+        else:
+            raise ValueError(f"Unknown noise schedule type: {noise_type}")
 
         self.metrics = metrics.Metrics(
             gen_ppl_eval_model_name_or_path=self.config.eval.gen_ppl_eval_model_name_or_path,
@@ -131,6 +329,23 @@ class TrainerBase(L.LightningModule):
 
     def optimizer_step(self, *args, **kwargs):
         super().optimizer_step(*args, **kwargs)
+
+        # Log gradient norms
+        if self.trainer.global_step % self.trainer.log_every_n_steps == 0:
+            total_norm = 0.0
+            for p in self._get_parameters():
+                if p.grad is not None:
+                    param_norm = p.grad.data.norm(2)
+                    total_norm += param_norm.item() ** 2
+            total_norm = total_norm ** 0.5
+
+            self.log(
+                "trainer/grad_norm",
+                total_norm,
+                on_step=True,
+                on_epoch=False,
+                sync_dist=True,
+            )
 
     def _process_sigma(self, sigma):
         raise NotImplementedError

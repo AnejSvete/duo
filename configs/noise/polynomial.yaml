@@ -1,0 +1,7 @@
+type: polynomial
+parameterization: log-linear
+eps: 1e-3
+power: 2.0  # Controls the shape: <1 = early noise, 1 = linear, >1 = late noise
+denoiser_latent_conditioning: -1
+freeze_encoder: False
+freeze_decoder: False

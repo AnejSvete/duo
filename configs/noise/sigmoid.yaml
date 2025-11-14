@@ -1,0 +1,8 @@
+type: sigmoid
+parameterization: log-linear
+eps: 1e-3
+scale: 6.0  # Controls steepness of transition
+shift: 3.0  # Controls center point of transition
+denoiser_latent_conditioning: -1
+freeze_encoder: False
+freeze_decoder: False

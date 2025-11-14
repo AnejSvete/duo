@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 
 import diffusion
@@ -730,7 +729,7 @@ class SEDDAbsorb(diffusion.AbsorbingState):
         model_output = (
             model_output
             - esigm1_log[:, None, None]
-            - np.log(model_output.shape[-1] - 1)
+            - torch.log(torch.tensor(model_output.shape[-1] - 1, dtype=model_output.dtype, device=model_output.device))
         )
         # The below scatter operation sets the log score
         # for the input word to 0.

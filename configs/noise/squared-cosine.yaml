@@ -1,0 +1,7 @@
+type: squared-cosine
+parameterization: log-linear
+eps: 1e-3
+s: 0.008  # Offset parameter to prevent alpha from reaching 0 too quickly
+denoiser_latent_conditioning: -1
+freeze_encoder: False
+freeze_decoder: False

@@ -142,6 +142,32 @@ class Diffusion(TrainerBase):
         alpha_t_unsqueezed = alpha_t.unsqueeze(-1)
         sigma = self._sigma_from_alphat(alpha_t_unsqueezed)
 
+        # Log diffusion-specific metrics during training
+        if train_mode and self.trainer.global_step % self.trainer.log_every_n_steps == 0:
+            # Log alpha_t statistics
+            self.log("diffusion/alpha_t_mean", alpha_t.mean(), on_step=True, on_epoch=False, sync_dist=True)
+            self.log("diffusion/alpha_t_std", alpha_t.std(), on_step=True, on_epoch=False, sync_dist=True)
+            self.log("diffusion/alpha_t_min", alpha_t.min(), on_step=True, on_epoch=False, sync_dist=True)
+            self.log("diffusion/alpha_t_max", alpha_t.max(), on_step=True, on_epoch=False, sync_dist=True)
+
+            # Log sigma statistics
+            self.log("diffusion/sigma_mean", sigma.mean(), on_step=True, on_epoch=False, sync_dist=True)
+            self.log("diffusion/sigma_std", sigma.std(), on_step=True, on_epoch=False, sync_dist=True)
+
+            # Log timestep statistics (t values)
+            self.log("diffusion/t_mean", t.mean(), on_step=True, on_epoch=False, sync_dist=True)
+            self.log("diffusion/t_std", t.std(), on_step=True, on_epoch=False, sync_dist=True)
+
+            # Log masking ratio (percentage of tokens masked)
+            if hasattr(self, 'mask_index'):
+                mask_ratio = (xt == self.mask_index).float().mean()
+                self.log("diffusion/mask_ratio", mask_ratio, on_step=True, on_epoch=False, sync_dist=True)
+
+                # Log masking ratio per sequence (useful for ground_truth_masking)
+                mask_ratio_per_seq = (xt == self.mask_index).float().mean(dim=1)
+                self.log("diffusion/mask_ratio_per_seq_mean", mask_ratio_per_seq.mean(), on_step=True, on_epoch=False, sync_dist=True)
+                self.log("diffusion/mask_ratio_per_seq_std", mask_ratio_per_seq.std(), on_step=True, on_epoch=False, sync_dist=True)
+
         log_x_theta = self.forward(xt, sigma=sigma)
         # utils.print_nans(log_x_theta, "model_output")  # Assuming utils is available
         return self.nll_per_token(
