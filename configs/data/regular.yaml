@@ -3,8 +3,8 @@ defaults:
 
 properties:
   min_train_len: 2
-  max_train_len: 20
-  min_val_len: 16
-  max_val_len: 20
-  min_test_len: 18
-  max_test_len: 20
+  max_train_len: 64
+  min_val_len: 24
+  max_val_len: 64
+  min_test_len: 32
+  max_test_len: 64

@@ -6,6 +6,7 @@ metrics stratified by sequence length during validation and testing.
 
 import typing
 from collections import defaultdict
+
 import numpy as np
 import torch
 
@@ -43,10 +44,12 @@ class LengthStratifiedMetrics:
         self.bin_edges = None
         self.bin_labels = None
 
-    def update(self,
-               lengths: torch.Tensor,
-               metrics: typing.Dict[str, float],
-               weights: typing.Optional[torch.Tensor] = None):
+    def update(
+        self,
+        lengths: torch.Tensor,
+        metrics: typing.Dict[str, float],
+        weights: typing.Optional[torch.Tensor] = None,
+    ):
         """Update metrics for a batch of sequences.
 
         Args:
@@ -68,9 +71,9 @@ class LengthStratifiedMetrics:
             else:
                 self.overall_metrics[metric_name].append(metric_value)
 
-    def update_per_sample(self,
-                         lengths: torch.Tensor,
-                         per_sample_metrics: typing.Dict[str, torch.Tensor]):
+    def update_per_sample(
+        self, lengths: torch.Tensor, per_sample_metrics: typing.Dict[str, torch.Tensor]
+    ):
         """Update metrics with per-sample values (more accurate).
 
         Args:
@@ -113,8 +116,14 @@ class LengthStratifiedMetrics:
             # Use percentile ranges in labels (e.g., "p0-25", "p25-50")
             for i in range(len(self.bin_edges) - 1):
                 # Find corresponding percentile indices
-                p_start = int(self.bin_percentiles[i] if i < len(self.bin_percentiles) else 0)
-                p_end = int(self.bin_percentiles[i + 1] if i + 1 < len(self.bin_percentiles) else 100)
+                p_start = int(
+                    self.bin_percentiles[i] if i < len(self.bin_percentiles) else 0
+                )
+                p_end = int(
+                    self.bin_percentiles[i + 1]
+                    if i + 1 < len(self.bin_percentiles)
+                    else 100
+                )
                 label = f"p{p_start}-{p_end}"
                 self.bin_labels.append(label)
         else:
@@ -170,11 +179,11 @@ class LengthStratifiedMetrics:
         """
         if len(self.all_lengths) == 0:
             return {
-                'overall': {},
-                'bins': [],
-                'bin_edges': [],
-                'num_samples': 0,
-                'length_statistics': {}
+                "overall": {},
+                "bins": [],
+                "bin_edges": [],
+                "num_samples": 0,
+                "length_statistics": {},
             }
 
         # Compute bin assignments
@@ -196,30 +205,30 @@ class LengthStratifiedMetrics:
         # Compute length statistics for later reference
         lengths_array = np.array(self.all_lengths)
         length_statistics = {
-            'min': float(lengths_array.min()),
-            'max': float(lengths_array.max()),
-            'mean': float(lengths_array.mean()),
-            'std': float(lengths_array.std()),
-            'median': float(np.median(lengths_array)),
-            'percentiles': {
-                f'p{int(p)}': float(np.percentile(lengths_array, p))
-                for p in [0, 10, 25, 50, 75, 90, 100]
-            }
+            "min": float(lengths_array.min()),
+            "max": float(lengths_array.max()),
+            "mean": float(lengths_array.mean()),
+            "std": float(lengths_array.std()),
+            "median": float(np.median(lengths_array)),
+            "percentiles": {
+                f"p{int(p)}": float(np.percentile(lengths_array, p))
+                for p in [0, 25, 50, 75, 100]
+            },
         }
 
         # Compute per-bin metrics
         bins_list = []
         for bin_idx in range(len(self.bin_labels)):
             bin_dict = {
-                'label': self.bin_labels[bin_idx],
-                'min_length': float(self.bin_edges[bin_idx]),
-                'max_length': float(self.bin_edges[bin_idx + 1]),
-                'num_samples': 0,
+                "label": self.bin_labels[bin_idx],
+                "min_length": float(self.bin_edges[bin_idx]),
+                "max_length": float(self.bin_edges[bin_idx + 1]),
+                "num_samples": 0,
             }
 
             if bin_idx in self.bin_metrics:
                 bin_data = self.bin_metrics[bin_idx]
-                bin_dict['num_samples'] = len(bin_data[list(bin_data.keys())[0]])
+                bin_dict["num_samples"] = len(bin_data[list(bin_data.keys())[0]])
 
                 for metric_name, values in bin_data.items():
                     if len(values) > 0:
@@ -228,11 +237,11 @@ class LengthStratifiedMetrics:
             bins_list.append(bin_dict)
 
         return {
-            'overall': overall,
-            'bins': bins_list,
-            'bin_edges': self.bin_edges.tolist() if self.bin_edges is not None else [],
-            'num_samples': len(self.all_lengths),
-            'length_statistics': length_statistics
+            "overall": overall,
+            "bins": bins_list,
+            "bin_edges": self.bin_edges.tolist() if self.bin_edges is not None else [],
+            "num_samples": len(self.all_lengths),
+            "length_statistics": length_statistics,
         }
 
     def get_wandb_logs(self, prefix: str = "val") -> typing.Dict[str, float]:
@@ -248,29 +257,36 @@ class LengthStratifiedMetrics:
         logs = {}
 
         # Overall metrics (these are already logged elsewhere, but include for completeness)
-        for metric_name, value in results['overall'].items():
+        for metric_name, value in results["overall"].items():
             logs[f"{prefix}/{metric_name}_overall"] = value
 
         # Per-bin metrics with percentile-based labels
-        for bin_dict in results['bins']:
-            bin_label = bin_dict['label']
+        for bin_dict in results["bins"]:
+            bin_label = bin_dict["label"]
             for metric_name, value in bin_dict.items():
-                if metric_name not in ['label', 'min_length', 'max_length', 'num_samples']:
-                    logs[f"{prefix}/{metric_name}_{bin_label}"] = value
+                if metric_name not in [
+                    "label",
+                    "min_length",
+                    "max_length",
+                    "num_samples",
+                ]:
+                    logs[f"{prefix}_num_samples/{metric_name}_{bin_label}"] = value
             # Also log sample count per bin
-            logs[f"{prefix}/num_samples_{bin_label}"] = bin_dict['num_samples']
+            logs[f"{prefix}_num_samples/num_samples_{bin_label}"] = bin_dict[
+                "num_samples"
+            ]
 
         # Log length statistics for reference
-        if 'length_statistics' in results and results['length_statistics']:
-            stats = results['length_statistics']
-            logs[f"{prefix}/length_min"] = stats['min']
-            logs[f"{prefix}/length_max"] = stats['max']
-            logs[f"{prefix}/length_mean"] = stats['mean']
-            logs[f"{prefix}/length_std"] = stats['std']
-            logs[f"{prefix}/length_median"] = stats['median']
+        if "length_statistics" in results and results["length_statistics"]:
+            stats = results["length_statistics"]
+            logs[f"{prefix}_bin_length/length_min"] = stats["min"]
+            logs[f"{prefix}_bin_length/length_max"] = stats["max"]
+            logs[f"{prefix}_bin_length/length_mean"] = stats["mean"]
+            logs[f"{prefix}_bin_length/length_std"] = stats["std"]
+            logs[f"{prefix}_bin_length/length_median"] = stats["median"]
             # Log key percentiles
-            for p_name, p_value in stats['percentiles'].items():
-                logs[f"{prefix}/length_{p_name}"] = p_value
+            for p_name, p_value in stats["percentiles"].items():
+                logs[f"{prefix}_bin_length/length_{p_name}"] = p_value
 
         return logs
 
@@ -304,10 +320,12 @@ class PerGenerationModeMetrics:
             self.metrics_by_mode[mode] = LengthStratifiedMetrics(num_bins=self.num_bins)
         return self.metrics_by_mode[mode]
 
-    def update(self,
-               mode: str,
-               lengths: torch.Tensor,
-               per_sample_metrics: typing.Dict[str, torch.Tensor]):
+    def update(
+        self,
+        mode: str,
+        lengths: torch.Tensor,
+        per_sample_metrics: typing.Dict[str, torch.Tensor],
+    ):
         """Update metrics for a specific generation mode.
 
         Args:
@@ -325,8 +343,7 @@ class PerGenerationModeMetrics:
             Dict mapping mode names to their computed metrics
         """
         return {
-            mode: metrics.compute()
-            for mode, metrics in self.metrics_by_mode.items()
+            mode: metrics.compute() for mode, metrics in self.metrics_by_mode.items()
         }
 
     def get_wandb_logs(self, prefix: str = "val") -> typing.Dict[str, float]:
