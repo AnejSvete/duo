@@ -1,6 +1,6 @@
 name: nano
-hidden_size: 64
-cond_dim: 64
+hidden_size: 128
+cond_dim: 128
 length: 256
 n_blocks: 2
 n_heads: 2
