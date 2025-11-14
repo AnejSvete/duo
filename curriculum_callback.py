@@ -468,6 +468,7 @@ class CurriculumLearningCallback(Callback):
                     raw_tokens = text.strip().split()
 
                 seq_len = len(raw_tokens)
+                print(f"seq_len: {seq_len}")
             elif "attention_mask" in example:
                 # Fallback: count non-padding tokens (includes BOS/EOS if present)
                 # Subtract 2 to approximate raw length (assuming BOS + EOS)
