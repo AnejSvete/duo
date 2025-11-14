@@ -281,10 +281,13 @@ class MDLM(diffusion.AbsorbingState):
 
     def nll_per_token(self, log_x_theta, xt, x0, alpha_t, dalpha_t, low_var=False):
         del xt
+        # log_p_theta shape: (batch, seq)
         log_p_theta = torch.gather(
             input=log_x_theta, dim=-1, index=x0[:, :, None]
         ).squeeze(-1)
-        # Add epsilon to prevent division by zero when alpha_t approaches 1
+
+        # alpha_t and dalpha_t both have shape (batch, 1)
+        # They will broadcast to (batch, seq) when multiplied/divided with log_p_theta
         denominator = (1 - alpha_t).clamp(min=1e-7)
         return log_p_theta * dalpha_t / denominator
 

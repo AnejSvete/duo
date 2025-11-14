@@ -216,6 +216,17 @@ class CurriculumLearningCallback(Callback):
 
         # Create indices for examples within the length range
         filtered_indices = []
+        length_samples = []  # Collect samples to show distribution
+
+        # Debug: log what keys are available in the first example
+        if len(dataset) > 0:
+            first_example = dataset[0]
+            LOGGER.info(f"Dataset example keys: {list(first_example.keys())}")
+            if 'text' in first_example:
+                sample_text = first_example['text']
+                sample_len = len(sample_text.strip().split())
+                LOGGER.info(f"Sample text: '{sample_text[:100]}...' (raw length: {sample_len})")
+
         for idx in range(len(dataset)):
             example = dataset[idx]
 
@@ -238,9 +249,23 @@ class CurriculumLearningCallback(Callback):
             else:
                 continue
 
+            # Collect length samples (every 10000th example) for distribution analysis
+            if idx % 10000 == 0:
+                length_samples.append(seq_len)
+
             # Include example if within current bin range
             if min_len <= seq_len <= max_len:
                 filtered_indices.append(idx)
+
+        # Show length distribution from samples
+        if length_samples:
+            import numpy as np
+            length_array = np.array(length_samples)
+            LOGGER.info(
+                f"Length distribution (sampled): min={length_array.min()}, "
+                f"max={length_array.max()}, mean={length_array.mean():.1f}, "
+                f"median={np.median(length_array):.1f}"
+            )
 
         LOGGER.info(
             f"Filtered dataset: {len(filtered_indices)}/{len(dataset)} examples "

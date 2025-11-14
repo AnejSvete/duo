@@ -140,6 +140,7 @@ class Diffusion(TrainerBase):
 
         # --- Common Logic for both paths ---
         alpha_t_unsqueezed = alpha_t.unsqueeze(-1)
+        dalpha_t_unsqueezed = dalpha_t.unsqueeze(-1)
         sigma = self._sigma_from_alphat(alpha_t_unsqueezed)
 
         # Log diffusion-specific metrics during training
@@ -191,7 +192,7 @@ class Diffusion(TrainerBase):
             xt=xt,
             x0=x0,
             alpha_t=alpha_t_unsqueezed,
-            dalpha_t=dalpha_t,
+            dalpha_t=dalpha_t_unsqueezed,
             low_var=train_mode and self.loss_type == "low_var",
         )
 
