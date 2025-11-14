@@ -234,8 +234,12 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
         format_mode = getattr(bfvp_cfg, "format", "trace")
 
         # Get depth ranges per split
-        min_train_depth = getattr(bfvp_cfg, "min_train_depth", getattr(bfvp_cfg, "min_depth", 1))
-        max_train_depth = getattr(bfvp_cfg, "max_train_depth", getattr(bfvp_cfg, "max_depth", 4))
+        min_train_depth = getattr(
+            bfvp_cfg, "min_train_depth", getattr(bfvp_cfg, "min_depth", 1)
+        )
+        max_train_depth = getattr(
+            bfvp_cfg, "max_train_depth", getattr(bfvp_cfg, "max_depth", 4)
+        )
         min_val_depth = getattr(bfvp_cfg, "min_val_depth", min_train_depth)
         max_val_depth = getattr(bfvp_cfg, "max_val_depth", max_train_depth)
         min_test_depth = getattr(bfvp_cfg, "min_test_depth", min_train_depth)
@@ -257,7 +261,16 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
 
         # Only create length_ranges dict if at least one length parameter is specified
         length_ranges = None
-        if any([min_train_len, max_train_len, min_val_len, max_val_len, min_test_len, max_test_len]):
+        if any(
+            [
+                min_train_len,
+                max_train_len,
+                min_val_len,
+                max_val_len,
+                min_test_len,
+                max_test_len,
+            ]
+        ):
             length_ranges = {
                 "train": (min_train_len or 0, max_train_len or 10000),
                 "validation": (min_val_len or 0, max_val_len or 10000),
@@ -292,8 +305,8 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
 
     elif dataset_name in FSA_CREATORS:
         lang_cfg = getattr(config.data, "properties", {})
-        min_len = getattr(lang_cfg, "min_len_train", 32)
-        max_len = getattr(lang_cfg, "max_len_train", 32)
+        min_len = getattr(lang_cfg, "min_train_len", 32)
+        max_len = getattr(lang_cfg, "max_train_len", 32)
         format_mode = getattr(lang_cfg, "format", "trace")
 
         LOGGER.info(f"Generating {dataset_name} data with seed={seed}...")
@@ -324,8 +337,12 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
         format_mode = getattr(arith_cfg, "format", "trace")
 
         # Get depth ranges per split
-        min_train_depth = getattr(arith_cfg, "min_train_depth", getattr(arith_cfg, "min_depth", 1))
-        max_train_depth = getattr(arith_cfg, "max_train_depth", getattr(arith_cfg, "max_depth", 4))
+        min_train_depth = getattr(
+            arith_cfg, "min_train_depth", getattr(arith_cfg, "min_depth", 1)
+        )
+        max_train_depth = getattr(
+            arith_cfg, "max_train_depth", getattr(arith_cfg, "max_depth", 4)
+        )
         min_val_depth = getattr(arith_cfg, "min_val_depth", min_train_depth)
         max_val_depth = getattr(arith_cfg, "max_val_depth", max_train_depth)
         min_test_depth = getattr(arith_cfg, "min_test_depth", min_train_depth)
@@ -347,7 +364,16 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
 
         # Only create length_ranges dict if at least one length parameter is specified
         length_ranges = None
-        if any([min_train_len, max_train_len, min_val_len, max_val_len, min_test_len, max_test_len]):
+        if any(
+            [
+                min_train_len,
+                max_train_len,
+                min_val_len,
+                max_val_len,
+                min_test_len,
+                max_test_len,
+            ]
+        ):
             length_ranges = {
                 "train": (min_train_len or 0, max_train_len or 10000),
                 "validation": (min_val_len or 0, max_val_len or 10000),
@@ -430,16 +456,28 @@ def _get_base_name(dataset_name, config, mode):
         bfvp_cfg = getattr(config.data, "properties", {})
         # Get mode-specific depth ranges
         if mode == "train":
-            min_depth = getattr(bfvp_cfg, "min_train_depth", getattr(bfvp_cfg, "min_depth", 1))
-            max_depth = getattr(bfvp_cfg, "max_train_depth", getattr(bfvp_cfg, "max_depth", 4))
+            min_depth = getattr(
+                bfvp_cfg, "min_train_depth", getattr(bfvp_cfg, "min_depth", 1)
+            )
+            max_depth = getattr(
+                bfvp_cfg, "max_train_depth", getattr(bfvp_cfg, "max_depth", 4)
+            )
         elif mode == "validation":
-            default_min = getattr(bfvp_cfg, "min_train_depth", getattr(bfvp_cfg, "min_depth", 1))
-            default_max = getattr(bfvp_cfg, "max_train_depth", getattr(bfvp_cfg, "max_depth", 4))
+            default_min = getattr(
+                bfvp_cfg, "min_train_depth", getattr(bfvp_cfg, "min_depth", 1)
+            )
+            default_max = getattr(
+                bfvp_cfg, "max_train_depth", getattr(bfvp_cfg, "max_depth", 4)
+            )
             min_depth = getattr(bfvp_cfg, "min_val_depth", default_min)
             max_depth = getattr(bfvp_cfg, "max_val_depth", default_max)
         else:  # test
-            default_min = getattr(bfvp_cfg, "min_train_depth", getattr(bfvp_cfg, "min_depth", 1))
-            default_max = getattr(bfvp_cfg, "max_train_depth", getattr(bfvp_cfg, "max_depth", 4))
+            default_min = getattr(
+                bfvp_cfg, "min_train_depth", getattr(bfvp_cfg, "min_depth", 1)
+            )
+            default_max = getattr(
+                bfvp_cfg, "max_train_depth", getattr(bfvp_cfg, "max_depth", 4)
+            )
             min_depth = getattr(bfvp_cfg, "min_test_depth", default_min)
             max_depth = getattr(bfvp_cfg, "max_test_depth", default_max)
         num_vars = getattr(bfvp_cfg, "num_vars", 2)
@@ -456,16 +494,28 @@ def _get_base_name(dataset_name, config, mode):
         arith_cfg = getattr(config.data, "properties", {})
         # Get mode-specific depth ranges
         if mode == "train":
-            min_depth = getattr(arith_cfg, "min_train_depth", getattr(arith_cfg, "min_depth", 1))
-            max_depth = getattr(arith_cfg, "max_train_depth", getattr(arith_cfg, "max_depth", 4))
+            min_depth = getattr(
+                arith_cfg, "min_train_depth", getattr(arith_cfg, "min_depth", 1)
+            )
+            max_depth = getattr(
+                arith_cfg, "max_train_depth", getattr(arith_cfg, "max_depth", 4)
+            )
         elif mode == "validation":
-            default_min = getattr(arith_cfg, "min_train_depth", getattr(arith_cfg, "min_depth", 1))
-            default_max = getattr(arith_cfg, "max_train_depth", getattr(arith_cfg, "max_depth", 4))
+            default_min = getattr(
+                arith_cfg, "min_train_depth", getattr(arith_cfg, "min_depth", 1)
+            )
+            default_max = getattr(
+                arith_cfg, "max_train_depth", getattr(arith_cfg, "max_depth", 4)
+            )
             min_depth = getattr(arith_cfg, "min_val_depth", default_min)
             max_depth = getattr(arith_cfg, "max_val_depth", default_max)
         else:  # test
-            default_min = getattr(arith_cfg, "min_train_depth", getattr(arith_cfg, "min_depth", 1))
-            default_max = getattr(arith_cfg, "max_train_depth", getattr(arith_cfg, "max_depth", 4))
+            default_min = getattr(
+                arith_cfg, "min_train_depth", getattr(arith_cfg, "min_depth", 1)
+            )
+            default_max = getattr(
+                arith_cfg, "max_train_depth", getattr(arith_cfg, "max_depth", 4)
+            )
             min_depth = getattr(arith_cfg, "min_test_depth", default_min)
             max_depth = getattr(arith_cfg, "max_test_depth", default_max)
         min_val = getattr(arith_cfg, "min_val", 0)
