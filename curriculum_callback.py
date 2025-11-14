@@ -384,15 +384,36 @@ class CurriculumLearningCallback(Callback):
             LOGGER.info("=" * 80)
             LOGGER.info("")
 
+        # Check if we've completed all curriculum bins
+        if (
+            self.epochs_in_current_bin >= self.epochs_per_bin
+            and self.current_bin == self.num_bins - 1
+        ):
+            # Switch to full dataset after completing all curriculum bins
+            LOGGER.info("")
+            LOGGER.info("=" * 80)
+            LOGGER.info("🎓 CURRICULUM COMPLETED: Switching to FULL dataset")
+            LOGGER.info(f"   Trained through all {self.num_bins} bins")
+            LOGGER.info("   Now training on ALL lengths until max_steps or early stopping")
+            LOGGER.info("=" * 80)
+            LOGGER.info("")
+
+            # Restore original dataloader (no filtering)
+            if callable(self.original_train_dataloader):
+                self.pl_module.train_dataloader = self.original_train_dataloader
+            self.epochs_in_current_bin += 1
+            return  # Skip filtering - use full dataset from now on
+
         # Get current bin boundaries
         min_len, max_len = self.bin_boundaries[self.current_bin]
 
         if not bin_changed:
-            # For the last bin, show "until max_steps" instead of epoch count
+            # For the last bin, show progress toward completing curriculum
             if self.current_bin == self.num_bins - 1:
                 LOGGER.info(
                     f"Epoch {trainer.current_epoch}: Training on length range [{min_len}, {max_len}] "
-                    f"(bin {self.current_bin + 1}/{self.num_bins}, final bin - training until max_steps)"
+                    f"(bin {self.current_bin + 1}/{self.num_bins}, epoch {self.epochs_in_current_bin + 1}/{self.epochs_per_bin} - "
+                    f"then switching to full dataset)"
                 )
             else:
                 LOGGER.info(

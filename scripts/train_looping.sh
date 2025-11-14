@@ -28,6 +28,12 @@ if [ -n "$OUTPUT_DIR" ]; then
   HYDRA_ARGS="hydra.run.dir=$OUTPUT_DIR"
 fi
 
+# Add seed if specified
+SEED_ARG=""
+if [ -n "$SEED" ]; then
+  SEED_ARG="seed=$SEED"
+fi
+
 srun python -u -m main \
   wandb.name="$LANGUAGE-looping-$(date +%Y%m%d-%H%M%S)" \
   data=$DATA_CLASS \
@@ -37,4 +43,5 @@ srun python -u -m main \
   algo.looping_type=log \
   model.length=$MODEL_LENGTH \
   data.properties.format=final_value \
+  $SEED_ARG \
   $HYDRA_ARGS 

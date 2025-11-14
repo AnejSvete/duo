@@ -164,6 +164,17 @@ class ReduceLROnPlateauCallback(lightning.Callback):
                                 f"due to {self.monitor} plateau (patience={self.patience})"
                             )
 
+            # CRITICAL FIX: Also update base_lr in LR schedulers to prevent them from overwriting the reduction
+            # LambdaLR and similar schedulers compute lr = base_lr * lambda(step), so we must update base_lr
+            for scheduler_config in trainer.lr_scheduler_configs:
+                scheduler = scheduler_config.scheduler
+                # Update base_lrs for LambdaLR and similar schedulers
+                if hasattr(scheduler, 'base_lrs'):
+                    for i, base_lr in enumerate(scheduler.base_lrs):
+                        new_base_lr = max(base_lr * self.factor, self.min_lr)
+                        if new_base_lr < base_lr:
+                            scheduler.base_lrs[i] = new_base_lr
+
             self.wait = 0
             self.cooldown_counter = self.cooldown
 

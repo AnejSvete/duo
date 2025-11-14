@@ -14,17 +14,37 @@
 
 set -e
 
+# Default seed (empty means use default from config)
+SEED=""
+
+# Parse optional --seed flag
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --seed)
+            SEED="$2"
+            shift 2
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
 if [ $# -lt 2 ]; then
     cat <<EOF
-Usage: $0 EXPERIMENT_NAME LANGUAGE1 [LANGUAGE2 ...]
+Usage: $0 [--seed SEED] EXPERIMENT_NAME LANGUAGE1 [LANGUAGE2 ...]
 
 Smart launcher that:
   1. Prepares all data formats first (parallel)
   2. Launches training jobs with dependencies
 
+Options:
+  --seed SEED    Set random seed for training (optional)
+
 Examples:
   $0 test bfvp
   $0 full_study bfvp parity arithmetic
+  $0 --seed 42 reproducible_exp bfvp parity
 
 This launches all algorithm variants for each language.
 
@@ -72,6 +92,7 @@ cat > "$EXPERIMENT_DIR/config.txt" <<EOF
 Experiment: $EXPERIMENT_NAME
 Launched: $(date)
 Languages: ${LANGUAGES[*]}
+Seed: ${SEED:-"default (from config)"}
 Pipeline: Data Prep → Training (with dependencies)
 EOF
 
@@ -163,11 +184,17 @@ for lang in "${LANGUAGES[@]}"; do
         # Output to scratch (has space), not home
         OUTPUT_DIR="${SCRATCH_DIR}/${EXPERIMENT_NAME}/${lang}/${algo}"
 
+        # Build export list with optional seed
+        EXPORT_VARS="ALL,OUTPUT_DIR=$OUTPUT_DIR,LANGUAGE=$lang,MODEL_LENGTH=$length"
+        if [ -n "$SEED" ]; then
+            EXPORT_VARS="${EXPORT_VARS},SEED=$SEED"
+        fi
+
         # Submit with dependency on specific data prep job
         JOB_ID=$(sbatch \
             --job-name="${EXPERIMENT_NAME}-${lang}-${algo}" \
             --dependency=afterok:$dep_job \
-            --export=ALL,OUTPUT_DIR=$OUTPUT_DIR,LANGUAGE=$lang,MODEL_LENGTH=$length \
+            --export=$EXPORT_VARS \
             scripts/$script | grep -oP '\d+$')
 
         TRAINING_JOBS+=($JOB_ID)

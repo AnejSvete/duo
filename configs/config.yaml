@@ -44,7 +44,7 @@ training:
 curriculum:
   enabled: true  # Enable curriculum learning
   num_bins: 8  # Number of length bins to divide training into
-  epochs_per_bin: 2  # Number of epochs to train on each length bin
+  epochs_per_bin: 4  # Number of epochs to train on each length bin
   overlap: 0.2  # Overlap ratio between consecutive bins (0-1)
 
 eval:

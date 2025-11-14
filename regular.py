@@ -398,8 +398,7 @@ FSA_CREATORS = {
 def make_all_splits_fsa(
     fsa: FiniteStateAutomaton,
     monoid_details: dict,
-    min_len: int,
-    max_len: int,
+    length_ranges: Dict[str, Tuple[int, int]],
     mode: str,
     seed: int,
     split_sizes: Dict[str, int],
@@ -408,6 +407,8 @@ def make_all_splits_fsa(
     Generates ALL splits (train/validation/test) in a single pass with disjoint examples.
 
     Args:
+        length_ranges: Dictionary with keys "train", "validation", "test" and values
+                      as tuples (min_len, max_len) for each split.
         split_sizes: Dictionary with keys "train", "validation", "test" and values
                      as the number of examples needed for each split.
 
@@ -432,7 +433,31 @@ def make_all_splits_fsa(
     while sum(counts.values()) < total_needed and attempts < max_attempts:
         attempts += 1
 
-        # Generate a candidate example
+        # First decide which split to target based on remaining needs
+        remaining = {
+            s: max(0, split_sizes[s] - counts[s])
+            for s in ["train", "validation", "test"]
+        }
+        total_remaining = sum(remaining.values())
+
+        if total_remaining == 0:
+            break
+
+        # Probabilistically select a target split based on remaining needs
+        p = random.random()
+        cumulative = 0.0
+        target_split = None
+        for s in ["train", "validation", "test"]:
+            cumulative += remaining[s] / total_remaining
+            if p < cumulative:
+                target_split = s
+                break
+
+        if target_split is None:
+            target_split = "test"  # Fallback
+
+        # Generate a candidate example using the target split's length range
+        min_len, max_len = length_ranges[target_split]
         length = random.randint(min_len, max_len)
         input_string = "".join(random.choices(fsa.alphabet, k=length))
 
@@ -442,38 +467,15 @@ def make_all_splits_fsa(
 
         # Check if we've seen this example before
         if text in assignment:
-            # Already assigned to a split - add to that same split (allows duplicates within splits)
-            target_split = assignment[text]
+            # Already assigned to a split - skip to avoid cross-contamination
+            continue
         else:
-            # New example - calculate which split to assign it to
-            remaining = {
-                s: max(0, split_sizes[s] - counts[s])
-                for s in ["train", "validation", "test"]
-            }
-            total_remaining = sum(remaining.values())
-
-            if total_remaining == 0:
-                break
-
-            # Probabilistically assign to a split based on remaining needs
-            p = random.random()
-            cumulative = 0.0
-            target_split = None
-            for s in ["train", "validation", "test"]:
-                cumulative += remaining[s] / total_remaining
-                if p < cumulative:
-                    target_split = s
-                    break
-
-            if target_split is None:
-                target_split = "test"  # Fallback
-
-            # Record this assignment
+            # New example - assign it to the target split
             assignment[text] = target_split
 
-        # Add to the target split (allows duplicates within each split)
-        split_pools[target_split].append({"text": text})
-        counts[target_split] += 1
+            # Add to the target split
+            split_pools[target_split].append({"text": text})
+            counts[target_split] += 1
 
     # Shuffle each pool
     for pool in split_pools.values():

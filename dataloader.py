@@ -305,11 +305,30 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
 
     elif dataset_name in FSA_CREATORS:
         lang_cfg = getattr(config.data, "properties", {})
-        min_len = getattr(lang_cfg, "min_train_len", 32)
-        max_len = getattr(lang_cfg, "max_train_len", 32)
         format_mode = getattr(lang_cfg, "format", "trace")
 
-        LOGGER.info(f"Generating {dataset_name} data with seed={seed}...")
+        # Get length ranges per split
+        min_train_len = getattr(lang_cfg, "min_train_len", 32)
+        max_train_len = getattr(lang_cfg, "max_train_len", 32)
+        min_val_len = getattr(lang_cfg, "min_val_len", min_train_len)
+        max_val_len = getattr(lang_cfg, "max_val_len", max_train_len)
+        min_test_len = getattr(lang_cfg, "min_test_len", min_train_len)
+        max_test_len = getattr(lang_cfg, "max_test_len", max_train_len)
+
+        length_ranges = {
+            "train": (min_train_len, max_train_len),
+            "validation": (min_val_len, max_val_len),
+            "test": (min_test_len, max_test_len),
+        }
+
+        LOGGER.info(
+            f"Generating {dataset_name} data with: "
+            f"train_len=[{min_train_len},{max_train_len}], "
+            f"val_len=[{min_val_len},{max_val_len}], "
+            f"test_len=[{min_test_len},{max_test_len}], "
+            f"format={format_mode}, seed={seed}"
+        )
+
         fsa = FSA_CREATORS[dataset_name]()
         symbol_map, mult_table, identity_id, _, _ = fsa.compute_syntactic_monoid()
         monoid_details = {
@@ -323,8 +342,7 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
         split_pools = make_all_splits_fsa(
             fsa=fsa,
             monoid_details=monoid_details,
-            min_len=min_len,
-            max_len=max_len,
+            length_ranges=length_ranges,
             mode=format_mode,
             seed=seed,
             split_sizes=split_sizes,
@@ -485,9 +503,14 @@ def _get_base_name(dataset_name, config, mode):
         return f"{dataset_name}_mind{min_depth}_maxd{max_depth}_nv{num_vars}_f-{format_str}"
     elif dataset_name in FSA_CREATORS:
         lang_cfg = getattr(config.data, "properties", {})
-        min_len, max_len = getattr(lang_cfg, f"min_{mode}_len", 32), getattr(
-            lang_cfg, f"max_{mode}_len", 32
-        )
+        # Get default training lengths first
+        default_min = getattr(lang_cfg, "min_train_len", 32)
+        default_max = getattr(lang_cfg, "max_train_len", 32)
+
+        # Get mode-specific lengths with fallback to training defaults
+        min_len = getattr(lang_cfg, f"min_{mode}_len", default_min)
+        max_len = getattr(lang_cfg, f"max_{mode}_len", default_max)
+
         format_str = getattr(lang_cfg, "format", "trace").replace("_", "-")
         return f"{dataset_name}_minl{min_len}_maxl{max_len}_f-{format_str}"
     elif dataset_name in ARITHMETIC_CREATORS:
