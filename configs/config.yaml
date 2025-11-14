@@ -70,7 +70,7 @@ trainer:
   num_nodes: 1
   devices: ${device_count:}
   accumulate_grad_batches: ${eval:"-(-${loader.global_batch_size} // (max(1, ${trainer.devices}) * ${loader.batch_size} * ${trainer.num_nodes}))"}
-  gradient_clip_val: 1.0
+  gradient_clip_val: 10.0
   num_sanity_val_steps: 2
   max_steps: 5000
   log_every_n_steps: 10

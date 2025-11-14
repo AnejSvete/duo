@@ -433,12 +433,19 @@ class TrainerBase(L.LightningModule):
         # Compute sequence lengths from raw text (without special tokens)
         # This matches the length ranges in config files
         if 'text' in batch:
-            # Compute lengths from raw text by splitting on whitespace
-            seq_lengths = torch.tensor(
-                [len(text.strip().split()) for text in batch['text']],
-                dtype=torch.long,
-                device=targets.device
-            )
+            # For formal language tasks, measure length of INPUT part (before '#')
+            # not the full sequence which may include traces/intermediate steps
+            lengths_list = []
+            for text in batch['text']:
+                if '#' in text:
+                    # Use only the input part before the separator
+                    input_part = text.split('#')[0].strip()
+                    lengths_list.append(len(input_part.split()))
+                else:
+                    # No separator, use full text
+                    lengths_list.append(len(text.strip().split()))
+
+            seq_lengths = torch.tensor(lengths_list, dtype=torch.long, device=targets.device)
         else:
             # Fallback: count non-padding tokens in targets (includes BOS/EOS)
             # Subtract 2 to approximate raw length
@@ -833,12 +840,19 @@ class TrainerBase(L.LightningModule):
         # Compute sequence lengths from raw text (without special tokens)
         # This matches the length ranges in config files
         if 'text' in batch:
-            # Compute lengths from raw text by splitting on whitespace
-            seq_lengths = torch.tensor(
-                [len(text.strip().split()) for text in batch['text']],
-                dtype=torch.long,
-                device=targets.device
-            )
+            # For formal language tasks, measure length of INPUT part (before '#')
+            # not the full sequence which may include traces/intermediate steps
+            lengths_list = []
+            for text in batch['text']:
+                if '#' in text:
+                    # Use only the input part before the separator
+                    input_part = text.split('#')[0].strip()
+                    lengths_list.append(len(input_part.split()))
+                else:
+                    # No separator, use full text
+                    lengths_list.append(len(text.strip().split()))
+
+            seq_lengths = torch.tensor(lengths_list, dtype=torch.long, device=targets.device)
         else:
             # Fallback: count non-padding tokens in targets (includes BOS/EOS)
             # Subtract 2 to approximate raw length

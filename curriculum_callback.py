@@ -224,8 +224,18 @@ class CurriculumLearningCallback(Callback):
             LOGGER.info(f"Dataset example keys: {list(first_example.keys())}")
             if 'text' in first_example:
                 sample_text = first_example['text']
-                sample_len = len(sample_text.strip().split())
-                LOGGER.info(f"Sample text: '{sample_text[:100]}...' (raw length: {sample_len})")
+                full_len = len(sample_text.strip().split())
+
+                # Also compute input length (before '#')
+                if '#' in sample_text:
+                    input_part = sample_text.split('#')[0].strip()
+                    input_len = len(input_part.split())
+                    LOGGER.info(
+                        f"Sample text: '{sample_text[:100]}...' "
+                        f"(full length: {full_len}, input length: {input_len})"
+                    )
+                else:
+                    LOGGER.info(f"Sample text: '{sample_text[:100]}...' (length: {full_len})")
 
         for idx in range(len(dataset)):
             example = dataset[idx]
@@ -233,10 +243,18 @@ class CurriculumLearningCallback(Callback):
             # Calculate sequence length from the raw text (without special tokens)
             # This matches the length ranges in config files which are based on raw text
             if 'text' in example:
-                # Tokenize the raw text without special tokens to get true length
                 text = example['text']
-                # Tokenize by splitting on whitespace (same as _tokenize method)
-                raw_tokens = text.strip().split()
+
+                # For formal language tasks, the length should be based on the INPUT part
+                # (before the '#' separator), not the full sequence with traces
+                if '#' in text:
+                    # Split on '#' and use only the input part
+                    input_part = text.split('#')[0].strip()
+                    raw_tokens = input_part.split()
+                else:
+                    # No separator, use full text
+                    raw_tokens = text.strip().split()
+
                 seq_len = len(raw_tokens)
             elif 'attention_mask' in example:
                 # Fallback: count non-padding tokens (includes BOS/EOS if present)
