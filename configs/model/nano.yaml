@@ -3,7 +3,7 @@ hidden_size: 64
 cond_dim: 64
 length: 256
 n_blocks: 2
-n_heads: 4
+n_heads: 2
 scale_by_sigma: True
 dropout: 0.1
 tie_word_embeddings: False
