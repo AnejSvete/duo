@@ -108,8 +108,10 @@ Key parameters:
 - `curriculum.num_bins`: Number of length bins (default: 4)
 - `curriculum.epochs_per_bin`: Epochs per bin (default: 5)
 - `curriculum.overlap`: Overlap ratio between bins 0-1 (default: 0.2)
-
-See [CURRICULUM_LEARNING.md](CURRICULUM_LEARNING.md) for details.
+- `curriculum.min_examples_per_bin`: Minimum examples per bin (default: 512)
+  - Bins with fewer examples are automatically skipped
+- `curriculum.min_batches_per_epoch`: Minimum batches per epoch (default: 100)
+  - If a bin has too few batches (but enough examples), the range is automatically expanded
 
 ### Analysis
 

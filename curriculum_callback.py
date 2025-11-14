@@ -32,6 +32,12 @@ class CurriculumLearningCallback(Callback):
         overlap: Overlap ratio between consecutive bins (0-1)
         min_train_len: Minimum training sequence length
         max_train_len: Maximum training sequence length
+        use_quantiles: Use data-driven quantile bins instead of uniform length bins
+        sample_size: Number of examples to sample when estimating length distribution
+        sample_strategy: Sampling strategy ('linspace' or 'random')
+        exact_percentiles: Use exact full-dataset scan for percentile computation
+        min_batches_per_epoch: Minimum batches required per epoch (auto-expands range if needed)
+        min_examples_per_bin: Minimum examples required per bin (bins with fewer are skipped)
     """
 
     def __init__(
@@ -46,6 +52,8 @@ class CurriculumLearningCallback(Callback):
         sample_size: int = 1000,
         sample_strategy: str = "linspace",
         exact_percentiles: bool = True,
+        min_batches_per_epoch: int = 100,
+        min_examples_per_bin: int = 512,
     ):
         super().__init__()
         self.enabled = enabled
@@ -77,6 +85,10 @@ class CurriculumLearningCallback(Callback):
         self.sample_size = sample_size
         # Sampling strategy for selecting indices: 'linspace' or 'random'
         self.sample_strategy = sample_strategy
+        # Minimum number of batches required per epoch (to avoid training instability)
+        self.min_batches_per_epoch = min_batches_per_epoch
+        # Minimum number of examples required per bin (bins with fewer are skipped)
+        self.min_examples_per_bin = min_examples_per_bin
 
         self.current_bin = 0
         self.epochs_in_current_bin = 0
@@ -523,6 +535,99 @@ class CurriculumLearningCallback(Callback):
             f"Filtered dataset: {len(filtered_indices)}/{len(dataset)} examples "
             f"in length range [{min_len}, {max_len}]"
         )
+
+        # Check if bin has minimum required examples
+        if len(filtered_indices) < self.min_examples_per_bin:
+            LOGGER.warning("")
+            LOGGER.warning("=" * 80)
+            LOGGER.warning(f"⚠️  INSUFFICIENT EXAMPLES FOR CURRICULUM BIN - SKIPPING")
+            LOGGER.warning(f"   Length range [{min_len}, {max_len}] has only {len(filtered_indices)} examples")
+            LOGGER.warning(f"   Minimum required: {self.min_examples_per_bin} examples")
+            LOGGER.warning(f"   ")
+            LOGGER.warning(f"   ACTION: Skipping this bin and advancing to the next one")
+            LOGGER.warning("=" * 80)
+            LOGGER.warning("")
+
+            # Skip this bin by advancing immediately
+            if self.current_bin < self.num_bins - 1:
+                self.current_bin += 1
+                self.epochs_in_current_bin = 0
+                LOGGER.info(f"Advanced to bin {self.current_bin + 1}/{self.num_bins}")
+                # Recursively apply filter with new bin
+                min_len, max_len = self.bin_boundaries[self.current_bin]
+                self._apply_length_filter(trainer, min_len, max_len)
+            else:
+                # Already at last bin, switch to full dataset
+                LOGGER.info("No more bins available, switching to full dataset")
+                if callable(self.original_train_dataloader):
+                    self.pl_module.train_dataloader = self.original_train_dataloader
+            return
+
+        # Check if we have enough examples for stable training (batches per epoch)
+        if len(filtered_indices) > 0:
+            batch_size = train_dataloader.batch_size
+            estimated_batches = len(filtered_indices) // batch_size
+
+            if estimated_batches < self.min_batches_per_epoch:
+                LOGGER.warning("")
+                LOGGER.warning("=" * 80)
+                LOGGER.warning(f"⚠️  INSUFFICIENT DATA FOR CURRICULUM BIN")
+                LOGGER.warning(f"   Length range [{min_len}, {max_len}] has only {len(filtered_indices)} examples")
+                LOGGER.warning(f"   This gives ~{estimated_batches} batches (batch_size={batch_size})")
+                LOGGER.warning(f"   Minimum required: {self.min_batches_per_epoch} batches")
+                LOGGER.warning(f"   ")
+                LOGGER.warning(f"   SOLUTION: Expanding range to gather more examples...")
+
+                # Expand the range until we have enough examples
+                expansion_step = max(1, (max_len - min_len) // 4)  # Expand by 25% increments
+                expanded_min = min_len
+                expanded_max = max_len
+
+                while estimated_batches < self.min_batches_per_epoch:
+                    # Try expanding down first
+                    if expanded_min > self.min_train_len:
+                        expanded_min = max(self.min_train_len, expanded_min - expansion_step)
+
+                    # Then expanding up
+                    if estimated_batches < self.min_batches_per_epoch and expanded_max < self.max_train_len:
+                        expanded_max = min(self.max_train_len, expanded_max + expansion_step)
+
+                    # Recount with expanded range
+                    filtered_indices = []
+                    for idx in range(len(dataset)):
+                        example = dataset[idx]
+                        if "text" in example:
+                            text = example["text"]
+                            if "#" in text:
+                                input_part = text.split("#")[0].strip()
+                                seq_len = len(input_part.split())
+                            else:
+                                seq_len = len(text.strip().split())
+                        elif "attention_mask" in example:
+                            seq_len = example["attention_mask"].sum().item() - 2
+                        elif "input_ids" in example:
+                            input_ids = example["input_ids"]
+                            seq_len = (input_ids != self.tokenizer.pad_token_id).sum().item() - 2
+                        else:
+                            continue
+
+                        if expanded_min <= seq_len <= expanded_max:
+                            filtered_indices.append(idx)
+
+                    estimated_batches = len(filtered_indices) // batch_size
+
+                    # Safety: if we've expanded to full range and still don't have enough, break
+                    if expanded_min <= self.min_train_len and expanded_max >= self.max_train_len:
+                        break
+
+                LOGGER.warning(f"   Expanded to range [{expanded_min}, {expanded_max}]")
+                LOGGER.warning(f"   New dataset size: {len(filtered_indices)} examples (~{estimated_batches} batches)")
+                LOGGER.warning("=" * 80)
+                LOGGER.warning("")
+
+                # Update the range for logging
+                min_len = expanded_min
+                max_len = expanded_max
 
         # Create a subset of the dataset
         if len(filtered_indices) > 0:

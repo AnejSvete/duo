@@ -159,10 +159,23 @@ class AutoRecoveryCallback(Callback):
             if self.reset_optimizer:
                 if self.verbose:
                     print("Resetting optimizer state...")
-                # Optimizer state will be reset by Lightning when we reload
-                # Just clear the current state
-                for optimizer in trainer.optimizers:
-                    optimizer.state = {}
+                # After loading state_dict, model parameters are new objects
+                # We need to recreate the optimizers with the new parameters
+                # This is the proper way to reset optimizer state
+
+                # Get new optimizer configuration from the module
+                optimizer_config = pl_module.configure_optimizers()
+
+                # Replace trainer's optimizers with fresh ones
+                # configure_optimizers() returns ([optimizer], [scheduler_dict])
+                if isinstance(optimizer_config, (list, tuple)) and len(optimizer_config) == 2:
+                    optimizers, schedulers = optimizer_config
+                    trainer.optimizers = optimizers
+                    if schedulers:
+                        trainer.lr_scheduler_configs = schedulers
+                else:
+                    # Fallback for other return types
+                    trainer.optimizers = [optimizer_config] if not isinstance(optimizer_config, list) else optimizer_config
             else:
                 # Restore optimizer state
                 if 'optimizer_states' in checkpoint:
