@@ -36,6 +36,7 @@ class LogLinear(torch.nn.Module):
 
     Note: This returns dalpha/dt, not just the coefficient.
     """
+
     def __init__(self, eps=1e-3):
         super().__init__()
         self.eps = eps
@@ -61,6 +62,7 @@ class Cosine(torch.nn.Module):
 
     Provides smoother transitions and better performance on many tasks.
     """
+
     def __init__(self, eps=1e-3):
         super().__init__()
         self.eps = eps
@@ -91,6 +93,7 @@ class Linear(torch.nn.Module):
 
     This is the schedule used in the original DDPM paper.
     """
+
     def __init__(self, beta_min=0.1, beta_max=20.0, eps=1e-3):
         super().__init__()
         self.beta_min = beta_min
@@ -109,7 +112,9 @@ class Linear(torch.nn.Module):
         # beta(t) = beta_min + t * (beta_max - beta_min)
         beta_t = self.beta_min + t * (self.beta_max - self.beta_min)
         # alpha(t) = exp(-0.5 * (beta_min * t + 0.5 * (beta_max - beta_min) * t^2))
-        log_alpha_t = -0.5 * (self.beta_min * t + 0.5 * (self.beta_max - self.beta_min) * t ** 2)
+        log_alpha_t = -0.5 * (
+            self.beta_min * t + 0.5 * (self.beta_max - self.beta_min) * t**2
+        )
         alpha_t = torch.exp(log_alpha_t)
         # dalpha/dt = alpha(t) * d(log_alpha)/dt
         #           = alpha(t) * (-0.5 * (beta_min + (beta_max - beta_min) * t))
@@ -126,6 +131,7 @@ class Polynomial(torch.nn.Module):
     - power = 1: Linear (same as LogLinear)
     - power > 1: Less noise early, fast at end
     """
+
     def __init__(self, power=2.0, eps=1e-3):
         super().__init__()
         self.power = power
@@ -141,7 +147,7 @@ class Polynomial(torch.nn.Module):
         """
         t = (1 - self.eps) * t + self.eps
         # alpha(t) = 1 - t^power
-        alpha_t = 1 - t ** self.power
+        alpha_t = 1 - t**self.power
         # dalpha/dt = -power * t^(power-1)
         dalpha_t = -(1 - self.eps) * self.power * t ** (self.power - 1)
         return dalpha_t, alpha_t
@@ -154,6 +160,7 @@ class Sigmoid(torch.nn.Module):
     Provides smooth transitions with adjustable steepness.
     Can concentrate the diffusion process in a specific time region.
     """
+
     def __init__(self, scale=6.0, shift=3.0, eps=1e-3):
         super().__init__()
         self.scale = scale
@@ -188,6 +195,7 @@ class SquaredCosine(torch.nn.Module):
 
     The offset s controls how quickly alpha decays. Common value: s = 0.008
     """
+
     def __init__(self, s=0.008, eps=1e-3):
         super().__init__()
         self.s = s
@@ -210,8 +218,8 @@ class SquaredCosine(torch.nn.Module):
         #           = -2 * cos(arg) * sin(arg) * (pi/2) / (1 + s)
         #           = -(pi / (1 + s)) * sin(2 * arg) / 2
         #           = -(pi / (2 * (1 + s))) * sin(pi * (t + s) / (1 + s))
-        dalpha_t = -(1 - self.eps) * (torch.pi / (2 * (1 + self.s))) * torch.sin(
-            2 * arg
+        dalpha_t = (
+            -(1 - self.eps) * (torch.pi / (2 * (1 + self.s))) * torch.sin(2 * arg)
         )
         return dalpha_t, alpha_t
 
@@ -258,26 +266,42 @@ class TrainerBase(L.LightningModule):
         self.p_nucleus = self.config.sampling.p_nucleus
 
         # Noise Schedule - select based on config
-        noise_type = self.config.noise.type if hasattr(self.config, 'noise') else 'log-linear'
-        noise_eps = self.config.noise.eps if hasattr(self.config.noise, 'eps') else 1e-3
+        noise_type = (
+            self.config.noise.type if hasattr(self.config, "noise") else "log-linear"
+        )
+        noise_eps = self.config.noise.eps if hasattr(self.config.noise, "eps") else 1e-3
 
-        if noise_type == 'log-linear':
+        if noise_type == "log-linear":
             self.noise = LogLinear(eps=noise_eps)
-        elif noise_type == 'cosine':
+        elif noise_type == "cosine":
             self.noise = Cosine(eps=noise_eps)
-        elif noise_type == 'linear':
-            beta_min = self.config.noise.beta_min if hasattr(self.config.noise, 'beta_min') else 0.1
-            beta_max = self.config.noise.beta_max if hasattr(self.config.noise, 'beta_max') else 20.0
+        elif noise_type == "linear":
+            beta_min = (
+                self.config.noise.beta_min
+                if hasattr(self.config.noise, "beta_min")
+                else 0.1
+            )
+            beta_max = (
+                self.config.noise.beta_max
+                if hasattr(self.config.noise, "beta_max")
+                else 20.0
+            )
             self.noise = Linear(beta_min=beta_min, beta_max=beta_max, eps=noise_eps)
-        elif noise_type == 'polynomial':
-            power = self.config.noise.power if hasattr(self.config.noise, 'power') else 2.0
+        elif noise_type == "polynomial":
+            power = (
+                self.config.noise.power if hasattr(self.config.noise, "power") else 2.0
+            )
             self.noise = Polynomial(power=power, eps=noise_eps)
-        elif noise_type == 'sigmoid':
-            scale = self.config.noise.scale if hasattr(self.config.noise, 'scale') else 6.0
-            shift = self.config.noise.shift if hasattr(self.config.noise, 'shift') else 3.0
+        elif noise_type == "sigmoid":
+            scale = (
+                self.config.noise.scale if hasattr(self.config.noise, "scale") else 6.0
+            )
+            shift = (
+                self.config.noise.shift if hasattr(self.config.noise, "shift") else 3.0
+            )
             self.noise = Sigmoid(scale=scale, shift=shift, eps=noise_eps)
-        elif noise_type == 'squared-cosine':
-            s = self.config.noise.s if hasattr(self.config.noise, 's') else 0.008
+        elif noise_type == "squared-cosine":
+            s = self.config.noise.s if hasattr(self.config.noise, "s") else 0.008
             self.noise = SquaredCosine(s=s, eps=noise_eps)
         else:
             raise ValueError(f"Unknown noise schedule type: {noise_type}")
@@ -337,7 +361,7 @@ class TrainerBase(L.LightningModule):
                 if p.grad is not None:
                     param_norm = p.grad.data.norm(2)
                     total_norm += param_norm.item() ** 2
-            total_norm = total_norm ** 0.5
+            total_norm = total_norm**0.5
 
             self.log(
                 "trainer/grad_norm",
@@ -432,20 +456,22 @@ class TrainerBase(L.LightningModule):
 
         # Compute sequence lengths from raw text (without special tokens)
         # This matches the length ranges in config files
-        if 'text' in batch:
+        if "text" in batch:
             # For formal language tasks, measure length of INPUT part (before '#')
             # not the full sequence which may include traces/intermediate steps
             lengths_list = []
-            for text in batch['text']:
-                if '#' in text:
+            for text in batch["text"]:
+                if "#" in text:
                     # Use only the input part before the separator
-                    input_part = text.split('#')[0].strip()
+                    input_part = text.split("#")[0].strip()
                     lengths_list.append(len(input_part.split()))
                 else:
                     # No separator, use full text
                     lengths_list.append(len(text.strip().split()))
 
-            seq_lengths = torch.tensor(lengths_list, dtype=torch.long, device=targets.device)
+            seq_lengths = torch.tensor(
+                lengths_list, dtype=torch.long, device=targets.device
+            )
         else:
             # Fallback: count non-padding tokens in targets (includes BOS/EOS)
             # Subtract 2 to approximate raw length
@@ -467,19 +493,21 @@ class TrainerBase(L.LightningModule):
             )
 
             # Also get per-sample metrics for length stratification
-            acc_exact_per_sample, acc_token_per_sample, correct_prediction_per_sample = self._compute_accuracy_per_sample(
-                generated, targets
-            )
+            (
+                acc_exact_per_sample,
+                acc_token_per_sample,
+                correct_prediction_per_sample,
+            ) = self._compute_accuracy_per_sample(generated, targets)
 
             # Update length-stratified metrics
             self.val_length_metrics.update(
                 mode=display_mode,
                 lengths=seq_lengths,
                 per_sample_metrics={
-                    'acc_exact': acc_exact_per_sample,
-                    'acc_token': acc_token_per_sample,
-                    'correct_prediction': correct_prediction_per_sample,
-                }
+                    "acc_exact": acc_exact_per_sample,
+                    "acc_token": acc_token_per_sample,
+                    "correct_prediction": correct_prediction_per_sample,
+                },
             )
 
             self.log(
@@ -504,12 +532,12 @@ class TrainerBase(L.LightningModule):
                 sync_dist=True,
             )
 
-            # Also log top_k_half as default for fair comparison with other models
-            # top_k with half_remaining is the canonical default for MDLM
-            if gen_mode == "top_k" and suffix == "_half" and self.config.algo.name == "mdlm":
-                self.log("val/default_acc_exact", acc_exact, on_step=False, on_epoch=True, sync_dist=True)
-                self.log("val/default_acc_token", acc_token, on_step=False, on_epoch=True, sync_dist=True)
-                self.log("val/default_correct_prediction", correct_prediction, on_step=False, on_epoch=True, sync_dist=True)
+            # # Also log top_k_half as default for fair comparison with other models
+            # # top_k with half_remaining is the canonical default for MDLM
+            # if gen_mode == "top_k" and suffix == "_half" and self.config.algo.name == "mdlm":
+            #     self.log("val/default_acc_exact", acc_exact, on_step=False, on_epoch=True, sync_dist=True)
+            #     self.log("val/default_acc_token", acc_token, on_step=False, on_epoch=True, sync_dist=True)
+            #     self.log("val/default_correct_prediction", correct_prediction, on_step=False, on_epoch=True, sync_dist=True)
 
             # Log primary accuracy metric for default configurations only
             # For MDLM: top_k_half (top_k with half_remaining)
@@ -636,22 +664,30 @@ class TrainerBase(L.LightningModule):
         acc_exact_per_sample = is_correct_or_ignored.all(dim=1).float()  # (batch_size,)
 
         # 2. Token-level Accuracy per sample
-        num_correct_per_sample = ((generated == targets) & target_mask).sum(dim=1).float()
+        num_correct_per_sample = (
+            ((generated == targets) & target_mask).sum(dim=1).float()
+        )
         num_target_per_sample = target_mask.sum(dim=1).float()
         # Avoid division by zero
         acc_token_per_sample = torch.where(
             num_target_per_sample > 0,
             num_correct_per_sample / num_target_per_sample,
-            torch.zeros_like(num_correct_per_sample)
+            torch.zeros_like(num_correct_per_sample),
         )
 
         # 3. Last Prompt Token Accuracy per sample
         last_prompt_indices = target_mask.float().cumsum(dim=1).argmax(dim=1)
         last_prompt_indices = torch.clamp(last_prompt_indices, 0, targets.shape[1] - 1)
         has_prompt = target_mask.any(dim=1)
-        last_prompt_targets = targets[torch.arange(targets.shape[0]), last_prompt_indices]
-        last_prompt_preds = generated[torch.arange(generated.shape[0]), last_prompt_indices]
-        correct_prediction_per_sample = ((last_prompt_preds == last_prompt_targets) & has_prompt).float()
+        last_prompt_targets = targets[
+            torch.arange(targets.shape[0]), last_prompt_indices
+        ]
+        last_prompt_preds = generated[
+            torch.arange(generated.shape[0]), last_prompt_indices
+        ]
+        correct_prediction_per_sample = (
+            (last_prompt_preds == last_prompt_targets) & has_prompt
+        ).float()
 
         return acc_exact_per_sample, acc_token_per_sample, correct_prediction_per_sample
 
@@ -685,7 +721,9 @@ class TrainerBase(L.LightningModule):
         else:
             return [("default", "half_remaining", "")]
 
-    def generate_conditioned(self, prompts, targets=None, mode="random", top_k_fn="half_remaining"):
+    def generate_conditioned(
+        self, prompts, targets=None, mode="random", top_k_fn="half_remaining"
+    ):
         """
         Generate completions conditioned on prompts.
 
@@ -721,7 +759,7 @@ class TrainerBase(L.LightningModule):
                 value=metric_value,
                 on_step=False,
                 on_epoch=True,
-                sync_dist=True
+                sync_dist=True,
             )
 
         # Save validation metrics to file
@@ -736,9 +774,12 @@ class TrainerBase(L.LightningModule):
 
         # Also save all logged metrics (including decoding strategy metrics)
         # Get all callback metrics that were logged this epoch
-        if hasattr(self.trainer, 'callback_metrics'):
+        if hasattr(self.trainer, "callback_metrics"):
             for metric_name, metric_value in self.trainer.callback_metrics.items():
-                if metric_name not in current_metrics and metric_name not in ["epoch", "global_step"]:
+                if metric_name not in current_metrics and metric_name not in [
+                    "epoch",
+                    "global_step",
+                ]:
                     # Only save validation metrics and avoid duplicates
                     if isinstance(metric_value, torch.Tensor):
                         current_metrics[metric_name] = metric_value.item()
@@ -839,20 +880,22 @@ class TrainerBase(L.LightningModule):
 
         # Compute sequence lengths from raw text (without special tokens)
         # This matches the length ranges in config files
-        if 'text' in batch:
+        if "text" in batch:
             # For formal language tasks, measure length of INPUT part (before '#')
             # not the full sequence which may include traces/intermediate steps
             lengths_list = []
-            for text in batch['text']:
-                if '#' in text:
+            for text in batch["text"]:
+                if "#" in text:
                     # Use only the input part before the separator
-                    input_part = text.split('#')[0].strip()
+                    input_part = text.split("#")[0].strip()
                     lengths_list.append(len(input_part.split()))
                 else:
                     # No separator, use full text
                     lengths_list.append(len(text.strip().split()))
 
-            seq_lengths = torch.tensor(lengths_list, dtype=torch.long, device=targets.device)
+            seq_lengths = torch.tensor(
+                lengths_list, dtype=torch.long, device=targets.device
+            )
         else:
             # Fallback: count non-padding tokens in targets (includes BOS/EOS)
             # Subtract 2 to approximate raw length
@@ -874,19 +917,21 @@ class TrainerBase(L.LightningModule):
             )
 
             # Also get per-sample metrics for length stratification
-            acc_exact_per_sample, acc_token_per_sample, correct_prediction_per_sample = self._compute_accuracy_per_sample(
-                generated, targets
-            )
+            (
+                acc_exact_per_sample,
+                acc_token_per_sample,
+                correct_prediction_per_sample,
+            ) = self._compute_accuracy_per_sample(generated, targets)
 
             # Update length-stratified metrics
             self.test_length_metrics.update(
                 mode=display_mode,
                 lengths=seq_lengths,
                 per_sample_metrics={
-                    'acc_exact': acc_exact_per_sample,
-                    'acc_token': acc_token_per_sample,
-                    'correct_prediction': correct_prediction_per_sample,
-                }
+                    "acc_exact": acc_exact_per_sample,
+                    "acc_token": acc_token_per_sample,
+                    "correct_prediction": correct_prediction_per_sample,
+                },
             )
 
             self.log(
@@ -913,10 +958,32 @@ class TrainerBase(L.LightningModule):
 
             # Also log top_k_half as default for fair comparison with other models
             # top_k with half_remaining is the canonical default for MDLM
-            if gen_mode == "top_k" and suffix == "_half" and self.config.algo.name == "mdlm":
-                self.log("test/default_acc_exact", acc_exact, on_step=False, on_epoch=True, sync_dist=True)
-                self.log("test/default_acc_token", acc_token, on_step=False, on_epoch=True, sync_dist=True)
-                self.log("test/default_correct_prediction", correct_prediction, on_step=False, on_epoch=True, sync_dist=True)
+            if (
+                gen_mode == "top_k"
+                and suffix == "_half"
+                and self.config.algo.name == "mdlm"
+            ):
+                self.log(
+                    "test/default_acc_exact",
+                    acc_exact,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=True,
+                )
+                self.log(
+                    "test/default_acc_token",
+                    acc_token,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=True,
+                )
+                self.log(
+                    "test/default_correct_prediction",
+                    correct_prediction,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=True,
+                )
 
             # Log primary accuracy metric for default configurations only
             # For MDLM: top_k_half (top_k with half_remaining)
@@ -983,7 +1050,7 @@ class TrainerBase(L.LightningModule):
                 value=metric_value,
                 on_step=False,
                 on_epoch=True,
-                sync_dist=True
+                sync_dist=True,
             )
 
         # Save test metrics to file
@@ -997,9 +1064,12 @@ class TrainerBase(L.LightningModule):
         current_metrics["global_step"] = self.global_step
 
         # Also save all logged metrics (including decoding strategy metrics)
-        if hasattr(self.trainer, 'callback_metrics'):
+        if hasattr(self.trainer, "callback_metrics"):
             for metric_name, metric_value in self.trainer.callback_metrics.items():
-                if metric_name not in current_metrics and metric_name not in ["epoch", "global_step"]:
+                if metric_name not in current_metrics and metric_name not in [
+                    "epoch",
+                    "global_step",
+                ]:
                     if isinstance(metric_value, torch.Tensor):
                         current_metrics[metric_name] = metric_value.item()
                     elif isinstance(metric_value, (int, float)):
