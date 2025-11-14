@@ -46,7 +46,7 @@ curriculum:
   num_bins: 4  # Number of length bins to divide training into
   epochs_per_bin: 4  # Number of epochs to train on each length bin
   overlap: 0.2  # Overlap ratio between consecutive bins (0-1)
-  min_batches_per_epoch: 100  # Minimum batches per epoch (auto-expands range if needed)
+  min_batches_per_epoch: 1  # Minimum batches per epoch (auto-expands range if needed)
   min_examples_per_bin: 512  # Minimum examples per bin (bins with fewer are skipped)
 
 eval:

@@ -3,7 +3,7 @@ language: null
 
 properties:
   num_examples_train: 1000000
-  num_examples_valid: 10000
+  num_examples_valid: 25000
   num_examples_test: 25000
   format: trace
   
