@@ -1,9 +1,9 @@
 reduce_lr_on_plateau:
   _target_: utils.ReduceLROnPlateauCallback
-  monitor: "val/loss"
+  monitor: "val/acc_token"
   patience: 4  # Reduce LR if loss doesn't improve for 4 validation checks
   factor: 0.5  # Reduce LR by half when plateau is detected
   min_lr: 1.0e-6  # Don't reduce below this threshold
-  mode: "min"  # Minimize the monitored metric (loss)
+  mode: "max"
   verbose: true  # Print when LR is reduced
   cooldown: 2  # Wait 2 validation checks after reduction before checking again

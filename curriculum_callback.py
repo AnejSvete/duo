@@ -42,14 +42,41 @@ class CurriculumLearningCallback(Callback):
         overlap: float = 0.2,
         min_train_len: Optional[int] = None,
         max_train_len: Optional[int] = None,
+        use_quantiles: bool = True,
+        sample_size: int = 1000,
+        sample_strategy: str = "linspace",
+        exact_percentiles: bool = True,
     ):
         super().__init__()
         self.enabled = enabled
         self.num_bins = num_bins
         self.epochs_per_bin = epochs_per_bin
         self.overlap = overlap
+        # Validate overlap: keep it in a sensible range (0% - 50%). Default is 20%.
+        try:
+            if not (0.0 <= float(self.overlap) <= 0.5):
+                LOGGER.warning(
+                    "`overlap` should be between 0.0 and 0.5 (fractions). Clamping to valid range."
+                )
+                self.overlap = max(0.0, min(float(self.overlap), 0.5))
+        except Exception:
+            # If overlap isn't a number, fall back to default 0.2
+            LOGGER.warning("Invalid `overlap` value; falling back to 0.2 (20%)")
+            self.overlap = 0.2
         self.min_train_len = min_train_len
         self.max_train_len = max_train_len
+        # If True, compute bins using dataset length quantiles (each bin will
+        # contain roughly equal numbers of examples). Otherwise, use uniform
+        # length ranges between min/max.
+        self.use_quantiles = use_quantiles
+        # If True, compute percentiles using an exact full-dataset scan so
+        # each bin contains exact counts (subject to duplicates). This will
+        # scan the entire dataset and can be slower for very large datasets.
+        self.exact_percentiles = exact_percentiles
+        # How many examples to sample when estimating dataset length
+        self.sample_size = sample_size
+        # Sampling strategy for selecting indices: 'linspace' or 'random'
+        self.sample_strategy = sample_strategy
 
         self.current_bin = 0
         self.epochs_in_current_bin = 0
@@ -61,7 +88,9 @@ class CurriculumLearningCallback(Callback):
         if not enabled:
             LOGGER.info("Curriculum learning is disabled")
 
-    def setup(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str) -> None:
+    def setup(
+        self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str
+    ) -> None:
         """Setup the curriculum learning boundaries."""
         if not self.enabled or stage != "fit":
             return
@@ -81,17 +110,19 @@ class CurriculumLearningCallback(Callback):
             config = pl_module.config
 
             # Try to get min_train_len and max_train_len from config
-            if hasattr(config.data.properties, 'min_train_len') and hasattr(config.data.properties, 'max_train_len'):
+            if hasattr(config.data.properties, "min_train_len") and hasattr(
+                config.data.properties, "max_train_len"
+            ):
                 self.min_train_len = config.data.properties.min_train_len
                 self.max_train_len = config.data.properties.max_train_len
             else:
                 # For tasks like BFVP and arithmetic that don't have explicit length ranges,
                 # we need to infer them from the dataset or use reasonable defaults
                 LOGGER.error(
-                    f"Curriculum learning requires min_train_len and max_train_len to be set "
-                    f"in the data config (data.properties.min_train_len and data.properties.max_train_len). "
-                    f"For tasks like BFVP and arithmetic, these should be added to the config file "
-                    f"to specify the range of sequence lengths to use for curriculum learning."
+                    "Curriculum learning requires min_train_len and max_train_len to be set "
+                    "in the data config (data.properties.min_train_len and data.properties.max_train_len). "
+                    "For tasks like BFVP and arithmetic, these should be added to the config file "
+                    "to specify the range of sequence lengths to use for curriculum learning."
                 )
                 raise ValueError(
                     "min_train_len and max_train_len must be set in config.data.properties "
@@ -101,10 +132,86 @@ class CurriculumLearningCallback(Callback):
         # Calculate bin boundaries with overlap
         self._compute_bin_boundaries()
 
+        # Sample the dataset to see the actual sequence length distribution.
+        # If quantile-based bins are requested, compute bins from the sampled
+        # lengths. Otherwise, if the observed min/max differ from config,
+        # update min/max and recompute uniform bins to avoid empty bins.
+        observed = self._observe_dataset_length_range(
+            trainer, max_samples=self.sample_size, full_scan=self.exact_percentiles
+        )
+        if observed is not None:
+            # _observe_dataset_length_range now returns (obs_min, obs_max, samples)
+            obs_min, obs_max, samples = observed
+            if obs_min is not None and obs_max is not None:
+                # Update configured range to observed if changed
+                if obs_min != self.min_train_len or obs_max != self.max_train_len:
+                    LOGGER.info(
+                        f"Observed dataset length range: [{obs_min}, {obs_max}]. "
+                        "Adjusting curriculum range to observed values and recomputing bins."
+                    )
+                    self.min_train_len = obs_min
+                    self.max_train_len = obs_max
+
+                # If quantile bins requested and we have samples, compute bins
+                if self.use_quantiles and samples is not None and len(samples) > 0:
+                    bin_boundaries = []
+                    if self.exact_percentiles:
+                        # Compute exact-count percentile splits from sorted samples
+                        sorted_samples = np.sort(samples)
+                        N = len(sorted_samples)
+                        # cut indices split dataset into nearly equal counts
+                        cuts = np.linspace(0, N, self.num_bins + 1, dtype=int)
+                        for i in range(self.num_bins):
+                            start_idx = cuts[i]
+                            end_idx = max(cuts[i + 1] - 1, start_idx)
+                            bstart = int(
+                                max(self.min_train_len, sorted_samples[start_idx])
+                            )
+                            bend = int(min(self.max_train_len, sorted_samples[end_idx]))
+
+                            # If the bin is degenerate (same start/end), expand by 1
+                            if bend <= bstart:
+                                bend = min(self.max_train_len, bstart + 1)
+
+                            # Apply overlap as fraction of bin width
+                            width = max(1, bend - bstart)
+                            overlap_amount = int(width * self.overlap)
+                            bstart = max(self.min_train_len, bstart - overlap_amount)
+                            bend = min(self.max_train_len, bend + overlap_amount)
+
+                            # Ensure last bin reaches observed max
+                            if i == self.num_bins - 1:
+                                bend = self.max_train_len
+
+                            bin_boundaries.append((bstart, bend))
+                    else:
+                        # Fallback: use quantiles computed from samples (approx)
+                        qs = np.quantile(
+                            samples, np.linspace(0.0, 1.0, self.num_bins + 1)
+                        )
+                        for i in range(self.num_bins):
+                            bstart = int(max(self.min_train_len, np.floor(qs[i])))
+                            bend = int(min(self.max_train_len, np.ceil(qs[i + 1])))
+
+                            width = max(1, bend - bstart)
+                            overlap_amount = int(width * self.overlap)
+                            bstart = max(self.min_train_len, bstart - overlap_amount)
+                            bend = min(self.max_train_len, bend + overlap_amount)
+
+                            if i == self.num_bins - 1:
+                                bend = self.max_train_len
+
+                            bin_boundaries.append((bstart, bend))
+
+                    self.bin_boundaries = bin_boundaries
+                else:
+                    # Use the uniform-length bins computed earlier (or recompute)
+                    self._compute_bin_boundaries()
+
         LOGGER.info(f"Curriculum Learning enabled with {self.num_bins} bins")
         LOGGER.info(f"Length range: [{self.min_train_len}, {self.max_train_len}]")
         LOGGER.info(f"Epochs per bin: {self.epochs_per_bin}")
-        LOGGER.info(f"Overlap ratio: {self.overlap}")
+        LOGGER.info(f"Overlap ratio: {self.overlap} ({self.overlap * 100:.0f}%)")
         LOGGER.info(f"Bin boundaries: {self.bin_boundaries}")
 
     def _compute_bin_boundaries(self) -> None:
@@ -136,7 +243,108 @@ class CurriculumLearningCallback(Callback):
 
             self.bin_boundaries.append((bin_start, bin_end))
 
-    def on_train_epoch_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
+    def _observe_dataset_length_range(
+        self, trainer: L.Trainer, max_samples: int = 1000, full_scan: bool = False
+    ):
+        """
+        Inspect the training dataset (up to `max_samples` samples) to estimate the
+        observed minimum and maximum sequence lengths and collect sampled lengths.
+
+        Returns a tuple (min_len, max_len, samples_array) where samples_array is a
+        numpy array of sampled sequence lengths. Returns None if the dataset
+        couldn't be inspected.
+        """
+        # Attempt to get the original dataloader (callable) first, else fall back
+        train_dataloader = None
+        if callable(self.original_train_dataloader):
+            try:
+                train_dataloader = self.original_train_dataloader()
+            except Exception:
+                train_dataloader = getattr(trainer, "train_dataloader", None)
+        else:
+            train_dataloader = getattr(trainer, "train_dataloader", None)
+
+        if train_dataloader is None:
+            return None
+
+        dataset = getattr(train_dataloader, "dataset", None)
+        if dataset is None or len(dataset) == 0:
+            return None
+
+        # Choose a set of indices to sample. If full_scan True, inspect entire dataset.
+        if full_scan:
+            sample_count = len(dataset)
+            sample_indices = np.arange(len(dataset), dtype=int)
+        else:
+            sample_count = min(len(dataset), max_samples)
+            if sample_count >= len(dataset):
+                sample_indices = np.arange(len(dataset), dtype=int)
+            else:
+                if self.sample_strategy == "random":
+                    rng = np.random.default_rng()
+                    sample_indices = rng.choice(
+                        len(dataset), size=sample_count, replace=False
+                    )
+                else:
+                    # default: evenly spaced indices
+                    sample_indices = np.linspace(
+                        0, len(dataset) - 1, sample_count, dtype=int
+                    )
+
+        observed_min = None
+        observed_max = None
+        sample_lengths = []
+
+        for idx in sample_indices:
+            try:
+                example = dataset[int(idx)]
+            except Exception:
+                continue
+
+            seq_len = None
+            try:
+                if isinstance(example, dict) and "text" in example:
+                    text = example["text"]
+                    if "#" in text:
+                        input_part = text.split("#")[0].strip()
+                        seq_len = len(input_part.split())
+                    else:
+                        seq_len = len(text.strip().split())
+                elif isinstance(example, dict) and "attention_mask" in example:
+                    seq_len = int(example["attention_mask"].sum().item() - 2)
+                elif (
+                    isinstance(example, dict)
+                    and "input_ids" in example
+                    and self.tokenizer is not None
+                ):
+                    input_ids = example["input_ids"]
+                    seq_len = int(
+                        (input_ids != self.tokenizer.pad_token_id).sum().item() - 2
+                    )
+            except Exception:
+                # If any example is malformed, skip it
+                seq_len = None
+
+            if seq_len is None:
+                continue
+
+            sample_lengths.append(seq_len)
+
+            if observed_min is None or seq_len < observed_min:
+                observed_min = seq_len
+            if observed_max is None or seq_len > observed_max:
+                observed_max = seq_len
+
+        if observed_min is None or observed_max is None:
+            return None
+
+        import numpy as _np
+
+        return (observed_min, observed_max, _np.array(sample_lengths, dtype=int))
+
+    def on_train_epoch_start(
+        self, trainer: L.Trainer, pl_module: L.LightningModule
+    ) -> None:
         """
         Check if we should move to the next bin at the start of each epoch.
 
@@ -148,7 +356,10 @@ class CurriculumLearningCallback(Callback):
 
         # Check if we should advance to next bin
         bin_changed = False
-        if self.epochs_in_current_bin >= self.epochs_per_bin and self.current_bin < self.num_bins - 1:
+        if (
+            self.epochs_in_current_bin >= self.epochs_per_bin
+            and self.current_bin < self.num_bins - 1
+        ):
             old_bin = self.current_bin
             self.current_bin += 1
             self.epochs_in_current_bin = 0
@@ -159,7 +370,9 @@ class CurriculumLearningCallback(Callback):
 
             LOGGER.info("")
             LOGGER.info("=" * 80)
-            LOGGER.info(f"📚 CURRICULUM ADVANCEMENT: Bin {old_bin + 1} → Bin {self.current_bin + 1}")
+            LOGGER.info(
+                f"📚 CURRICULUM ADVANCEMENT: Bin {old_bin + 1} → Bin {self.current_bin + 1}"
+            )
             LOGGER.info(f"   Previous length range: [{old_min}, {old_max}]")
             LOGGER.info(f"   New length range:      [{new_min}, {new_max}]")
             LOGGER.info(f"   Progress: {self.current_bin + 1}/{self.num_bins} bins")
@@ -193,10 +406,7 @@ class CurriculumLearningCallback(Callback):
         self.epochs_in_current_bin += 1
 
     def _apply_length_filter(
-        self,
-        trainer: L.Trainer,
-        min_len: int,
-        max_len: int
+        self, trainer: L.Trainer, min_len: int, max_len: int
     ) -> None:
         """
         Apply length filtering to the training dataloader.
@@ -222,47 +432,49 @@ class CurriculumLearningCallback(Callback):
         if len(dataset) > 0:
             first_example = dataset[0]
             LOGGER.info(f"Dataset example keys: {list(first_example.keys())}")
-            if 'text' in first_example:
-                sample_text = first_example['text']
+            if "text" in first_example:
+                sample_text = first_example["text"]
                 full_len = len(sample_text.strip().split())
 
                 # Also compute input length (before '#')
-                if '#' in sample_text:
-                    input_part = sample_text.split('#')[0].strip()
+                if "#" in sample_text:
+                    input_part = sample_text.split("#")[0].strip()
                     input_len = len(input_part.split())
                     LOGGER.info(
                         f"Sample text: '{sample_text[:100]}...' "
                         f"(full length: {full_len}, input length: {input_len})"
                     )
                 else:
-                    LOGGER.info(f"Sample text: '{sample_text[:100]}...' (length: {full_len})")
+                    LOGGER.info(
+                        f"Sample text: '{sample_text[:100]}...' (length: {full_len})"
+                    )
 
         for idx in range(len(dataset)):
             example = dataset[idx]
 
             # Calculate sequence length from the raw text (without special tokens)
             # This matches the length ranges in config files which are based on raw text
-            if 'text' in example:
-                text = example['text']
+            if "text" in example:
+                text = example["text"]
 
                 # For formal language tasks, the length should be based on the INPUT part
                 # (before the '#' separator), not the full sequence with traces
-                if '#' in text:
+                if "#" in text:
                     # Split on '#' and use only the input part
-                    input_part = text.split('#')[0].strip()
+                    input_part = text.split("#")[0].strip()
                     raw_tokens = input_part.split()
                 else:
                     # No separator, use full text
                     raw_tokens = text.strip().split()
 
                 seq_len = len(raw_tokens)
-            elif 'attention_mask' in example:
+            elif "attention_mask" in example:
                 # Fallback: count non-padding tokens (includes BOS/EOS if present)
                 # Subtract 2 to approximate raw length (assuming BOS + EOS)
-                seq_len = example['attention_mask'].sum().item() - 2
-            elif 'input_ids' in example:
+                seq_len = example["attention_mask"].sum().item() - 2
+            elif "input_ids" in example:
                 # Fallback: count tokens that are not padding, minus special tokens
-                input_ids = example['input_ids']
+                input_ids = example["input_ids"]
                 seq_len = (input_ids != self.tokenizer.pad_token_id).sum().item() - 2
             else:
                 continue
@@ -278,6 +490,7 @@ class CurriculumLearningCallback(Callback):
         # Show length distribution from samples
         if length_samples:
             import numpy as np
+
             length_array = np.array(length_samples)
             LOGGER.info(
                 f"Length distribution (sampled): min={length_array.min()}, "
@@ -319,7 +532,11 @@ class CurriculumLearningCallback(Callback):
                 if callback_self.filtered_dataloader is not None:
                     return callback_self.filtered_dataloader
                 # Fallback to original
-                return callback_self.original_train_dataloader() if callable(callback_self.original_train_dataloader) else callback_self.original_train_dataloader
+                return (
+                    callback_self.original_train_dataloader()
+                    if callable(callback_self.original_train_dataloader)
+                    else callback_self.original_train_dataloader
+                )
 
             # Replace the method
             self.pl_module.train_dataloader = curriculum_train_dataloader
@@ -329,7 +546,9 @@ class CurriculumLearningCallback(Callback):
                 "Keeping full dataset."
             )
 
-    def on_validation_epoch_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
+    def on_validation_epoch_start(
+        self, trainer: L.Trainer, pl_module: L.LightningModule
+    ) -> None:
         """Log that validation uses full dataset."""
         _ = pl_module  # Unused but required by Lightning API
         if self.enabled and trainer.current_epoch == 0:
@@ -353,16 +572,16 @@ class CurriculumLearningCallback(Callback):
     def state_dict(self):
         """Save callback state for checkpointing."""
         return {
-            'current_bin': self.current_bin,
-            'epochs_in_current_bin': self.epochs_in_current_bin,
-            'bin_boundaries': self.bin_boundaries,
+            "current_bin": self.current_bin,
+            "epochs_in_current_bin": self.epochs_in_current_bin,
+            "bin_boundaries": self.bin_boundaries,
         }
 
     def load_state_dict(self, state_dict):
         """Load callback state from checkpoint."""
-        self.current_bin = state_dict['current_bin']
-        self.epochs_in_current_bin = state_dict['epochs_in_current_bin']
-        self.bin_boundaries = state_dict['bin_boundaries']
+        self.current_bin = state_dict["current_bin"]
+        self.epochs_in_current_bin = state_dict["epochs_in_current_bin"]
+        self.bin_boundaries = state_dict["bin_boundaries"]
         LOGGER.info(
             f"Resumed curriculum learning at bin {self.current_bin + 1}/{self.num_bins}, "
             f"epoch {self.epochs_in_current_bin + 1}/{self.epochs_per_bin}"
