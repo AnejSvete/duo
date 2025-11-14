@@ -5,9 +5,24 @@ language: arithmetic
 properties:
   min_val: 1
   max_val: 50
+
+  # Depth ranges for generation (samples from these depths)
+  min_train_depth: 1
+  max_train_depth: 4
+  min_val_depth: 3
+  max_val_depth: 4
+  min_test_depth: 4
+  max_test_depth: 4
+
+  # Length ranges for stratification (rejection sampling ensures examples fall in these ranges)
+  # These should be measured from your actual data generation
+  min_train_len: 5
+  max_train_len: 100
+  min_val_len: 50
+  max_val_len: 150
+  min_test_len: 100
+  max_test_len: 200
+
+  # Legacy parameters for backward compatibility
   min_depth: 1
   max_depth: 4
-  # Length-based curriculum parameters (for filtering by final sequence length)
-  # Estimated from tree depth: depth 1-4 produces varying lengths depending on format
-  min_train_len: 5     # Conservative minimum
-  max_train_len: 150   # Conservative maximum with buffer

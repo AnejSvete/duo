@@ -4,9 +4,24 @@ defaults:
 language: bfvp
 properties:
   num_vars: 2
+
+  # Depth ranges for generation (samples from these depths)
+  min_train_depth: 1
+  max_train_depth: 4
+  min_val_depth: 3
+  max_val_depth: 4
+  min_test_depth: 4
+  max_test_depth: 4
+
+  # Length ranges for stratification (rejection sampling ensures examples fall in these ranges)
+  # These should be measured from your actual data generation
+  min_train_len: 5
+  max_train_len: 100
+  min_val_len: 50
+  max_val_len: 150
+  min_test_len: 100
+  max_test_len: 200
+
+  # Legacy parameters for backward compatibility
   min_depth: 1
   max_depth: 4
-  # Length-based curriculum parameters (for filtering by final sequence length)
-  # Measured from actual generation: depth 1-5 produces lengths ~5-280 tokens
-  min_train_len: 5     # Minimum observed length
-  max_train_len: 150   # Maximum observed length + buffer

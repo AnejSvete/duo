@@ -284,7 +284,9 @@ class MDLM(diffusion.AbsorbingState):
         log_p_theta = torch.gather(
             input=log_x_theta, dim=-1, index=x0[:, :, None]
         ).squeeze(-1)
-        return log_p_theta * dalpha_t / (1 - alpha_t)
+        # Add epsilon to prevent division by zero when alpha_t approaches 1
+        denominator = (1 - alpha_t).clamp(min=1e-7)
+        return log_p_theta * dalpha_t / denominator
 
     def _get_score(self, x, sigma):
         model_output = self.forward(x, sigma)

@@ -203,6 +203,9 @@ class CurriculumLearningCallback(Callback):
 
         This creates a filtered view of the dataset that only includes examples
         within the specified length range.
+
+        Note: Length is computed from the raw text (without special tokens like BOS/EOS)
+        to match the length ranges specified in the config files.
         """
         train_dataloader = trainer.train_dataloader
         if train_dataloader is None:
@@ -214,16 +217,24 @@ class CurriculumLearningCallback(Callback):
         # Create indices for examples within the length range
         filtered_indices = []
         for idx in range(len(dataset)):
-            # Get the sequence (without BOS/EOS tokens for length calculation)
             example = dataset[idx]
 
-            # Calculate actual sequence length by counting non-padding tokens
-            if 'attention_mask' in example:
-                seq_len = example['attention_mask'].sum().item()
+            # Calculate sequence length from the raw text (without special tokens)
+            # This matches the length ranges in config files which are based on raw text
+            if 'text' in example:
+                # Tokenize the raw text without special tokens to get true length
+                text = example['text']
+                # Tokenize by splitting on whitespace (same as _tokenize method)
+                raw_tokens = text.strip().split()
+                seq_len = len(raw_tokens)
+            elif 'attention_mask' in example:
+                # Fallback: count non-padding tokens (includes BOS/EOS if present)
+                # Subtract 2 to approximate raw length (assuming BOS + EOS)
+                seq_len = example['attention_mask'].sum().item() - 2
             elif 'input_ids' in example:
-                # Count tokens that are not padding
+                # Fallback: count tokens that are not padding, minus special tokens
                 input_ids = example['input_ids']
-                seq_len = (input_ids != self.tokenizer.pad_token_id).sum().item()
+                seq_len = (input_ids != self.tokenizer.pad_token_id).sum().item() - 2
             else:
                 continue
 

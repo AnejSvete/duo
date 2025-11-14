@@ -97,18 +97,31 @@ class LengthStratifiedMetrics:
             # Compute percentile-based bins
             percentiles = np.linspace(0, 100, self.num_bins + 1)
             self.bin_edges = np.percentile(lengths_array, percentiles)
+            # Store the actual percentile values for labels
+            self.bin_percentiles = percentiles
             # Ensure unique edges (in case of repeated lengths)
             self.bin_edges = np.unique(self.bin_edges)
         else:
             # Uniform bins
             min_len, max_len = lengths_array.min(), lengths_array.max()
             self.bin_edges = np.linspace(min_len, max_len, self.num_bins + 1)
+            self.bin_percentiles = None
 
-        # Create bin labels
+        # Create bin labels using percentiles for better cross-dataset comparison
         self.bin_labels = []
-        for i in range(len(self.bin_edges) - 1):
-            label = f"len_{int(self.bin_edges[i])}-{int(self.bin_edges[i+1])}"
-            self.bin_labels.append(label)
+        if self.percentile_based:
+            # Use percentile ranges in labels (e.g., "p0-25", "p25-50")
+            for i in range(len(self.bin_edges) - 1):
+                # Find corresponding percentile indices
+                p_start = int(self.bin_percentiles[i] if i < len(self.bin_percentiles) else 0)
+                p_end = int(self.bin_percentiles[i + 1] if i + 1 < len(self.bin_percentiles) else 100)
+                label = f"p{p_start}-{p_end}"
+                self.bin_labels.append(label)
+        else:
+            # For uniform bins, use actual length ranges
+            for i in range(len(self.bin_edges) - 1):
+                label = f"len_{int(self.bin_edges[i])}-{int(self.bin_edges[i+1])}"
+                self.bin_labels.append(label)
 
     def _assign_to_bins(self):
         """Assign all collected metrics to appropriate length bins."""
@@ -153,13 +166,15 @@ class LengthStratifiedMetrics:
                 - 'bins': List of dicts with bin-specific metrics
                 - 'bin_edges': Bin edge values
                 - 'num_samples': Number of samples in dataset
+                - 'length_statistics': Detailed statistics about length distribution
         """
         if len(self.all_lengths) == 0:
             return {
                 'overall': {},
                 'bins': [],
                 'bin_edges': [],
-                'num_samples': 0
+                'num_samples': 0,
+                'length_statistics': {}
             }
 
         # Compute bin assignments
@@ -177,6 +192,20 @@ class LengthStratifiedMetrics:
                 else:
                     # Simple average
                     overall[metric_name] = float(np.mean(values))
+
+        # Compute length statistics for later reference
+        lengths_array = np.array(self.all_lengths)
+        length_statistics = {
+            'min': float(lengths_array.min()),
+            'max': float(lengths_array.max()),
+            'mean': float(lengths_array.mean()),
+            'std': float(lengths_array.std()),
+            'median': float(np.median(lengths_array)),
+            'percentiles': {
+                f'p{int(p)}': float(np.percentile(lengths_array, p))
+                for p in [0, 10, 25, 50, 75, 90, 100]
+            }
+        }
 
         # Compute per-bin metrics
         bins_list = []
@@ -202,7 +231,8 @@ class LengthStratifiedMetrics:
             'overall': overall,
             'bins': bins_list,
             'bin_edges': self.bin_edges.tolist() if self.bin_edges is not None else [],
-            'num_samples': len(self.all_lengths)
+            'num_samples': len(self.all_lengths),
+            'length_statistics': length_statistics
         }
 
     def get_wandb_logs(self, prefix: str = "val") -> typing.Dict[str, float]:
@@ -221,7 +251,7 @@ class LengthStratifiedMetrics:
         for metric_name, value in results['overall'].items():
             logs[f"{prefix}/{metric_name}_overall"] = value
 
-        # Per-bin metrics
+        # Per-bin metrics with percentile-based labels
         for bin_dict in results['bins']:
             bin_label = bin_dict['label']
             for metric_name, value in bin_dict.items():
@@ -229,6 +259,18 @@ class LengthStratifiedMetrics:
                     logs[f"{prefix}/{metric_name}_{bin_label}"] = value
             # Also log sample count per bin
             logs[f"{prefix}/num_samples_{bin_label}"] = bin_dict['num_samples']
+
+        # Log length statistics for reference
+        if 'length_statistics' in results and results['length_statistics']:
+            stats = results['length_statistics']
+            logs[f"{prefix}/length_min"] = stats['min']
+            logs[f"{prefix}/length_max"] = stats['max']
+            logs[f"{prefix}/length_mean"] = stats['mean']
+            logs[f"{prefix}/length_std"] = stats['std']
+            logs[f"{prefix}/length_median"] = stats['median']
+            # Log key percentiles
+            for p_name, p_value in stats['percentiles'].items():
+                logs[f"{prefix}/length_{p_name}"] = p_value
 
         return logs
 

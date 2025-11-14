@@ -1,11 +1,11 @@
 defaults:
   - _self_
-  - /callbacks: [checkpoint_every_n_steps, checkpoint_monitor, learning_rate_monitor, early_stopping, curriculum_learning]
+  - /callbacks: [checkpoint_every_n_steps, checkpoint_monitor, learning_rate_monitor, early_stopping, reduce_lr_on_plateau, curriculum_learning, auto_recovery]
   - /data: formal_language
   - /model: nano
   - /strategy: ddp
   - /noise: log-linear
-  - /lr_scheduler: constant_warmup
+  - /lr_scheduler: warmup_stable_decay
   - /algo: mdlm
 
 mode: train  # train / prepare_data / ppl_eval / sample_eval
@@ -58,8 +58,8 @@ eval:
   top_k: 4
 
 optim:
-  weight_decay: 0
-  lr: 5e-4
+  weight_decay: 0.1
+  lr: 1e-3
   beta1: 0.9
   beta2: 0.999
   eps: 1e-8

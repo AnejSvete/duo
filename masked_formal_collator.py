@@ -82,4 +82,5 @@ class MaskedFormalCollator:
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "do_not_mask": do_not_mask,
+            "text": texts,  # Keep raw text for computing true sequence lengths
         }

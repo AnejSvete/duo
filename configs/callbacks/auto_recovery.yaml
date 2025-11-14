@@ -1,0 +1,9 @@
+auto_recovery:
+  _target_: auto_recovery_callback.AutoRecoveryCallback
+  monitor: "val/acc_token"  # Metric used to determine best checkpoint
+  mode: "max"  # "max" for accuracy, "min" for loss
+  loss_threshold: 100.0  # Trigger recovery if loss exceeds this value
+  patience: 3  # Number of consecutive bad steps before triggering recovery
+  reset_optimizer: true  # Reset optimizer state after recovery (recommended)
+  checkpoint_dir: "checkpoints"  # Directory containing checkpoints (relative to output dir)
+  verbose: true  # Print recovery messages

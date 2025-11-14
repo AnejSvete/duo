@@ -169,8 +169,24 @@ class Diffusion(TrainerBase):
                 self.log("diffusion/mask_ratio_per_seq_std", mask_ratio_per_seq.std(), on_step=True, on_epoch=False, sync_dist=True)
 
         log_x_theta = self.forward(xt, sigma=sigma)
-        # utils.print_nans(log_x_theta, "model_output")  # Assuming utils is available
-        return self.nll_per_token(
+
+        # Check for NaN/Inf in model output
+        if train_mode and (torch.isnan(log_x_theta).any() or torch.isinf(log_x_theta).any()):
+            print(f"\n{'='*80}")
+            print(f"WARNING: Invalid model output detected at global_step={self.global_step}")
+            print(f"{'='*80}")
+            print(f"NaN detected: {torch.isnan(log_x_theta).any()}")
+            print(f"Inf detected: {torch.isinf(log_x_theta).any()}")
+            print(f"alpha_t stats - min: {alpha_t.min():.6f}, max: {alpha_t.max():.6f}, mean: {alpha_t.mean():.6f}")
+            print(f"sigma stats - min: {sigma.min():.6f}, max: {sigma.max():.6f}, mean: {sigma.mean():.6f}")
+            print(f"t stats - min: {t.min():.6f}, max: {t.max():.6f}, mean: {t.mean():.6f}")
+            print(f"dalpha_t stats - min: {dalpha_t.min():.6f}, max: {dalpha_t.max():.6f}, mean: {dalpha_t.mean():.6f}")
+            print(f"{'='*80}\n")
+            # Log to W&B
+            self.log("debug/has_nan", 1.0, on_step=True, on_epoch=False, sync_dist=True)
+            self.log("debug/has_inf", 1.0, on_step=True, on_epoch=False, sync_dist=True)
+
+        nll_result = self.nll_per_token(
             log_x_theta=log_x_theta,
             xt=xt,
             x0=x0,
@@ -178,6 +194,21 @@ class Diffusion(TrainerBase):
             dalpha_t=dalpha_t,
             low_var=train_mode and self.loss_type == "low_var",
         )
+
+        # Check for NaN/Inf in loss
+        if train_mode and (torch.isnan(nll_result).any() or torch.isinf(nll_result).any()):
+            print(f"\n{'='*80}")
+            print(f"WARNING: Invalid loss detected at global_step={self.global_step}")
+            print(f"{'='*80}")
+            print(f"NaN in loss: {torch.isnan(nll_result).any()}")
+            print(f"Inf in loss: {torch.isinf(nll_result).any()}")
+            print(f"loss stats - min: {nll_result[~torch.isnan(nll_result) & ~torch.isinf(nll_result)].min():.6f}")
+            print(f"loss stats - max: {nll_result[~torch.isnan(nll_result) & ~torch.isinf(nll_result)].max():.6f}")
+            print(f"{'='*80}\n")
+            self.log("debug/loss_has_nan", 1.0, on_step=True, on_epoch=False, sync_dist=True)
+            self.log("debug/loss_has_inf", 1.0, on_step=True, on_epoch=False, sync_dist=True)
+
+        return nll_result
 
     def _get_score(self, **kwargs):
         del kwargs

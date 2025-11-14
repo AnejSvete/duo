@@ -430,9 +430,20 @@ class TrainerBase(L.LightningModule):
         # Get evaluation configurations (mode, top_k_fn, suffix combinations)
         eval_configs = self._get_eval_configs()
 
-        # Compute sequence lengths (number of non-padding tokens in targets)
-        target_mask = targets != self.tokenizer.pad_token_id
-        seq_lengths = target_mask.sum(dim=1)  # (batch_size,)
+        # Compute sequence lengths from raw text (without special tokens)
+        # This matches the length ranges in config files
+        if 'text' in batch:
+            # Compute lengths from raw text by splitting on whitespace
+            seq_lengths = torch.tensor(
+                [len(text.strip().split()) for text in batch['text']],
+                dtype=torch.long,
+                device=targets.device
+            )
+        else:
+            # Fallback: count non-padding tokens in targets (includes BOS/EOS)
+            # Subtract 2 to approximate raw length
+            target_mask = targets != self.tokenizer.pad_token_id
+            seq_lengths = target_mask.sum(dim=1) - 2  # (batch_size,)
 
         for gen_mode, top_k_fn, suffix in eval_configs:
             # Pass the `targets` tensor for shape compatibility, as required by the function signature.
@@ -819,9 +830,20 @@ class TrainerBase(L.LightningModule):
         # Get evaluation configurations (mode, top_k_fn, suffix combinations)
         eval_configs = self._get_eval_configs()
 
-        # Compute sequence lengths (number of non-padding tokens in targets)
-        target_mask = targets != self.tokenizer.pad_token_id
-        seq_lengths = target_mask.sum(dim=1)  # (batch_size,)
+        # Compute sequence lengths from raw text (without special tokens)
+        # This matches the length ranges in config files
+        if 'text' in batch:
+            # Compute lengths from raw text by splitting on whitespace
+            seq_lengths = torch.tensor(
+                [len(text.strip().split()) for text in batch['text']],
+                dtype=torch.long,
+                device=targets.device
+            )
+        else:
+            # Fallback: count non-padding tokens in targets (includes BOS/EOS)
+            # Subtract 2 to approximate raw length
+            target_mask = targets != self.tokenizer.pad_token_id
+            seq_lengths = target_mask.sum(dim=1) - 2  # (batch_size,)
 
         for gen_mode, top_k_fn, suffix in eval_configs:
             # Pass the `targets` tensor for shape compatibility, as required by the function signature.

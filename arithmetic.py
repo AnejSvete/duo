@@ -211,77 +211,84 @@ def make_all_splits(
     max_val: int,
     seed: int,
     split_sizes: Dict[str, int],
+    depth_ranges: Dict[str, Tuple[int, int]] = None,
+    length_ranges: Dict[str, Tuple[int, int]] = None,
 ) -> Dict[str, List[Dict[str, str]]]:
     """
-    Generates ALL splits (train/validation/test) in a single pass with disjoint examples.
+    Generates ALL splits (train/validation/test) with length-based stratification.
 
     Args:
+        min_depth: Default minimum depth (used if depth_ranges not provided)
+        max_depth: Default maximum depth (used if depth_ranges not provided)
+        mode: Format mode (trace/final_value/empty_trace/lookup)
+        min_val: Minimum value for operands
+        max_val: Maximum value for operands
+        seed: Random seed
         split_sizes: Dictionary with keys "train", "validation", "test" and values
                      as the number of examples needed for each split.
+        depth_ranges: Optional dictionary with keys "train", "validation", "test" and values
+                     as (min_depth, max_depth) tuples for each split. Used for generation sampling.
+        length_ranges: Optional dictionary with keys "train", "validation", "test" and values
+                     as (min_length, max_length) tuples for each split. Examples are filtered by final token length.
+                     If provided, uses rejection sampling to ensure examples fall within length range.
 
     Returns:
         Dictionary with keys "train", "validation", "test" containing lists of examples.
     """
     random.seed(seed)
 
-    # Interdependent sampling: generate examples and assign to splits dynamically
-    assignment = {}  # Maps text -> assigned split
-    counts = {s: 0 for s in ["train", "validation", "test"]}
-    split_pools = {s: [] for s in ["train", "validation", "test"]}
+    # If depth_ranges not provided, use same range for all splits
+    if depth_ranges is None:
+        depth_ranges = {
+            "train": (min_depth, max_depth),
+            "validation": (min_depth, max_depth),
+            "test": (min_depth, max_depth),
+        }
 
-    total_needed = sum(split_sizes.values())
-    max_attempts = total_needed * 100
-    attempts = 0
+    # Generate each split independently with its own depth and length ranges
+    split_pools = {}
 
-    while sum(counts.values()) < total_needed and attempts < max_attempts:
-        attempts += 1
+    for split_name in ["train", "validation", "test"]:
+        split_min_depth, split_max_depth = depth_ranges[split_name]
+        num_examples = split_sizes[split_name]
 
-        # Generate a candidate example
-        depth = random.randint(min_depth, max_depth)
-        expression_tree = generate_expression_tree(depth, min_val, max_val)
-
-        text = _generate_arithmetic_text(expression_tree, mode)
-        if text is None:
-            continue
-
-        # Check if we've seen this example before
-        if text in assignment:
-            # Already assigned to a split - add to that same split (allows duplicates within splits)
-            target_split = assignment[text]
+        # Get length range for this split if specified
+        if length_ranges is not None and split_name in length_ranges:
+            min_len, max_len = length_ranges[split_name]
+            use_length_filter = True
         else:
-            # New example - calculate which split to assign it to
-            remaining = {
-                s: max(0, split_sizes[s] - counts[s])
-                for s in ["train", "validation", "test"]
-            }
-            total_remaining = sum(remaining.values())
+            min_len, max_len = None, None
+            use_length_filter = False
 
-            if total_remaining == 0:
-                break
+        examples = []
+        attempts = 0
+        max_attempts = num_examples * 1000  # Generous limit for rejection sampling
 
-            # Probabilistically assign to a split based on remaining needs
-            p = random.random()
-            cumulative = 0.0
-            target_split = None
-            for s in ["train", "validation", "test"]:
-                cumulative += remaining[s] / total_remaining
-                if p < cumulative:
-                    target_split = s
-                    break
+        while len(examples) < num_examples and attempts < max_attempts:
+            attempts += 1
 
-            if target_split is None:
-                target_split = "test"  # Fallback
+            depth = random.randint(split_min_depth, split_max_depth)
+            expression_tree = generate_expression_tree(depth, min_val, max_val)
 
-            # Record this assignment
-            assignment[text] = target_split
+            text = _generate_arithmetic_text(expression_tree, mode)
+            if text is None:
+                continue
 
-        # Add to the target split (allows duplicates within each split)
-        split_pools[target_split].append({"text": text})
-        counts[target_split] += 1
+            # Apply length filter if specified
+            if use_length_filter:
+                text_length = len(text.split())
+                if min_len <= text_length <= max_len:
+                    examples.append({"text": text})
+            else:
+                examples.append({"text": text})
 
-    # Shuffle each pool
-    for pool in split_pools.values():
-        random.shuffle(pool)
+        if len(examples) < num_examples:
+            print(f"Warning: Could only generate {len(examples)}/{num_examples} examples for {split_name} "
+                  f"within length range [{min_len}, {max_len}] after {attempts} attempts. "
+                  f"Consider widening the length range or depth range.")
+
+        random.shuffle(examples)
+        split_pools[split_name] = examples
 
     return split_pools
 

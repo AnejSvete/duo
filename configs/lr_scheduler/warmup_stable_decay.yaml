@@ -1,0 +1,7 @@
+_target_: torch.optim.lr_scheduler.LambdaLR
+lr_lambda:
+  _target_: utils.WarmupStableDecayScheduler
+  warmup_steps: 250  # Warmup for first 250 steps (5% of 5000 total steps)
+  stable_steps: 2250  # Stable for 2250 steps (45% of training)
+  decay_steps: 2500  # Decay for remaining 2500 steps (50% of training)
+  min_lr_ratio: 0.1  # Decay to 10% of base learning rate
