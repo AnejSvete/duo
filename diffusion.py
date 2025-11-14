@@ -102,7 +102,7 @@ class Diffusion(TrainerBase):
         Calculates the Negative Log-Likelihood loss for a batch.
 
         If ground_truth_masking is True, the noise level `t` is derived from the
-        number of masked tokens. Otherwise, `t` is sampled randomly.
+        number of levels masked (discrete timesteps). Otherwise, `t` is sampled randomly.
         """
         del output_tokens
 
@@ -117,26 +117,38 @@ class Diffusion(TrainerBase):
                 x0, alpha_t.unsqueeze(-1), do_not_mask, ground_truth_masking=False
             )
         else:
-            # --- Ground Truth Path: Create xt first, then derive t ---
-            # 1. Get the noisy sample and the number of masked tokens.
+            # --- Ground Truth Path: Create xt first, then derive t from discrete levels ---
+            # 1. Get the noisy sample and the number of levels in each sequence.
             #    alpha_t is not used by this q_xt path, so we pass None.
-            xt, masked_counts = self.q_xt(
+            xt, num_levels = self.q_xt(
                 x0, alpha_t=None, do_not_mask=do_not_mask, ground_truth_masking=True
             )
 
-            # 2. Calculate the actual mask ratio for each sequence.
-            num_maskable_tokens = (~do_not_mask).sum(dim=1)
-            num_maskable_tokens[num_maskable_tokens == 0] = (
-                1.0  # Avoid division by zero.
-            )
-            mask_ratio = (masked_counts / num_maskable_tokens).clamp(0.0, 1.0)
+            # 2. Calculate how many levels are currently masked (from the xt output).
+            #    Count the masked tokens in each sequence to infer the level.
+            mask_counts = (xt == self.mask_index).sum(dim=1).float()
+            num_maskable_tokens = (~do_not_mask).sum(dim=1).float()
+            num_maskable_tokens = torch.clamp(num_maskable_tokens, min=1.0)  # Avoid division by zero
 
-            # 3. Derive t from the mask_ratio (linear schedule: t = mask_ratio).
-            #    Ensure t is in the valid range, e.g., [1/T, 1] if required by the schedule.
+            # Estimate which timestep (level) this corresponds to
+            # t should be uniformly distributed over the discrete levels: t = level / num_levels
+            mask_ratio = (mask_counts / num_maskable_tokens).clamp(0.0, 1.0)
+
+            # Map mask_ratio to discrete timesteps based on levels
+            # For each sequence, t = (levels_masked / total_levels)
+            # Since we sample uniformly from 1 to num_levels, we approximate:
             t = mask_ratio.clamp(min=1.0 / self.T if self.T > 0 else 1e-6)
 
-            # 4. Compute the noise schedule variables from the derived t.
+            # 3. Compute the noise schedule variables from the derived t.
             dalpha_t, alpha_t = self.noise(t)
+
+            # 4. Adjust dalpha_t for discrete timesteps
+            # Since we have discrete levels, the weight should reflect the discrete nature
+            # dalpha_t represents the "density" at this timestep
+            # For uniform sampling over K levels: weight = 1/K for each level
+            # We scale dalpha_t by the number of levels
+            level_weights = 1.0 / num_levels.float().clamp(min=1.0)
+            dalpha_t = dalpha_t * level_weights
 
         # --- Common Logic for both paths ---
         alpha_t_unsqueezed = alpha_t.unsqueeze(-1)
@@ -168,6 +180,17 @@ class Diffusion(TrainerBase):
                 mask_ratio_per_seq = (xt == self.mask_index).float().mean(dim=1)
                 self.log("diffusion/mask_ratio_per_seq_mean", mask_ratio_per_seq.mean(), on_step=True, on_epoch=False, sync_dist=True)
                 self.log("diffusion/mask_ratio_per_seq_std", mask_ratio_per_seq.std(), on_step=True, on_epoch=False, sync_dist=True)
+
+            # Log ground truth masking specific metrics
+            if ground_truth_masking:
+                self.log("diffusion/ground_truth_masking", 1.0, on_step=True, on_epoch=False, sync_dist=True)
+                # Log level-based statistics if available
+                # Note: num_levels is computed in q_xt but not returned in standard path
+                # We can compute it here for logging
+                pipe_token_id = self.tokenizer.convert_tokens_to_ids("|")
+                num_pipes_per_seq = (x0 == pipe_token_id).sum(dim=1).float()
+                self.log("diffusion/num_levels_mean", num_pipes_per_seq.mean(), on_step=True, on_epoch=False, sync_dist=True)
+                self.log("diffusion/num_levels_std", num_pipes_per_seq.std(), on_step=True, on_epoch=False, sync_dist=True)
 
         log_x_theta = self.forward(xt, sigma=sigma)
 
@@ -349,13 +372,24 @@ class AbsorbingState(Diffusion):
         """
         Computes the noisy sample xt, protecting specified tokens.
 
-        If ground_truth_masking is True, it masks a specific segment defined by '|'
-        separators, pads the rest, and returns the count of masked tokens. Otherwise,
-        it performs standard probabilistic masking.
+        If ground_truth_masking is True, it masks levels (segments between '|' delimiters)
+        from right to left, based on a uniformly sampled discrete timestep. This is designed
+        for hierarchical structured tasks like BFVP and arithmetic where computation proceeds
+        in levels.
+
+        For a sequence like: "# A | B | C | D"
+        - There are 3 pipes, representing 3 levels (the regions after each pipe)
+        - Masking 1 level: "# A | B | C | [MASK D]"
+        - Masking 2 levels: "# A | B | [MASK C] [MASK D]"
+        - Masking 3 levels: "# A | [MASK B] [MASK C] [MASK D]"
+
+        The timestep t is uniformly sampled from {1, 2, ..., num_levels}, where num_levels
+        is the number of pipes. This gives at most ceil(log(N)) discrete timesteps for a
+        sequence of length N.
 
         Returns:
-            A tuple of (xt, masked_counts), where masked_counts is a tensor of
-            counts for ground_truth_masking and None otherwise.
+            A tuple of (xt, num_levels), where num_levels is a tensor of
+            the total number of levels in each sequence for ground_truth_masking and None otherwise.
         """
         if not ground_truth_masking:
             # Standard probabilistic masking based on the noise schedule.
@@ -363,18 +397,17 @@ class AbsorbingState(Diffusion):
             final_mask = potential_mask & ~do_not_mask
             xt = torch.where(final_mask, self.mask_index, x)
 
-            # Return None for masked_counts in the standard case.
+            # Return None for num_levels in the standard case.
             return xt, None
         else:
-            # Ground truth masking: mask a segment, pad the rest, and count the masks.
+            # Ground truth masking: mask levels from right to left based on timestep.
             xt = x.clone()
             batch_size, seq_len = x.shape
-            masked_counts = torch.zeros(
-                batch_size, device=x.device, dtype=torch.float32
+            num_levels = torch.zeros(
+                batch_size, device=x.device, dtype=torch.long
             )
 
             pipe_token_id = self.tokenizer.convert_tokens_to_ids("|")
-            pad_token_id = self.tokenizer.pad_token_id
 
             if pipe_token_id == self.tokenizer.unk_token_id:
                 raise ValueError(
@@ -382,41 +415,56 @@ class AbsorbingState(Diffusion):
                 )
 
             for i in range(batch_size):
+                # Find all pipe positions in this sequence (that are not in do_not_mask region)
                 pipe_indices = (x[i] == pipe_token_id).nonzero(as_tuple=True)[0]
-                valid_start_pipes = pipe_indices[~do_not_mask[i][pipe_indices]]
+                valid_pipe_indices = pipe_indices[~do_not_mask[i][pipe_indices]]
 
-                if len(valid_start_pipes) == 0:
+                if len(valid_pipe_indices) == 0:
                     continue
 
-                # 1. Pick a random valid separator to start from.
-                start_pipe_pos = valid_start_pipes[
-                    torch.randint(0, len(valid_start_pipes), (1,))
-                ].item()
-                start_pos = start_pipe_pos + 1
-
-                # 2. Find the end of the segment (the next pipe).
-                end_mask_pos = seq_len
-                next_pipes = pipe_indices[pipe_indices > start_pipe_pos]
-                if len(next_pipes) > 0:
-                    end_mask_pos = next_pipes[0].item()
-
-                # Stop if there's nothing to mask (e.g., two pipes are adjacent).
-                if start_pos > end_mask_pos:
+                # Number of levels = number of segments between pipes + 1 for the final segment
+                # For example: "# A | B | C" has 3 pipes total, but the completion has 3 levels (A, B, C)
+                total_levels = len(valid_pipe_indices)
+                if total_levels == 0:
                     continue
 
-                # 3. Mask tokens WITHIN the segment, INCLUDING the end pipe.
-                for j in range(start_pos, min(end_mask_pos + 1, seq_len)):
-                    if not do_not_mask[i, j]:
-                        xt[i, j] = self.mask_index
-                        masked_counts[i] += 1  # Increment the count.
+                num_levels[i] = total_levels
 
-                # 4. Pad everything AFTER the now-masked end pipe.
-                start_pad_pos = end_mask_pos + 1
-                if start_pad_pos < seq_len:
-                    xt[i, start_pad_pos:] = pad_token_id
+                # Sample which timestep (how many levels to mask from the right)
+                # timestep ranges from 1 to total_levels (mask at least 1 level)
+                # Uniformly sample: each level has equal probability
+                levels_to_mask = torch.randint(1, total_levels + 1, (1,)).item()
 
-            # Return the modified sequence and the counts.
-            return xt, masked_counts
+                # Mask from right to left, starting from the (total_levels - levels_to_mask)th pipe
+                # Index into valid_pipe_indices from the right
+                if levels_to_mask == total_levels:
+                    # Mask everything after '#'
+                    hash_token_id = self.tokenizer.convert_tokens_to_ids("#")
+                    hash_indices = (x[i] == hash_token_id).nonzero(as_tuple=True)[0]
+                    if len(hash_indices) > 0:
+                        start_pos = hash_indices[-1].item() + 1  # Start after the last '#'
+                    else:
+                        start_pos = 0
+
+                    # Mask everything from start_pos to end
+                    for j in range(start_pos, seq_len):
+                        if not do_not_mask[i, j]:
+                            xt[i, j] = self.mask_index
+                else:
+                    # Mask from the pipe that separates the levels
+                    # If we want to mask k levels from the right, we start from pipe at index -(k)
+                    pipe_idx = total_levels - levels_to_mask
+                    if pipe_idx >= 0 and pipe_idx < len(valid_pipe_indices):
+                        # Start masking from this pipe position (inclusive of the pipe)
+                        start_mask_pos = valid_pipe_indices[pipe_idx].item()
+
+                        # Mask from start_mask_pos to end
+                        for j in range(start_mask_pos, seq_len):
+                            if not do_not_mask[i, j]:
+                                xt[i, j] = self.mask_index
+
+            # Return the modified sequence and the number of levels.
+            return xt, num_levels
 
     def prior_sample(self, *batch_dims):
         return self.mask_index * torch.ones(

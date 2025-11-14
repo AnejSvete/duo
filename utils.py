@@ -54,12 +54,12 @@ class WarmupStableDecayScheduler:
     Three-phase learning rate schedule:
     1. Warmup: Linear increase from 0 to 1
     2. Stable: Constant at 1
-    3. Decay: Cosine decay from 1 to min_lr_ratio
+    3. Decay: Linear decay from 1 to min_lr_ratio
 
     Args:
         warmup_steps: Number of steps for warmup phase
         stable_steps: Number of steps to maintain peak learning rate
-        decay_steps: Number of steps for cosine decay phase
+        decay_steps: Number of steps for linear decay phase
         min_lr_ratio: Minimum learning rate as ratio of base lr (default: 0.1)
     """
     def __init__(self, warmup_steps, stable_steps, decay_steps, min_lr_ratio=0.1):
@@ -78,10 +78,9 @@ class WarmupStableDecayScheduler:
             # Stable phase: constant at peak
             return 1.0
         elif current_step < self.total_steps:
-            # Decay phase: cosine decay
+            # Decay phase: linear decay
             progress = (current_step - self.stable_end) / self.decay_steps
-            cosine_decay = 0.5 * (1 + torch.cos(torch.tensor(progress * 3.14159265359)))
-            return self.min_lr_ratio + (1.0 - self.min_lr_ratio) * cosine_decay
+            return 1.0 - (1.0 - self.min_lr_ratio) * progress
         else:
             # After decay: maintain minimum
             return self.min_lr_ratio

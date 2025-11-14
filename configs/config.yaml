@@ -39,7 +39,7 @@ training:
   sampling_eps: 1e-3
   change_of_variables: False
   finetune_path: ''
-  ground_truth_masking: false
+  ground_truth_masking: True
 
 curriculum:
   enabled: true  # Enable curriculum learning

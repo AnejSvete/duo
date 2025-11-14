@@ -270,23 +270,23 @@ class LengthStratifiedMetrics:
                     "max_length",
                     "num_samples",
                 ]:
-                    logs[f"{prefix}_num_samples/{metric_name}_{bin_label}"] = value
+                    logs[f"{prefix}/num_samples/{metric_name}_{bin_label}"] = value
             # Also log sample count per bin
-            logs[f"{prefix}_num_samples/num_samples_{bin_label}"] = bin_dict[
+            logs[f"{prefix}/num_samples/num_samples_{bin_label}"] = bin_dict[
                 "num_samples"
             ]
 
         # Log length statistics for reference
         if "length_statistics" in results and results["length_statistics"]:
             stats = results["length_statistics"]
-            logs[f"{prefix}_bin_length/length_min"] = stats["min"]
-            logs[f"{prefix}_bin_length/length_max"] = stats["max"]
-            logs[f"{prefix}_bin_length/length_mean"] = stats["mean"]
-            logs[f"{prefix}_bin_length/length_std"] = stats["std"]
-            logs[f"{prefix}_bin_length/length_median"] = stats["median"]
+            logs[f"{prefix}/bin_length/length_min"] = stats["min"]
+            logs[f"{prefix}/bin_length/length_max"] = stats["max"]
+            logs[f"{prefix}/bin_length/length_mean"] = stats["mean"]
+            logs[f"{prefix}/bin_length/length_std"] = stats["std"]
+            logs[f"{prefix}/bin_length/length_median"] = stats["median"]
             # Log key percentiles
             for p_name, p_value in stats["percentiles"].items():
-                logs[f"{prefix}_bin_length/length_{p_name}"] = p_value
+                logs[f"{prefix}/bin_length/length_{p_name}"] = p_value
 
         return logs
 
@@ -357,6 +357,7 @@ class PerGenerationModeMetrics:
         """
         logs = {}
         for mode, metrics in self.metrics_by_mode.items():
-            mode_logs = metrics.get_wandb_logs(prefix=f"{prefix}/{mode}")
+            # Use separate W&B panel for each generation method
+            mode_logs = metrics.get_wandb_logs(prefix=f"{prefix}_{mode}")
             logs.update(mode_logs)
         return logs

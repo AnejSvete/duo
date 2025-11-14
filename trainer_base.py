@@ -510,22 +510,23 @@ class TrainerBase(L.LightningModule):
                 },
             )
 
+            # Use separate W&B panel for each generation method
             self.log(
-                f"val/{display_mode}_acc_exact",
+                f"val_{display_mode}/acc_exact",
                 acc_exact,
                 on_step=False,
                 on_epoch=True,
                 sync_dist=True,
             )
             self.log(
-                f"val/{display_mode}_acc_token",
+                f"val_{display_mode}/acc_token",
                 acc_token,
                 on_step=False,
                 on_epoch=True,
                 sync_dist=True,
             )
             self.log(
-                f"val/{display_mode}_correct_prediction",
+                f"val_{display_mode}/correct_prediction",
                 correct_prediction,
                 on_step=False,
                 on_epoch=True,
@@ -934,22 +935,23 @@ class TrainerBase(L.LightningModule):
                 },
             )
 
+            # Use separate W&B panel for each generation method
             self.log(
-                f"test/{display_mode}_acc_exact",
+                f"test_{display_mode}/acc_exact",
                 acc_exact,
                 on_step=False,
                 on_epoch=True,
                 sync_dist=True,
             )
             self.log(
-                f"test/{display_mode}_acc_token",
+                f"test_{display_mode}/acc_token",
                 acc_token,
                 on_step=False,
                 on_epoch=True,
                 sync_dist=True,
             )
             self.log(
-                f"test/{display_mode}_correct_prediction",
+                f"test_{display_mode}/correct_prediction",
                 correct_prediction,
                 on_step=False,
                 on_epoch=True,
