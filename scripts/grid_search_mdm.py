@@ -150,7 +150,10 @@ def build_command(params, task, output_base_dir):
 def main():
     parser = argparse.ArgumentParser(description="Grid search for MDM hyperparameters")
     parser.add_argument("--task", type=str, default="bfvp",
-                       choices=["bfvp", "parity", "arithmetic", "contains_a", "ab_star", "mod_3"],
+                       choices=["bfvp", "parity", "arithmetic",
+                                "contains_a", "contains_ab", "ab_star", "mod_3",
+                                "a5", "a10", "a15", "a20",
+                                "cycle_navigation", "parity_check"],
                        help="Task to run grid search on")
     parser.add_argument("--output_dir", type=str, default="grid_search_results",
                        help="Base directory for outputs")
