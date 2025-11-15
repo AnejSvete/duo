@@ -10,7 +10,7 @@ defaults:
 
 mode: train  # train / prepare_data / ppl_eval / sample_eval
 
-seed: 2
+seed: 3
 
 loader:
   global_batch_size: 2048
@@ -37,11 +37,11 @@ training:
   antithetic_sampling: True
   sampling_eps: 1e-3
   finetune_path: ''
-  ground_truth_masking: True
+  ground_truth_masking: False
 
 curriculum:
   enabled: true  # Enable curriculum learning
-  num_bins: 4  # Number of length bins to divide training into
+  num_bins: 2  # Number of length bins to divide training into
   epochs_per_bin: 4  # Number of epochs to train on each length bin
   overlap: 0.2  # Overlap ratio between consecutive bins (0-1)
   min_batches_per_epoch: 1  # Minimum batches per epoch (auto-expands range if needed)
@@ -63,7 +63,7 @@ eval:
 
 optim:
   weight_decay: 0.1
-  lr: 5e-3
+  lr: 2e-3
   beta1: 0.9
   beta2: 0.999
   eps: 1e-8
