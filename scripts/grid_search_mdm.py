@@ -66,7 +66,7 @@ RECOMMENDED_GRID = {
 }
 
 
-def generate_slurm_script(job_name, command, output_dir, time="04:00:00", mem="64G", gpus=1):
+def generate_slurm_script(job_name, command, output_dir, time="04:00:00", mem_per_cpu="8G", gpus=1, cpus=8):
     """Generate SLURM job script."""
     log_dir = Path(output_dir) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -76,9 +76,9 @@ def generate_slurm_script(job_name, command, output_dir, time="04:00:00", mem="6
 #SBATCH --output={log_dir}/{job_name}_%j.out
 #SBATCH --error={log_dir}/{job_name}_%j.err
 #SBATCH --time={time}
-#SBATCH --mem={mem}
+#SBATCH --mem-per-cpu={mem_per_cpu}
 #SBATCH --gpus={gpus}
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task={cpus}
 
 # Activate environment
 source ~/.bashrc
@@ -239,8 +239,9 @@ def main():
                 command=cmd,
                 output_dir=args.output_dir,
                 time="04:00:00",
-                mem="64G",
+                mem_per_cpu="8G",
                 gpus=1,
+                cpus=8,
             )
 
             # Save script
