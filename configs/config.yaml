@@ -35,9 +35,7 @@ sampling:
 
 training:
   antithetic_sampling: True
-  importance_sampling: False
   sampling_eps: 1e-3
-  change_of_variables: False
   finetune_path: ''
   ground_truth_masking: True
 
@@ -48,6 +46,10 @@ curriculum:
   overlap: 0.2  # Overlap ratio between consecutive bins (0-1)
   min_batches_per_epoch: 1  # Minimum batches per epoch (auto-expands range if needed)
   min_examples_per_bin: 512  # Minimum examples per bin (bins with fewer are skipped)
+  use_quantiles: true  # Use quantiles for bin boundaries (true) or uniform ranges (false)
+  sample_size: 1000  # Number of examples to sample when estimating dataset length
+  sample_strategy: "linspace"  # Sampling strategy: "linspace" or "random"
+  exact_percentiles: true  # Use exact percentiles (slower but more accurate)
 
 eval:
   checkpoint_path: ''  # Used to evaluate a checkpoint after training.

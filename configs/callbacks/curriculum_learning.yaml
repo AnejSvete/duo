@@ -6,3 +6,9 @@ curriculum_learning:
   overlap: ${curriculum.overlap}
   min_train_len: ${data.properties.min_train_len}
   max_train_len: ${data.properties.max_train_len}
+  use_quantiles: ${curriculum.use_quantiles}
+  sample_size: ${curriculum.sample_size}
+  sample_strategy: ${curriculum.sample_strategy}
+  exact_percentiles: ${curriculum.exact_percentiles}
+  min_batches_per_epoch: ${curriculum.min_batches_per_epoch}
+  min_examples_per_bin: ${curriculum.min_examples_per_bin}

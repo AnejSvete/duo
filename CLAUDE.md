@@ -110,8 +110,17 @@ Key parameters:
 - `curriculum.overlap`: Overlap ratio between bins 0-1 (default: 0.2)
 - `curriculum.min_examples_per_bin`: Minimum examples per bin (default: 512)
   - Bins with fewer examples are automatically skipped
-- `curriculum.min_batches_per_epoch`: Minimum batches per epoch (default: 100)
+- `curriculum.min_batches_per_epoch`: Minimum batches per epoch (default: 1)
   - If a bin has too few batches (but enough examples), the range is automatically expanded
+- `curriculum.use_quantiles`: Use quantiles for bin boundaries (default: true)
+  - True = each bin has roughly equal number of examples
+  - False = uniform length ranges between min/max
+- `curriculum.sample_size`: Number of examples to sample when estimating dataset length (default: 1000)
+- `curriculum.sample_strategy`: Sampling strategy for length estimation (default: "linspace")
+  - Options: "linspace" or "random"
+- `curriculum.exact_percentiles`: Use exact percentile calculation (default: true)
+  - True = scan full dataset for exact counts (slower but accurate)
+  - False = estimate from sample (faster but approximate)
 
 ### Analysis
 

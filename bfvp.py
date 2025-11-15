@@ -263,7 +263,14 @@ def make_all_splits(
 
             # Apply length filter if specified
             if use_length_filter:
-                text_length = len(text.split())
+                # Compute length based on INPUT part only (before '#')
+                # This matches curriculum filtering logic and actual problem size
+                if "#" in text:
+                    input_part = text.split("#")[0].strip()
+                    text_length = len(input_part.split())
+                else:
+                    text_length = len(text.split())
+
                 if min_len <= text_length <= max_len:
                     examples.append({"text": text})
             else:
