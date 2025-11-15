@@ -21,8 +21,10 @@ class AutoRecoveryCallback(Callback):
 
     When instability is detected, it:
     1. Loads the best checkpoint (based on monitored metric)
-    2. Resets optimizer state (optional)
-    3. Continues training from the recovered checkpoint
+    2. Reduces learning rate to prevent re-explosion
+    3. Resets optimizer state with new learning rate
+    4. Reshuffles training data to avoid same problematic batch order
+    5. Continues training from the recovered checkpoint
 
     Args:
         monitor: Metric to use for determining best checkpoint (default: "val/acc_token")
@@ -32,6 +34,8 @@ class AutoRecoveryCallback(Callback):
         reset_optimizer: Whether to reset optimizer state after recovery (default: True)
         checkpoint_dir: Directory containing checkpoints (default: "checkpoints")
         verbose: Print recovery messages (default: True)
+        lr_reduction_factor: Factor to reduce learning rate after recovery (default: 0.5)
+        reshuffle_data: Whether to reshuffle training data after recovery (default: True)
     """
 
     def __init__(
@@ -43,6 +47,8 @@ class AutoRecoveryCallback(Callback):
         reset_optimizer=True,
         checkpoint_dir="checkpoints",
         verbose=True,
+        lr_reduction_factor=0.5,  # Reduce LR by this factor after recovery
+        reshuffle_data=True,  # Reshuffle training data after recovery
     ):
         super().__init__()
         self.monitor = monitor
@@ -52,6 +58,8 @@ class AutoRecoveryCallback(Callback):
         self.reset_optimizer = reset_optimizer
         self.checkpoint_dir = checkpoint_dir
         self.verbose = verbose
+        self.lr_reduction_factor = lr_reduction_factor
+        self.reshuffle_data = reshuffle_data
 
         # Track consecutive bad steps
         self.bad_steps = 0
@@ -158,10 +166,20 @@ class AutoRecoveryCallback(Callback):
             # Optionally reset optimizer state
             if self.reset_optimizer:
                 if self.verbose:
-                    print("Resetting optimizer state...")
+                    print("Resetting optimizer state and reducing learning rate...")
                 # After loading state_dict, model parameters are new objects
                 # We need to recreate the optimizers with the new parameters
                 # This is the proper way to reset optimizer state
+
+                # IMPORTANT: Reduce learning rate to prevent same explosion
+                original_lr = pl_module.config.optim.lr
+                reduced_lr = original_lr * (self.lr_reduction_factor ** self.recovery_count)
+
+                if self.verbose:
+                    print(f"Learning rate: {original_lr:.6f} -> {reduced_lr:.6f}")
+
+                # Temporarily modify config for new optimizer
+                pl_module.config.optim.lr = reduced_lr
 
                 # Get new optimizer configuration from the module
                 optimizer_config = pl_module.configure_optimizers()
@@ -173,14 +191,29 @@ class AutoRecoveryCallback(Callback):
                     trainer.optimizers = optimizers
                     if schedulers:
                         trainer.lr_scheduler_configs = schedulers
+                        # Also need to update the scheduler's base LRs
+                        for scheduler_config in trainer.lr_scheduler_configs:
+                            scheduler = scheduler_config['scheduler']
+                            if hasattr(scheduler, 'base_lrs'):
+                                scheduler.base_lrs = [reduced_lr] * len(scheduler.base_lrs)
                 else:
                     # Fallback for other return types
                     trainer.optimizers = [optimizer_config] if not isinstance(optimizer_config, list) else optimizer_config
             else:
-                # Restore optimizer state
+                # Restore optimizer state but still reduce learning rate
                 if 'optimizer_states' in checkpoint:
                     for opt_idx, optimizer in enumerate(trainer.optimizers):
                         optimizer.load_state_dict(checkpoint['optimizer_states'][opt_idx])
+
+                # Reduce learning rate for all param groups
+                if self.verbose:
+                    print("Reducing learning rate after recovery...")
+                for optimizer in trainer.optimizers:
+                    for param_group in optimizer.param_groups:
+                        old_lr = param_group['lr']
+                        param_group['lr'] = old_lr * self.lr_reduction_factor
+                        if self.verbose:
+                            print(f"Learning rate: {old_lr:.6f} -> {param_group['lr']:.6f}")
 
             # Restore global step if needed
             # Note: We don't restore global_step to continue from where we were
@@ -192,6 +225,10 @@ class AutoRecoveryCallback(Callback):
                 print(f"Continuing from current step: {trainer.global_step}")
                 print(f"{'='*80}\n")
 
+            # Reshuffle training data to avoid same problematic batch order
+            if self.reshuffle_data:
+                self._reshuffle_training_data(trainer, pl_module)
+
             # Reset counters
             self.bad_steps = 0
             self.recovering = False
@@ -202,6 +239,69 @@ class AutoRecoveryCallback(Callback):
                 print(f"{'='*80}\n")
             self.recovering = False
             trainer.should_stop = True
+
+    def _reshuffle_training_data(self, trainer, pl_module):
+        """
+        Reshuffle training data after recovery to avoid repeating the same
+        problematic batch order.
+
+        This works with both regular dataloaders and curriculum learning:
+        - For curriculum learning: Triggers re-creation of filtered dataloader
+        - For regular training: Forces re-initialization of dataloader
+        """
+        if self.verbose:
+            print("Reshuffling training data...")
+
+        try:
+            # Method 1: Reset dataloader by calling reset_train_dataloader
+            # This is the cleanest approach in PyTorch Lightning
+            if hasattr(trainer, 'reset_train_dataloader'):
+                trainer.reset_train_dataloader(pl_module)
+                if self.verbose:
+                    print("Training dataloader reset successfully")
+
+            # Method 2: Manually trigger curriculum callback to recreate filtered dataloader
+            # This ensures curriculum learning bins are properly reshuffled
+            elif hasattr(trainer, 'callbacks'):
+                curriculum_callback = None
+                for callback in trainer.callbacks:
+                    if callback.__class__.__name__ == 'CurriculumLearningCallback':
+                        curriculum_callback = callback
+                        break
+
+                if curriculum_callback is not None and hasattr(curriculum_callback, 'enabled') and curriculum_callback.enabled:
+                    # Trigger curriculum to recreate the filtered dataloader
+                    # by calling the epoch start hook (which handles bin transitions)
+                    if self.verbose:
+                        print("Triggering curriculum learning dataloader refresh...")
+
+                    # Save current state
+                    current_bin = curriculum_callback.current_bin
+
+                    # Force recreation of the current bin's dataloader
+                    # This will reshuffle the data within the current curriculum bin
+                    if hasattr(curriculum_callback, '_create_filtered_dataloader'):
+                        min_len, max_len = curriculum_callback.bin_boundaries[current_bin]
+                        curriculum_callback._create_filtered_dataloader(
+                            trainer, pl_module, min_len, max_len
+                        )
+                        if self.verbose:
+                            print(f"Curriculum dataloader refreshed for bin {current_bin} (length range: [{min_len}, {max_len}])")
+                else:
+                    if self.verbose:
+                        print("No curriculum learning active - dataloader will reshuffle naturally on next epoch")
+
+            # Method 3: For regular dataloaders with shuffle=True, we can try to
+            # force a new worker initialization by manipulating the dataloader
+            # However, this is less reliable and Lightning handles it automatically
+            else:
+                if self.verbose:
+                    print("Dataloader will reshuffle naturally on next epoch")
+
+        except Exception as e:
+            if self.verbose:
+                print(f"Warning: Could not reshuffle data: {e}")
+                print("Training will continue with existing data order")
 
     def _find_best_checkpoint(self, trainer):
         """Find the best checkpoint based on the monitored metric."""

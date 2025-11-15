@@ -5,7 +5,9 @@ import trainer_base
 
 
 class AR(trainer_base.TrainerBase):
-    def generate_conditioned(self, prompts, targets=None, mode="random", top_k_fn="half_remaining"):
+    def generate_conditioned(
+        self, prompts, targets=None, mode="random", top_k_fn="half_remaining"
+    ):
         """
         Generate completions conditioned on prompts using efficient, vectorized
         autoregressive decoding. This version uses a deterministic greedy strategy.
@@ -125,7 +127,9 @@ class AR(trainer_base.TrainerBase):
 
 
 class LT(trainer_base.TrainerBase):
-    def generate_conditioned(self, prompts, targets=None, mode="random", top_k_fn="half_remaining"):
+    def generate_conditioned(
+        self, prompts, targets=None, mode="random", top_k_fn="half_remaining"
+    ):
         """
         Generate symbols for all masked positions at once using a deterministic
         greedy decoding strategy. This is a non-autoregressive, single-step process.
@@ -288,7 +292,7 @@ class MDLM(diffusion.AbsorbingState):
 
         # alpha_t and dalpha_t both have shape (batch, 1)
         # They will broadcast to (batch, seq) when multiplied/divided with log_p_theta
-        denominator = (1 - alpha_t).clamp(min=1e-7)
+        denominator = (1 - alpha_t).clamp(min=1e-3)
         return log_p_theta * dalpha_t / denominator
 
     def _get_score(self, x, sigma):
@@ -344,7 +348,9 @@ class MDLM(diffusion.AbsorbingState):
         model_output[unmasked_indices, xt[unmasked_indices]] = 0
         return model_output
 
-    def generate_conditioned(self, prompts, targets, mode="random", top_k_fn="half_remaining"):
+    def generate_conditioned(
+        self, prompts, targets, mode="random", top_k_fn="half_remaining"
+    ):
         """
         Generate completions conditioned on prompts, using the specified unmasking mode.
 
@@ -393,14 +399,18 @@ class MDLM(diffusion.AbsorbingState):
         if isinstance(top_k_fn, int):
             # Constant k value
             constant_k = top_k_fn
+
             def compute_k(state):
                 return constant_k
+
         elif top_k_fn == "half_remaining":
+
             def compute_k(state):
                 return torch.maximum(
-                    torch.ones_like(state['num_remaining_masks']),
-                    state['num_remaining_masks'] // 2
+                    torch.ones_like(state["num_remaining_masks"]),
+                    state["num_remaining_masks"] // 2,
                 )
+
         elif callable(top_k_fn):
             compute_k = top_k_fn
         else:
@@ -431,13 +441,13 @@ class MDLM(diffusion.AbsorbingState):
             # Compute current state for k function
             num_remaining_masks = mask_pos.sum(dim=1)
             state = {
-                'x': x,
-                'prompts': prompts,
-                'targets': targets,
-                'num_remaining_masks': num_remaining_masks,
-                'total_masks': total_masks,
-                'step': tstep,
-                'finished': finished
+                "x": x,
+                "prompts": prompts,
+                "targets": targets,
+                "num_remaining_masks": num_remaining_masks,
+                "total_masks": total_masks,
+                "step": tstep,
+                "finished": finished,
             }
 
             if mode == "random":
@@ -451,13 +461,17 @@ class MDLM(diffusion.AbsorbingState):
 
                 # Handle both scalar and tensor returns from compute_k
                 if isinstance(k_value, int):
-                    k_per_sequence = torch.full((batch_size,), k_value, device=prompts.device)
+                    k_per_sequence = torch.full(
+                        (batch_size,), k_value, device=prompts.device
+                    )
                 else:
                     k_per_sequence = k_value.to(prompts.device)
 
                 # Ensure k doesn't exceed available masks or sequence length
                 k_per_sequence = torch.minimum(k_per_sequence, num_remaining_masks)
-                k_per_sequence = torch.minimum(k_per_sequence, torch.tensor(x.shape[1], device=prompts.device))
+                k_per_sequence = torch.minimum(
+                    k_per_sequence, torch.tensor(x.shape[1], device=prompts.device)
+                )
 
                 # Use max k for the topk operation
                 k = int(k_per_sequence.max().item())
@@ -516,13 +530,18 @@ class MDLM(diffusion.AbsorbingState):
 
                 # Handle both scalar and tensor returns from compute_k
                 if isinstance(k_value, int):
-                    k_per_sequence = torch.full((batch_size,), k_value, device=prompts.device)
+                    k_per_sequence = torch.full(
+                        (batch_size,), k_value, device=prompts.device
+                    )
                 else:
                     k_per_sequence = k_value.to(prompts.device)
 
                 # Ensure k doesn't exceed available masks or sequence length
                 k_per_sequence = torch.minimum(k_per_sequence, num_remaining_masks)
-                k_per_sequence = torch.minimum(k_per_sequence, torch.tensor(confidences.shape[1], device=prompts.device))
+                k_per_sequence = torch.minimum(
+                    k_per_sequence,
+                    torch.tensor(confidences.shape[1], device=prompts.device),
+                )
 
                 k = int(k_per_sequence.max().item())
                 if k == 0:
@@ -561,13 +580,18 @@ class MDLM(diffusion.AbsorbingState):
 
                 # Handle both scalar and tensor returns from compute_k
                 if isinstance(k_value, int):
-                    k_per_sequence = torch.full((batch_size,), k_value, device=prompts.device)
+                    k_per_sequence = torch.full(
+                        (batch_size,), k_value, device=prompts.device
+                    )
                 else:
                     k_per_sequence = k_value.to(prompts.device)
 
                 # Ensure k doesn't exceed available masks or sequence length
                 k_per_sequence = torch.minimum(k_per_sequence, num_remaining_masks)
-                k_per_sequence = torch.minimum(k_per_sequence, torch.tensor(margins.shape[1], device=prompts.device))
+                k_per_sequence = torch.minimum(
+                    k_per_sequence,
+                    torch.tensor(margins.shape[1], device=prompts.device),
+                )
 
                 k = int(k_per_sequence.max().item())
                 if k == 0:
@@ -734,7 +758,13 @@ class SEDDAbsorb(diffusion.AbsorbingState):
         model_output = (
             model_output
             - esigm1_log[:, None, None]
-            - torch.log(torch.tensor(model_output.shape[-1] - 1, dtype=model_output.dtype, device=model_output.device))
+            - torch.log(
+                torch.tensor(
+                    model_output.shape[-1] - 1,
+                    dtype=model_output.dtype,
+                    device=model_output.device,
+                )
+            )
         )
         # The below scatter operation sets the log score
         # for the input word to 0.
