@@ -113,14 +113,14 @@ class Diffusion(TrainerBase):
                 t = (t * self.T).to(torch.int) / self.T + (1 / self.T)
 
             dalpha_t, alpha_t = self.noise(t)
-            xt, _ = self.q_xt(
+            xt, _, active_mask = self.q_xt(
                 x0, alpha_t.unsqueeze(-1), do_not_mask, ground_truth_masking=False
             )
         else:
             # --- Ground Truth Path: Create xt first, then derive t from discrete levels ---
-            # 1. Get the noisy sample and the number of levels in each sequence.
+            # 1. Get the noisy sample, the number of levels, and the active mask.
             #    alpha_t is not used by this q_xt path, so we pass None.
-            xt, num_levels = self.q_xt(
+            xt, num_levels, active_mask = self.q_xt(
                 x0, alpha_t=None, do_not_mask=do_not_mask, ground_truth_masking=True
             )
 
@@ -192,6 +192,14 @@ class Diffusion(TrainerBase):
                 self.log("diffusion/num_levels_mean", num_pipes_per_seq.mean(), on_step=True, on_epoch=False, sync_dist=True)
                 self.log("diffusion/num_levels_std", num_pipes_per_seq.std(), on_step=True, on_epoch=False, sync_dist=True)
 
+                # Log active mask statistics
+                if active_mask is not None:
+                    active_ratio = active_mask.float().mean()
+                    self.log("diffusion/active_ratio", active_ratio, on_step=True, on_epoch=False, sync_dist=True)
+                    active_ratio_per_seq = active_mask.float().mean(dim=1)
+                    self.log("diffusion/active_ratio_per_seq_mean", active_ratio_per_seq.mean(), on_step=True, on_epoch=False, sync_dist=True)
+                    self.log("diffusion/active_ratio_per_seq_std", active_ratio_per_seq.std(), on_step=True, on_epoch=False, sync_dist=True)
+
         log_x_theta = self.forward(xt, sigma=sigma)
 
         # Check for NaN/Inf in model output
@@ -218,6 +226,12 @@ class Diffusion(TrainerBase):
             dalpha_t=dalpha_t_unsqueezed,
             low_var=train_mode and self.loss_type == "low_var",
         )
+
+        # If using ground_truth_masking, only compute loss on the active level
+        if ground_truth_masking and active_mask is not None:
+            # Zero out loss for tokens not in the active level
+            # This ensures only the "next level" tokens contribute to the loss
+            nll_result = nll_result * active_mask.float()
 
         # Check for NaN/Inf in loss
         if train_mode and (torch.isnan(nll_result).any() or torch.isinf(nll_result).any()):
@@ -388,8 +402,10 @@ class AbsorbingState(Diffusion):
         sequence of length N.
 
         Returns:
-            A tuple of (xt, num_levels), where num_levels is a tensor of
-            the total number of levels in each sequence for ground_truth_masking and None otherwise.
+            A tuple of (xt, num_levels, active_mask), where:
+            - num_levels is a tensor of the total number of levels in each sequence for ground_truth_masking and None otherwise.
+            - active_mask is a boolean tensor indicating which tokens are in the "active" level (the most recently masked level)
+              for ground_truth_masking, and None otherwise. This is used to compute loss only on the active level.
         """
         if not ground_truth_masking:
             # Standard probabilistic masking based on the noise schedule.
@@ -397,14 +413,18 @@ class AbsorbingState(Diffusion):
             final_mask = potential_mask & ~do_not_mask
             xt = torch.where(final_mask, self.mask_index, x)
 
-            # Return None for num_levels in the standard case.
-            return xt, None
+            # Return None for num_levels and active_mask in the standard case.
+            return xt, None, None
         else:
             # Ground truth masking: mask levels from right to left based on timestep.
             xt = x.clone()
             batch_size, seq_len = x.shape
             num_levels = torch.zeros(
                 batch_size, device=x.device, dtype=torch.long
+            )
+            # Track which tokens belong to the "active" level (the one we just masked)
+            active_mask = torch.zeros(
+                batch_size, seq_len, device=x.device, dtype=torch.bool
             )
 
             pipe_token_id = self.tokenizer.convert_tokens_to_ids("|")
@@ -435,6 +455,43 @@ class AbsorbingState(Diffusion):
                 # Uniformly sample: each level has equal probability
                 levels_to_mask = torch.randint(1, total_levels + 1, (1,)).item()
 
+                # Determine the active level range (the first level being masked)
+                # For example, if levels_to_mask = 2 for "# A | B | C | D", we mask C and D
+                # The "active" level is C (the first one being masked at this timestep)
+                if levels_to_mask == total_levels:
+                    # Masking all levels - the active level is the first level after '#'
+                    hash_token_id = self.tokenizer.convert_tokens_to_ids("#")
+                    hash_indices = (x[i] == hash_token_id).nonzero(as_tuple=True)[0]
+                    if len(hash_indices) > 0:
+                        active_start = hash_indices[-1].item() + 1  # Start after the last '#'
+                    else:
+                        active_start = 0
+
+                    # The active level ends at the first pipe
+                    if len(valid_pipe_indices) > 0:
+                        active_end = valid_pipe_indices[0].item()
+                    else:
+                        active_end = seq_len
+                elif levels_to_mask == 1:
+                    # Masking only the last level - active level is after the last pipe
+                    active_start = valid_pipe_indices[-1].item()
+                    active_end = seq_len
+                else:
+                    # Masking k levels from the right
+                    # The active level is between pipe at index (total_levels - levels_to_mask)
+                    # and pipe at index (total_levels - levels_to_mask + 1)
+                    pipe_idx = total_levels - levels_to_mask
+                    active_start = valid_pipe_indices[pipe_idx].item()
+                    if pipe_idx + 1 < len(valid_pipe_indices):
+                        active_end = valid_pipe_indices[pipe_idx + 1].item()
+                    else:
+                        active_end = seq_len
+
+                # Mark the active level in the mask
+                for j in range(active_start, active_end):
+                    if not do_not_mask[i, j]:
+                        active_mask[i, j] = True
+
                 # Mask from right to left, starting from the (total_levels - levels_to_mask)th pipe
                 # Index into valid_pipe_indices from the right
                 if levels_to_mask == total_levels:
@@ -463,8 +520,8 @@ class AbsorbingState(Diffusion):
                             if not do_not_mask[i, j]:
                                 xt[i, j] = self.mask_index
 
-            # Return the modified sequence and the number of levels.
-            return xt, num_levels
+            # Return the modified sequence, the number of levels, and the active mask.
+            return xt, num_levels, active_mask
 
     def prior_sample(self, *batch_dims):
         return self.mask_index * torch.ones(
@@ -533,8 +590,12 @@ class UniformState(Diffusion):
         assert self.parameterization == "mean"
         assert self.T == 0
 
-    def q_xt(self, x, alpha_t, do_not_mask, mask_mode="random"):
+    def q_xt(self, x, alpha_t, do_not_mask, ground_truth_masking=False):
         """Computes the noisy sample xt, protecting specified tokens."""
+        # UniformState doesn't support ground_truth_masking
+        if ground_truth_masking:
+            raise NotImplementedError("UniformState does not support ground_truth_masking")
+
         # Decide which tokens to potentially corrupt based on the noise schedule
         potential_corruption = torch.rand(*x.shape, device=x.device) < 1 - alpha_t
 
@@ -544,7 +605,7 @@ class UniformState(Diffusion):
         uniform_tensor = torch.randint(0, self.vocab_size, x.shape, device=x.device)
 
         xt = torch.where(final_corruption, uniform_tensor, x)
-        return xt
+        return xt, None, None
 
     def prior_sample(self, *batch_dims):
         return torch.randint(
