@@ -10,10 +10,12 @@ import transformers
 
 import arithmetic
 import bfvp
+import palindrome
 import utils
 from arithmetic import ARITHMETIC_CREATORS
 from bfvp import BFVP_CREATORS
 from masked_formal_collator import MaskedFormalCollator
+from palindrome import PALINDROME_CREATORS
 from regular import FSA_CREATORS, get_monoid_size, make_fsa_examples
 
 LOGGER = utils.get_logger(__name__)
@@ -67,6 +69,22 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
             self.FORMAL_TOKENS = (
                 ["#", "|", "+", "-", "*", "/"] + variable_tokens + constant_tokens
             )
+        elif language in PALINDROME_CREATORS:
+            # Palindromes use alphabet symbols (typically a, b) plus structural markers
+            # The actual alphabet will be passed through config, but we support common symbols
+            self.FORMAL_TOKENS = [
+                "#",
+                "|",
+                "a",
+                "b",
+                "c",
+                "d",
+                "e",
+                "T",
+                "F",
+                "compare",
+                "reverse",
+            ]
         else:
             raise ValueError(f"Unknown formal language: {language}")
 
@@ -138,6 +156,11 @@ def _get_split_sizes(dataset_name, config):
         train_size = getattr(arith_cfg, "num_examples_train", 50000)
         valid_size = getattr(arith_cfg, "num_examples_valid", 5000)
         test_size = getattr(arith_cfg, "num_examples_test", 5000)
+    elif dataset_name in PALINDROME_CREATORS:
+        pal_cfg = getattr(config.data, "properties", {})
+        train_size = getattr(pal_cfg, "num_examples_train", 50000)
+        valid_size = getattr(pal_cfg, "num_examples_valid", 5000)
+        test_size = getattr(pal_cfg, "num_examples_test", 5000)
     else:
         train_size, valid_size, test_size = 50000, 5000, 5000
 
@@ -424,6 +447,47 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
             depth_ranges=depth_ranges,
             length_ranges=length_ranges,
         )
+
+    elif dataset_name in PALINDROME_CREATORS:
+        pal_cfg = getattr(config.data, "properties", {})
+        format_mode = getattr(pal_cfg, "format", "final_value")
+        alphabet_str = getattr(pal_cfg, "alphabet", "a,b")
+        alphabet = alphabet_str.split(",")
+
+        # Determine if this is marked or unmarked palindrome
+        marked = dataset_name == "marked_palindrome"
+
+        # Get length ranges per split
+        min_train_len = getattr(pal_cfg, "min_train_len", 4)
+        max_train_len = getattr(pal_cfg, "max_train_len", 32)
+        min_val_len = getattr(pal_cfg, "min_val_len", min_train_len)
+        max_val_len = getattr(pal_cfg, "max_val_len", max_train_len)
+        min_test_len = getattr(pal_cfg, "min_test_len", min_train_len)
+        max_test_len = getattr(pal_cfg, "max_test_len", max_train_len)
+
+        length_ranges = {
+            "train": (min_train_len, max_train_len),
+            "validation": (min_val_len, max_val_len),
+            "test": (min_test_len, max_test_len),
+        }
+
+        LOGGER.info(
+            f"Generating {dataset_name} data with: "
+            f"train_len=[{min_train_len},{max_train_len}], "
+            f"val_len=[{min_val_len},{max_val_len}], "
+            f"test_len=[{min_test_len},{max_test_len}], "
+            f"alphabet={alphabet}, format={format_mode}, seed={seed}"
+        )
+
+        split_pools = palindrome.make_all_splits(
+            marked=marked,
+            alphabet=alphabet,
+            mode=format_mode,
+            seed=seed,
+            split_sizes=split_sizes,
+            length_ranges=length_ranges,
+        )
+
     else:
         raise ValueError(f"Unknown dataset: {dataset_name}")
 

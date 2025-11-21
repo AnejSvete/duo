@@ -1,0 +1,15 @@
+defaults:
+  - formal_language
+
+language: unmarked_palindrome
+properties:
+  alphabet: "a,b"  # Comma-separated alphabet symbols
+
+  # Length ranges for generation and stratification
+  # Length represents total number of symbols in the palindrome
+  min_train_len: 4
+  max_train_len: 32
+  min_val_len: 24
+  max_val_len: 48
+  min_test_len: 40
+  max_test_len: 64
