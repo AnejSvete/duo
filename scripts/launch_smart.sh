@@ -162,18 +162,18 @@ for lang in "${LANGUAGES[@]}"; do
     # Format: "script:algo:length:depends_on_prep_job"
     declare -a CONFIGS=(
         # Uses trace format (depends on trace prep)
-        "train_cot.sh:cot:$LONG:$PREP_TRACE"
-        "train_mdm.sh:mdm:$LONG:$PREP_TRACE"
+        # "train_cot.sh:cot:$LONG:$PREP_TRACE"
+        # "train_mdm.sh:mdm:$LONG:$PREP_TRACE"
         "train_padding.sh:padding:$LONG:$PREP_TRACE"
         "train_padded_looping.sh:padded_looping:$LONG:$PREP_TRACE"
 
         # Uses final_value format (depends on final_value prep)
-        # "train_classifier.sh:classifier:$SHORT:$PREP_FINAL"
-        # "train_looping.sh:looping:$SHORT:$PREP_FINAL"
+        "train_classifier.sh:classifier:$SHORT:$PREP_FINAL"
+        "train_looping.sh:looping:$SHORT:$PREP_FINAL"
 
         # Uses empty_trace format (depends on empty_trace prep)
-        # "train_empty_padding.sh:empty_padding:$LONG:$PREP_EMPTY"
-        # "train_empty_padded_looping.sh:empty_padded_looping:$LONG:$PREP_EMPTY"
+        "train_empty_padding.sh:empty_padding:$LONG:$PREP_EMPTY"
+        "train_empty_padded_looping.sh:empty_padded_looping:$LONG:$PREP_EMPTY"
     )
 
     for config in "${CONFIGS[@]}"; do
