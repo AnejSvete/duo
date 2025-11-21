@@ -1,6 +1,6 @@
 import argparse
 import random
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional, Tuple
 
 # Palindrome language creators dictionary
 PALINDROME_CREATORS = {
@@ -43,9 +43,9 @@ def compute_extra_padding_length(
         # Extra padding proportional to input length
         extra = int(input_length * multiplier)
     elif scale_type == "quadratic":
-        extra = int((input_length ** 2) * multiplier)
+        extra = int((input_length**2) * multiplier)
     elif scale_type == "cubic":
-        extra = int((input_length ** 3) * multiplier)
+        extra = int((input_length**3) * multiplier)
     else:
         raise ValueError(f"Unknown scale_type: {scale_type}")
 
@@ -114,7 +114,7 @@ def check_palindrome(input_string: str, marked: bool = True) -> bool:
 
         marker_idx = symbols.index("#")
         w = symbols[:marker_idx]
-        w_reverse_actual = symbols[marker_idx + 1:]
+        w_reverse_actual = symbols[marker_idx + 1 :]
 
         # For marked palindromes: check if second half is exact reverse of w
         w_reverse_expected = w[::-1]
@@ -152,6 +152,7 @@ def get_palindrome_trace(
         Formatted trace string
     """
     is_palindrome = check_palindrome(input_string, marked)
+    print(f"Checking palindrome: '{input_string}' -> {'T' if is_palindrome else 'F'}")
     result = "T" if is_palindrome else "F"
 
     if mode == "final_value":
@@ -168,7 +169,7 @@ def get_palindrome_trace(
                 return f"{input_string} # F"
 
             w = symbols[:marker_idx]
-            w_reverse = symbols[marker_idx + 1:]
+            w_reverse = symbols[marker_idx + 1 :]
             input_length = len(w) + len(w_reverse)  # Exclude marker from input count
 
             # Phase 1: Push w onto stack
@@ -290,7 +291,7 @@ def get_palindrome_trace(
                 return f"{input_string} # F"
 
             w = symbols[:marker_idx]
-            w_reverse_actual = symbols[marker_idx + 1:]
+            w_reverse_actual = symbols[marker_idx + 1 :]
 
             # Build comparison trace
             steps = []
@@ -298,7 +299,9 @@ def get_palindrome_trace(
 
             # Show comparison
             steps.append(f"reverse {' '.join(w_reverse_expected)}")
-            steps.append(f"compare {' '.join(w_reverse_actual)} {' '.join(w_reverse_expected)}")
+            steps.append(
+                f"compare {' '.join(w_reverse_actual)} {' '.join(w_reverse_expected)}"
+            )
             steps.append(result)
 
             return f"{input_string} # {' | '.join(steps)}"
@@ -407,8 +410,10 @@ def make_all_splits(
                 examples.append({"text": text})
 
         if len(examples) < num_examples:
-            print(f"Warning: Could only generate {len(examples)}/{num_examples} examples for {split_name} "
-                  f"within length range [{min_len}, {max_len}] after {attempts} attempts.")
+            print(
+                f"Warning: Could only generate {len(examples)}/{num_examples} examples for {split_name} "
+                f"within length range [{min_len}, {max_len}] after {attempts} attempts."
+            )
 
         random.shuffle(examples)
         split_pools[split_name] = examples
@@ -530,7 +535,9 @@ if __name__ == "__main__":
 
     alphabet = args.alphabet.split(",")
 
-    print(f"Generating {args.num_examples} {'marked' if args.marked else 'unmarked'} palindromes")
+    print(
+        f"Generating {args.num_examples} {'marked' if args.marked else 'unmarked'} palindromes"
+    )
     print(f"Length range: [{args.min_len}, {args.max_len}]")
     print(f"Alphabet: {alphabet}")
     print(f"Format: {args.format}")
