@@ -94,6 +94,63 @@ def generate_palindrome(length: int, alphabet: List[str], marked: bool = True) -
             return " ".join(first_half + middle + reverse_half)
 
 
+def generate_non_palindrome(length: int, alphabet: List[str], marked: bool = True) -> str:
+    """
+    Generates a NON-palindrome string over the given alphabet.
+
+    Args:
+        length: Length parameter (length of w for marked, total length for unmarked)
+        alphabet: List of symbols to use (e.g., ['a', 'b'])
+        marked: If True, generates marked non-palindrome (w#w'). If False, generates non-palindrome string.
+
+    Returns:
+        Generated non-palindrome string
+    """
+    if length <= 0:
+        raise ValueError("Length must be positive.")
+
+    if len(alphabet) < 2:
+        raise ValueError("Alphabet must have at least 2 symbols to generate non-palindromes.")
+
+    max_attempts = 100
+    for _ in range(max_attempts):
+        if marked:
+            # Generate w and w', ensuring w' is NOT the reverse of w
+            w = [random.choice(alphabet) for _ in range(length)]
+            w_prime = [random.choice(alphabet) for _ in range(length)]
+
+            # Ensure at least one position differs from the reverse
+            w_reverse = w[::-1]
+            if w_prime != w_reverse:
+                return " ".join(w + ["#"] + w_prime)
+
+            # Force a difference at a random position
+            diff_pos = random.randint(0, length - 1)
+            current = w_prime[diff_pos]
+            alternatives = [s for s in alphabet if s != current]
+            if alternatives:
+                w_prime[diff_pos] = random.choice(alternatives)
+                return " ".join(w + ["#"] + w_prime)
+        else:
+            # Generate a string that is NOT a palindrome
+            symbols = [random.choice(alphabet) for _ in range(length)]
+
+            # Check if it's accidentally a palindrome
+            if symbols != symbols[::-1]:
+                return " ".join(symbols)
+
+            # Force it to be non-palindrome by changing a position
+            # Change a position that will break symmetry
+            change_pos = random.randint(0, length // 2)
+            current = symbols[change_pos]
+            alternatives = [s for s in alphabet if s != current]
+            if alternatives:
+                symbols[change_pos] = random.choice(alternatives)
+                return " ".join(symbols)
+
+    raise RuntimeError(f"Failed to generate non-palindrome after {max_attempts} attempts.")
+
+
 def check_palindrome(input_string: str, marked: bool = True) -> bool:
     """
     Verifies if a string is a valid palindrome.
@@ -330,6 +387,7 @@ def make_all_splits(
     padding_multiplier: float = 0.0,
     padding_constant: Optional[int] = None,
     padding_max: Optional[int] = None,
+    negative_ratio: float = 0.5,
 ) -> Dict[str, List[Dict[str, str]]]:
     """
     Generates ALL splits (train/validation/test) with length-based stratification.
@@ -347,6 +405,7 @@ def make_all_splits(
         padding_multiplier: Multiplier for extra padding
         padding_constant: Fixed amount of extra padding (for constant mode)
         padding_max: Maximum extra padding length
+        negative_ratio: Ratio of negative examples (non-palindromes) to generate (default: 0.5 for 50/50 split)
 
     Returns:
         Dictionary with keys "train", "validation", "test" containing lists of examples.
@@ -360,12 +419,17 @@ def make_all_splits(
         min_len, max_len = length_ranges[split_name]
         num_examples = split_sizes[split_name]
 
+        # Calculate how many positive and negative examples to generate
+        num_negative = int(num_examples * negative_ratio)
+        num_positive = num_examples - num_negative
+
         examples = []
         seen = set()  # Track unique examples
         attempts = 0
         max_attempts = num_examples * 1000
 
-        while len(examples) < num_examples and attempts < max_attempts:
+        # Generate positive examples (palindromes)
+        while len([e for e in examples if e.get("label") == "positive"]) < num_positive and attempts < max_attempts:
             attempts += 1
 
             # Sample length uniformly from range
@@ -391,23 +455,37 @@ def make_all_splits(
                 padding_max=padding_max,
             )
 
-            # For length filtering, count input symbols (before '#' marker in output)
-            if "#" in text:
-                input_part = text.split("#")[0].strip()
-                text_length = len(input_part.split())
+            examples.append({"text": text, "label": "positive"})
 
-                # In marked palindromes, the marker '#' is part of the input
-                # So we need to count it
-                if marked:
-                    # Input has format: w # w^R, so total input length is len(w) + len(w^R) + 1 (marker)
-                    # But our length parameter represents the number of symbols excluding marker
-                    # For validation, we check if generated length matches expected
-                    pass
+        # Generate negative examples (non-palindromes)
+        attempts = 0
+        while len([e for e in examples if e.get("label") == "negative"]) < num_negative and attempts < max_attempts:
+            attempts += 1
 
-                examples.append({"text": text})
-            else:
-                # No marker in text (shouldn't happen but handle gracefully)
-                examples.append({"text": text})
+            # Sample length uniformly from range
+            length = random.randint(min_len, max_len)
+
+            # Generate non-palindrome
+            non_palindrome_str = generate_non_palindrome(length, alphabet, marked)
+
+            # Check for duplicates
+            if non_palindrome_str in seen:
+                continue
+
+            seen.add(non_palindrome_str)
+
+            # Generate output based on mode (will correctly label as F)
+            text = get_palindrome_trace(
+                non_palindrome_str,
+                marked,
+                mode,
+                padding_scale_type=padding_scale_type,
+                padding_multiplier=padding_multiplier,
+                padding_constant=padding_constant,
+                padding_max=padding_max,
+            )
+
+            examples.append({"text": text, "label": "negative"})
 
         if len(examples) < num_examples:
             print(
@@ -433,6 +511,7 @@ def make_examples(
     padding_multiplier: float = 0.0,
     padding_constant: Optional[int] = None,
     padding_max: Optional[int] = None,
+    negative_ratio: float = 0.5,
 ) -> List[Dict[str, str]]:
     """
     Generates palindrome examples (backward compatibility).
@@ -449,6 +528,7 @@ def make_examples(
         padding_multiplier: Multiplier for extra padding
         padding_constant: Fixed amount of extra padding
         padding_max: Maximum extra padding length
+        negative_ratio: Ratio of negative examples (non-palindromes) to generate (default: 0.5 for 50/50 split)
 
     Returns:
         List of example dictionaries with "text" key
@@ -456,11 +536,16 @@ def make_examples(
     if seed is not None:
         random.seed(seed)
 
+    # Calculate how many positive and negative examples to generate
+    num_negative = int(num_examples * negative_ratio)
+    num_positive = num_examples - num_negative
+
     examples = []
     seen = set()
 
-    for _ in range(num_examples * 10):  # Allow retries for uniqueness
-        if len(examples) >= num_examples:
+    # Generate positive examples (palindromes)
+    for _ in range(num_positive * 10):  # Allow retries for uniqueness
+        if len([e for e in examples if e.get("label") == "positive"]) >= num_positive:
             break
 
         length = random.randint(min_len, max_len)
@@ -479,8 +564,32 @@ def make_examples(
             padding_constant=padding_constant,
             padding_max=padding_max,
         )
-        examples.append({"text": text})
+        examples.append({"text": text, "label": "positive"})
 
+    # Generate negative examples (non-palindromes)
+    for _ in range(num_negative * 10):  # Allow retries for uniqueness
+        if len([e for e in examples if e.get("label") == "negative"]) >= num_negative:
+            break
+
+        length = random.randint(min_len, max_len)
+        non_palindrome_str = generate_non_palindrome(length, alphabet, marked)
+
+        if non_palindrome_str in seen:
+            continue
+
+        seen.add(non_palindrome_str)
+        text = get_palindrome_trace(
+            non_palindrome_str,
+            marked,
+            mode,
+            padding_scale_type=padding_scale_type,
+            padding_multiplier=padding_multiplier,
+            padding_constant=padding_constant,
+            padding_max=padding_max,
+        )
+        examples.append({"text": text, "label": "negative"})
+
+    random.shuffle(examples)
     return examples
 
 
