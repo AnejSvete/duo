@@ -1,6 +1,53 @@
 import argparse
 import random
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
+
+
+def compute_extra_padding_length(
+    input_length: int,
+    natural_trace_length: int,
+    scale_type: str = "natural",
+    multiplier: float = 0.0,
+    constant: Optional[int] = None,
+    max_length: Optional[int] = None,
+) -> int:
+    """
+    Computes the amount of EXTRA empty padding to add beyond natural trace.
+
+    Args:
+        input_length: Length of the input sequence (before '#')
+        natural_trace_length: Natural length of computation trace
+        scale_type: Base quantity to scale ("natural", "linear", "quadratic", "cubic", "constant")
+        multiplier: Scaling factor (0.0 = no extra padding)
+        constant: Fixed padding length (for constant mode)
+        max_length: Maximum extra padding length
+
+    Returns:
+        Number of additional [PAD] tokens to append
+    """
+    if multiplier == 0.0 and constant is None:
+        return 0  # No extra padding
+
+    if scale_type == "constant":
+        extra = constant if constant is not None else 0
+    elif scale_type == "natural":
+        # Extra padding proportional to natural trace length
+        extra = int(natural_trace_length * multiplier)
+    elif scale_type == "linear":
+        # Extra padding proportional to input length
+        extra = int(input_length * multiplier)
+    elif scale_type == "quadratic":
+        extra = int((input_length ** 2) * multiplier)
+    elif scale_type == "cubic":
+        extra = int((input_length ** 3) * multiplier)
+    else:
+        raise ValueError(f"Unknown scale_type: {scale_type}")
+
+    # Apply cap
+    if max_length is not None:
+        extra = min(extra, max_length)
+
+    return max(0, extra)  # Never negative
 
 
 class FiniteStateAutomaton:
@@ -402,6 +449,10 @@ def make_all_splits_fsa(
     mode: str,
     seed: int,
     split_sizes: Dict[str, int],
+    padding_scale_type: str = "natural",
+    padding_multiplier: float = 0.0,
+    padding_constant: Optional[int] = None,
+    padding_max: Optional[int] = None,
 ) -> Dict[str, List[Dict[str, str]]]:
     """
     Generates ALL splits (train/validation/test) in a single pass with disjoint examples.
@@ -411,6 +462,10 @@ def make_all_splits_fsa(
                       as tuples (min_len, max_len) for each split.
         split_sizes: Dictionary with keys "train", "validation", "test" and values
                      as the number of examples needed for each split.
+        padding_scale_type: Type of padding scaling ("natural", "linear", "quadratic", "cubic", "constant")
+        padding_multiplier: Multiplier for extra padding
+        padding_constant: Fixed amount of extra padding (for constant mode)
+        padding_max: Maximum extra padding length
 
     Returns:
         Dictionary with keys "train", "validation", "test" containing lists of examples.
@@ -462,7 +517,15 @@ def make_all_splits_fsa(
         input_string = "".join(random.choices(fsa.alphabet, k=length))
 
         text = _generate_fsa_text(
-            input_string, symbol_map, mult_table, identity_id, mode
+            input_string,
+            symbol_map,
+            mult_table,
+            identity_id,
+            mode,
+            padding_scale_type=padding_scale_type,
+            padding_multiplier=padding_multiplier,
+            padding_constant=padding_constant,
+            padding_max=padding_max,
         )
 
         # Check if we've seen this example before
@@ -492,6 +555,10 @@ def make_fsa_examples(
     max_len: int,
     mode: str,
     seed: int = None,
+    padding_scale_type: str = "natural",
+    padding_multiplier: float = 0.0,
+    padding_constant: Optional[int] = None,
+    padding_max: Optional[int] = None,
 ) -> List[Dict[str, str]]:
     """Generates examples for a given FSA and its computed monoid (backward compatibility)."""
     if seed is not None:
@@ -507,7 +574,15 @@ def make_fsa_examples(
         input_string = "".join(random.choices(fsa.alphabet, k=length))
 
         text = _generate_fsa_text(
-            input_string, symbol_map, mult_table, identity_id, mode
+            input_string,
+            symbol_map,
+            mult_table,
+            identity_id,
+            mode,
+            padding_scale_type=padding_scale_type,
+            padding_multiplier=padding_multiplier,
+            padding_constant=padding_constant,
+            padding_max=padding_max,
         )
         examples.append({"text": text})
 
@@ -521,26 +596,79 @@ def _generate_fsa_text(
     mult_table: list,
     identity_id: int,
     mode: str,
+    padding_scale_type: str = "natural",
+    padding_multiplier: float = 0.0,
+    padding_constant: Optional[int] = None,
+    padding_max: Optional[int] = None,
 ) -> str:
     """Helper function to generate text representation from FSA input."""
     trace_levels = get_monoid_trace(input_string, symbol_map, mult_table, identity_id)
     initial_repr = " ".join(input_string)
+    input_length = len(input_string)
 
     if mode == "trace":
-        text = f"{initial_repr} # {' | '.join(trace_levels[1:])}"
+        if len(trace_levels) > 1:
+            trace_steps = trace_levels[1:-1]  # Intermediate steps (exclude initial and final)
+            final_value = trace_levels[-1]
+            natural_trace_length = len(trace_steps)
+
+            # Compute extra padding
+            extra_padding_count = compute_extra_padding_length(
+                input_length=input_length,
+                natural_trace_length=natural_trace_length,
+                scale_type=padding_scale_type,
+                multiplier=padding_multiplier,
+                constant=padding_constant,
+                max_length=padding_max,
+            )
+
+            # Build output
+            if extra_padding_count > 0:
+                # Natural trace + extra padding block + final
+                trace_part = " | ".join(trace_steps)
+                extra_padding_part = " ".join(["[PAD]"] * extra_padding_count)
+                text = f"{initial_repr} # {trace_part} | {extra_padding_part} | {final_value}"
+            else:
+                # Just natural trace (current behavior)
+                text = f"{initial_repr} # {' | '.join(trace_levels[1:])}"
+        else:
+            # No intermediate steps
+            text = f"{initial_repr} # {trace_levels[0]}"
+
     elif mode == "final_value":
         text = f"{initial_repr} # {trace_levels[-1]}"
+
     elif mode == "empty_trace":
         if len(trace_levels) > 1:
             reduction_steps_list = trace_levels[1:]
             final_value = reduction_steps_list[-1]
+            natural_trace_length = len(reduction_steps_list) - 1  # Exclude final
+
+            # Create empty padding for natural trace structure
             padded_steps = []
             for step in reduction_steps_list[:-1]:
                 num_values = len(step.split())
                 padded_steps.append(" ".join(["[PAD]"] * num_values))
-            if padded_steps:
-                padded_trace = " [PAD] ".join(padded_steps)
-                text = f"{initial_repr} # {padded_trace} [PAD] {final_value}"
+
+            # Compute extra padding
+            extra_padding_count = compute_extra_padding_length(
+                input_length=input_length,
+                natural_trace_length=natural_trace_length,
+                scale_type=padding_scale_type,
+                multiplier=padding_multiplier,
+                constant=padding_constant,
+                max_length=padding_max,
+            )
+
+            # Build output
+            if padded_steps or extra_padding_count > 0:
+                parts = []
+                if padded_steps:
+                    parts.append(" [PAD] ".join(padded_steps))  # Natural structure padding
+                if extra_padding_count > 0:
+                    parts.append(" ".join(["[PAD]"] * extra_padding_count))  # Extra padding
+                parts.append(final_value)
+                text = f"{initial_repr} # {' [PAD] '.join(parts)}"
             else:
                 text = f"{initial_repr} # {final_value}"
         else:

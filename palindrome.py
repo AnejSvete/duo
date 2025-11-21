@@ -1,12 +1,59 @@
 import argparse
 import random
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 # Palindrome language creators dictionary
 PALINDROME_CREATORS = {
     "marked_palindrome": True,
     "unmarked_palindrome": True,
 }
+
+
+def compute_extra_padding_length(
+    input_length: int,
+    natural_trace_length: int,
+    scale_type: str = "natural",
+    multiplier: float = 0.0,
+    constant: Optional[int] = None,
+    max_length: Optional[int] = None,
+) -> int:
+    """
+    Computes the amount of EXTRA empty padding to add beyond natural trace.
+
+    Args:
+        input_length: Length of the input sequence (before '#')
+        natural_trace_length: Natural length of computation trace
+        scale_type: Base quantity to scale ("natural", "linear", "quadratic", "cubic", "constant")
+        multiplier: Scaling factor (0.0 = no extra padding)
+        constant: Fixed padding length (for constant mode)
+        max_length: Maximum extra padding length
+
+    Returns:
+        Number of additional [PAD] tokens to append
+    """
+    if multiplier == 0.0 and constant is None:
+        return 0  # No extra padding
+
+    if scale_type == "constant":
+        extra = constant if constant is not None else 0
+    elif scale_type == "natural":
+        # Extra padding proportional to natural trace length
+        extra = int(natural_trace_length * multiplier)
+    elif scale_type == "linear":
+        # Extra padding proportional to input length
+        extra = int(input_length * multiplier)
+    elif scale_type == "quadratic":
+        extra = int((input_length ** 2) * multiplier)
+    elif scale_type == "cubic":
+        extra = int((input_length ** 3) * multiplier)
+    else:
+        raise ValueError(f"Unknown scale_type: {scale_type}")
+
+    # Apply cap
+    if max_length is not None:
+        extra = min(extra, max_length)
+
+    return max(0, extra)  # Never negative
 
 
 def generate_palindrome(length: int, alphabet: List[str], marked: bool = True) -> str:
@@ -78,7 +125,13 @@ def check_palindrome(input_string: str, marked: bool = True) -> bool:
 
 
 def get_palindrome_trace(
-    input_string: str, marked: bool = True, mode: str = "trace"
+    input_string: str,
+    marked: bool = True,
+    mode: str = "trace",
+    padding_scale_type: str = "natural",
+    padding_multiplier: float = 0.0,
+    padding_constant: Optional[int] = None,
+    padding_max: Optional[int] = None,
 ) -> str:
     """
     Generates a trace showing palindrome verification.
@@ -90,6 +143,10 @@ def get_palindrome_trace(
         input_string: The palindrome string to trace
         marked: Whether this is a marked palindrome
         mode: Format mode (trace, final_value, or verify)
+        padding_scale_type: Type of padding scaling ("natural", "linear", "quadratic", "cubic", "constant")
+        padding_multiplier: Multiplier for extra padding
+        padding_constant: Fixed amount of extra padding (for constant mode)
+        padding_max: Maximum extra padding length
 
     Returns:
         Formatted trace string
@@ -112,6 +169,7 @@ def get_palindrome_trace(
 
             w = symbols[:marker_idx]
             w_reverse = symbols[marker_idx + 1:]
+            input_length = len(w) + len(w_reverse)  # Exclude marker from input count
 
             # Phase 1: Push w onto stack
             push_steps = [f"push_{char}" for char in w]
@@ -139,16 +197,38 @@ def get_palindrome_trace(
             # Check if we popped everything (lengths match)
             if len(w) != len(w_reverse):
                 all_steps = push_steps + pop_steps + ["len≠", "F"]
+                return f"{input_string} # {' | '.join(all_steps)}"
             else:
-                all_steps = push_steps + pop_steps + ["T"]
+                # Success case - add extra padding if configured
+                trace_steps = push_steps + pop_steps
+                natural_trace_length = len(trace_steps)
 
-            return f"{input_string} # {' | '.join(all_steps)}"
+                # Compute extra padding
+                extra_padding_count = compute_extra_padding_length(
+                    input_length=input_length,
+                    natural_trace_length=natural_trace_length,
+                    scale_type=padding_scale_type,
+                    multiplier=padding_multiplier,
+                    constant=padding_constant,
+                    max_length=padding_max,
+                )
+
+                if extra_padding_count > 0:
+                    # Natural trace + extra padding + final
+                    extra_padding_part = " ".join(["[PAD]"] * extra_padding_count)
+                    all_steps = trace_steps + [extra_padding_part, "T"]
+                    return f"{input_string} # {' | '.join(all_steps)}"
+                else:
+                    # Just natural trace (backward compatible)
+                    all_steps = trace_steps + ["T"]
+                    return f"{input_string} # {' | '.join(all_steps)}"
 
         else:
             # For unmarked palindromes: push first half, then pop and compare second half
             steps = []
             n = len(symbols)
             mid = n // 2
+            input_length = n
 
             # Phase 1: Push first half onto stack
             push_steps = [f"push_{symbols[i]}" for i in range(mid)]
@@ -176,8 +256,29 @@ def get_palindrome_trace(
                     all_steps = push_steps + pop_steps + ["F"]
                     return f"{input_string} # {' | '.join(all_steps)}"
 
-            all_steps = push_steps + pop_steps + ["T"]
-            return f"{input_string} # {' | '.join(all_steps)}"
+            # Success case - add extra padding if configured
+            trace_steps = push_steps + pop_steps
+            natural_trace_length = len(trace_steps)
+
+            # Compute extra padding
+            extra_padding_count = compute_extra_padding_length(
+                input_length=input_length,
+                natural_trace_length=natural_trace_length,
+                scale_type=padding_scale_type,
+                multiplier=padding_multiplier,
+                constant=padding_constant,
+                max_length=padding_max,
+            )
+
+            if extra_padding_count > 0:
+                # Natural trace + extra padding + final
+                extra_padding_part = " ".join(["[PAD]"] * extra_padding_count)
+                all_steps = trace_steps + [extra_padding_part, "T"]
+                return f"{input_string} # {' | '.join(all_steps)}"
+            else:
+                # Just natural trace (backward compatible)
+                all_steps = trace_steps + ["T"]
+                return f"{input_string} # {' | '.join(all_steps)}"
 
     elif mode == "verify":
         # Show verification steps (more verbose than trace)
@@ -222,6 +323,10 @@ def make_all_splits(
     seed: int,
     split_sizes: Dict[str, int],
     length_ranges: Dict[str, Tuple[int, int]],
+    padding_scale_type: str = "natural",
+    padding_multiplier: float = 0.0,
+    padding_constant: Optional[int] = None,
+    padding_max: Optional[int] = None,
 ) -> Dict[str, List[Dict[str, str]]]:
     """
     Generates ALL splits (train/validation/test) with length-based stratification.
@@ -235,6 +340,10 @@ def make_all_splits(
                     as the number of examples needed for each split.
         length_ranges: Dictionary with keys "train", "validation", "test" and values
                       as (min_length, max_length) tuples for each split.
+        padding_scale_type: Type of padding scaling ("natural", "linear", "quadratic", "cubic", "constant")
+        padding_multiplier: Multiplier for extra padding
+        padding_constant: Fixed amount of extra padding (for constant mode)
+        padding_max: Maximum extra padding length
 
     Returns:
         Dictionary with keys "train", "validation", "test" containing lists of examples.
@@ -269,7 +378,15 @@ def make_all_splits(
             seen.add(palindrome_str)
 
             # Generate output based on mode
-            text = get_palindrome_trace(palindrome_str, marked, mode)
+            text = get_palindrome_trace(
+                palindrome_str,
+                marked,
+                mode,
+                padding_scale_type=padding_scale_type,
+                padding_multiplier=padding_multiplier,
+                padding_constant=padding_constant,
+                padding_max=padding_max,
+            )
 
             # For length filtering, count input symbols (before '#' marker in output)
             if "#" in text:
@@ -307,6 +424,10 @@ def make_examples(
     alphabet: List[str],
     mode: str,
     seed: int = None,
+    padding_scale_type: str = "natural",
+    padding_multiplier: float = 0.0,
+    padding_constant: Optional[int] = None,
+    padding_max: Optional[int] = None,
 ) -> List[Dict[str, str]]:
     """
     Generates palindrome examples (backward compatibility).
@@ -319,6 +440,10 @@ def make_examples(
         alphabet: List of symbols to use
         mode: Format mode (trace/final_value/verify)
         seed: Random seed
+        padding_scale_type: Type of padding scaling
+        padding_multiplier: Multiplier for extra padding
+        padding_constant: Fixed amount of extra padding
+        padding_max: Maximum extra padding length
 
     Returns:
         List of example dictionaries with "text" key
@@ -340,7 +465,15 @@ def make_examples(
             continue
 
         seen.add(palindrome_str)
-        text = get_palindrome_trace(palindrome_str, marked, mode)
+        text = get_palindrome_trace(
+            palindrome_str,
+            marked,
+            mode,
+            padding_scale_type=padding_scale_type,
+            padding_multiplier=padding_multiplier,
+            padding_constant=padding_constant,
+            padding_max=padding_max,
+        )
         examples.append({"text": text})
 
     return examples

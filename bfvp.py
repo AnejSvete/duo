@@ -1,11 +1,58 @@
 import argparse
 import random
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple, Optional
 
 # Added for structural consistency with the regular language codebase
 BFVP_CREATORS = {
     "bfvp": True,
 }
+
+
+def compute_extra_padding_length(
+    input_length: int,
+    natural_trace_length: int,
+    scale_type: str = "natural",
+    multiplier: float = 0.0,
+    constant: Optional[int] = None,
+    max_length: Optional[int] = None,
+) -> int:
+    """
+    Computes the amount of EXTRA empty padding to add beyond natural trace.
+
+    Args:
+        input_length: Length of the input sequence (before '#')
+        natural_trace_length: Natural length of computation trace
+        scale_type: Base quantity to scale ("natural", "linear", "quadratic", "cubic", "constant")
+        multiplier: Scaling factor (0.0 = no extra padding)
+        constant: Fixed padding length (for constant mode)
+        max_length: Maximum extra padding length
+
+    Returns:
+        Number of additional [PAD] tokens to append
+    """
+    if multiplier == 0.0 and constant is None:
+        return 0  # No extra padding
+
+    if scale_type == "constant":
+        extra = constant if constant is not None else 0
+    elif scale_type == "natural":
+        # Extra padding proportional to natural trace length
+        extra = int(natural_trace_length * multiplier)
+    elif scale_type == "linear":
+        # Extra padding proportional to input length
+        extra = int(input_length * multiplier)
+    elif scale_type == "quadratic":
+        extra = int((input_length ** 2) * multiplier)
+    elif scale_type == "cubic":
+        extra = int((input_length ** 3) * multiplier)
+    else:
+        raise ValueError(f"Unknown scale_type: {scale_type}")
+
+    # Apply cap
+    if max_length is not None:
+        extra = min(extra, max_length)
+
+    return max(0, extra)  # Never negative
 
 
 def generate_formula_tree(depth: int, num_vars: int) -> Dict[str, Any]:
@@ -200,6 +247,10 @@ def make_all_splits(
     split_sizes: Dict[str, int],
     depth_ranges: Dict[str, Tuple[int, int]] = None,
     length_ranges: Dict[str, Tuple[int, int]] = None,
+    padding_scale_type: str = "natural",
+    padding_multiplier: float = 0.0,
+    padding_constant: Optional[int] = None,
+    padding_max: Optional[int] = None,
 ) -> Dict[str, List[Dict[str, str]]]:
     """
     Generates ALL splits (train/validation/test) with length-based stratification.
@@ -217,6 +268,10 @@ def make_all_splits(
         length_ranges: Optional dictionary with keys "train", "validation", "test" and values
                      as (min_length, max_length) tuples for each split. Examples are filtered by final token length.
                      If provided, uses rejection sampling to ensure examples fall within length range.
+        padding_scale_type: Type of padding scaling ("natural", "linear", "quadratic", "cubic", "constant")
+        padding_multiplier: Multiplier for extra padding
+        padding_constant: Fixed amount of extra padding (for constant mode)
+        padding_max: Maximum extra padding length
 
     Returns:
         Dictionary with keys "train", "validation", "test" containing lists of examples.
@@ -259,7 +314,16 @@ def make_all_splits(
             assignments = {var: random.choice([True, False]) for var in variables}
             substituted_tree = substitute_vars_in_tree(expression_tree, assignments)
 
-            text = _generate_text_from_tree(substituted_tree, expression_tree, assignments, mode)
+            text = _generate_text_from_tree(
+                substituted_tree,
+                expression_tree,
+                assignments,
+                mode,
+                padding_scale_type=padding_scale_type,
+                padding_multiplier=padding_multiplier,
+                padding_constant=padding_constant,
+                padding_max=padding_max,
+            )
 
             # Apply length filter if specified
             if use_length_filter:
@@ -294,6 +358,10 @@ def make_examples(
     num_vars: int,
     mode: str,
     seed: int = None,
+    padding_scale_type: str = "natural",
+    padding_multiplier: float = 0.0,
+    padding_constant: Optional[int] = None,
+    padding_max: Optional[int] = None,
 ) -> List[Dict[str, str]]:
     """
     Generates formulas based on the specified mode (backward compatibility).
@@ -310,7 +378,14 @@ def make_examples(
         substituted_tree = substitute_vars_in_tree(expression_tree, assignments)
 
         text = _generate_text_from_tree(
-            substituted_tree, expression_tree, assignments, mode
+            substituted_tree,
+            expression_tree,
+            assignments,
+            mode,
+            padding_scale_type=padding_scale_type,
+            padding_multiplier=padding_multiplier,
+            padding_constant=padding_constant,
+            padding_max=padding_max,
         )
         examples.append({"text": text})
 
@@ -322,27 +397,86 @@ def _generate_text_from_tree(
     expression_tree: Dict[str, Any],
     assignments: Dict[str, bool],
     mode: str,
+    padding_scale_type: str = "natural",
+    padding_multiplier: float = 0.0,
+    padding_constant: Optional[int] = None,
+    padding_max: Optional[int] = None,
 ) -> str:
     """Helper function to generate text representation from trees."""
     if mode == "trace":
-        text = get_prefix_reduction_trace(substituted_tree)
+        steps = get_prefix_reduction_steps(substituted_tree)
+        initial_repr = steps[0]
+        input_length = len(initial_repr.split())
+
+        if len(steps) > 1:
+            trace_steps = steps[1:-1]  # Intermediate steps (exclude initial and final)
+            final_value = steps[-1]
+            natural_trace_length = len(trace_steps)
+
+            # Compute extra padding
+            extra_padding_count = compute_extra_padding_length(
+                input_length=input_length,
+                natural_trace_length=natural_trace_length,
+                scale_type=padding_scale_type,
+                multiplier=padding_multiplier,
+                constant=padding_constant,
+                max_length=padding_max,
+            )
+
+            # Build output
+            if extra_padding_count > 0:
+                # Natural trace + extra padding block + final
+                trace_part = " | ".join(trace_steps)
+                extra_padding_part = " ".join(["[PAD]"] * extra_padding_count)
+                text = f"{initial_repr} # {trace_part} | {extra_padding_part} | {final_value}"
+            else:
+                # Just natural trace (current behavior)
+                trace_part = " | ".join(trace_steps)
+                text = f"{initial_repr} # {trace_part} | {final_value}"
+        else:
+            # No intermediate steps
+            text = steps[0]
+
     elif mode == "final_value":
         prefix_str = tree_to_prefix_str(substituted_tree)
         final_value = evaluate_expression_tree(substituted_tree)
         text = f"{prefix_str} # {final_value}"
+
     elif mode == "empty_trace":
         steps = get_prefix_reduction_steps(substituted_tree)
         initial_repr = steps[0]
+        input_length = len(initial_repr.split())
+
         if len(steps) > 1:
             reduction_steps_list = steps[1:]
             final_value = reduction_steps_list[-1]
+            natural_trace_length = len(reduction_steps_list) - 1  # Exclude final
+
+            # Create empty padding for natural trace structure
             padded_steps = []
             for step in reduction_steps_list[:-1]:
                 num_tokens = len(step.split())
                 padded_steps.append(" ".join(["[PAD]"] * num_tokens))
-            if padded_steps:
-                padded_trace = " [PAD] ".join(padded_steps)
-                text = f"{initial_repr} # {padded_trace} [PAD] {final_value}"
+
+            # Compute extra padding
+            extra_padding_count = compute_extra_padding_length(
+                input_length=input_length,
+                natural_trace_length=natural_trace_length,
+                scale_type=padding_scale_type,
+                multiplier=padding_multiplier,
+                constant=padding_constant,
+                max_length=padding_max,
+            )
+
+            # Build output
+            if padded_steps or extra_padding_count > 0:
+                parts = []
+                if padded_steps:
+                    parts.append(" [PAD] ".join(padded_steps))  # Natural structure padding
+                if extra_padding_count > 0:
+                    parts.append(" ".join(["[PAD]"] * extra_padding_count))  # Extra padding
+                parts.append(final_value)
+                text = f"{initial_repr} # {' [PAD] '.join(parts)}"
             else:
                 text = f"{initial_repr} # {final_value}"
         else:
