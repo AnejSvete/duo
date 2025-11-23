@@ -34,6 +34,7 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
         min_val: Optional[int] = None,
         max_val: Optional[int] = None,
         format_mode: str = "trace",
+        alphabet: Optional[list] = None,
         **kwargs,
     ):
 
@@ -70,21 +71,29 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
                 ["#", "|", "+", "-", "*", "/"] + variable_tokens + constant_tokens
             )
         elif language in PALINDROME_CREATORS:
-            # Palindromes use alphabet symbols (typically a, b) plus structural markers
-            # The actual alphabet will be passed through config, but we support common symbols
-            self.FORMAL_TOKENS = [
-                "#",
-                "|",
-                "a",
-                "b",
-                "c",
-                "d",
-                "e",
-                "T",
-                "F",
-                "compare",
-                "reverse",
-            ]
+            # Palindromes use alphabet symbols plus structural markers
+            if alphabet is None:
+                alphabet = ["a", "b"]  # Default alphabet
+
+            # Base tokens
+            base_tokens = ["#", "|", "$", "T", "F", "compare", "reverse", "len≠"]
+
+            # Add alphabet symbols
+            alphabet_tokens = list(alphabet)
+
+            # Generate trace-specific tokens for each alphabet symbol
+            trace_tokens = []
+            if format_mode == "trace" or format_mode == "empty_trace":
+                for symbol in alphabet:
+                    trace_tokens.extend([
+                        f"push_{symbol}",
+                        f"pop={symbol}",
+                        f"pop≠{symbol}",
+                        f"skip_{symbol}",
+                        f"empty≠{symbol}",
+                    ])
+
+            self.FORMAL_TOKENS = base_tokens + alphabet_tokens + trace_tokens
         else:
             raise ValueError(f"Unknown formal language: {language}")
 
@@ -698,6 +707,7 @@ def get_tokenizer(config):
     min_val = None
     max_val = None
     format_mode = "trace"
+    alphabet = None
     # Pre-compute monoid size or num_vars for dynamic tokenizer vocab
     if language in BFVP_CREATORS:
         bfvp_cfg = getattr(config.data, "properties", {})
@@ -720,6 +730,14 @@ def get_tokenizer(config):
         LOGGER.info(
             f"Language '{language}' requires 2 variables and values in [{min_val}, {max_val}]. Creating dynamic tokenizer."
         )
+    elif language in PALINDROME_CREATORS:
+        palindrome_cfg = getattr(config.data, "properties", {})
+        alphabet_str = getattr(palindrome_cfg, "alphabet", "a,b")
+        alphabet = alphabet_str.split(",")
+        format_mode = getattr(palindrome_cfg, "format", "trace")
+        LOGGER.info(
+            f"Language '{language}' requires alphabet {alphabet}. Creating dynamic tokenizer."
+        )
     tokenizer = FormalTokenizer(
         language=language,
         monoid_size=monoid_size,
@@ -727,6 +745,7 @@ def get_tokenizer(config):
         min_val=min_val,
         max_val=max_val,
         format_mode=format_mode,
+        alphabet=alphabet,
     )
 
     if isinstance(
