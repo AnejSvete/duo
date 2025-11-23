@@ -8,9 +8,9 @@ properties:
   # Depth ranges for generation (samples from these depths)
   min_train_depth: 1
   max_train_depth: 4
-  min_val_depth: 3
+  min_val_depth: 2
   max_val_depth: 4
-  min_test_depth: 4
+  min_test_depth: 2
   max_test_depth: 4
 
   # Length ranges for stratification (rejection sampling ensures examples fall in these ranges)

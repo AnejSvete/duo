@@ -63,7 +63,7 @@ def generate_palindrome(length: int, alphabet: List[str], marked: bool = True) -
     Args:
         length: Length of the palindrome (length of w in both marked and unmarked)
         alphabet: List of symbols to use (e.g., ['a', 'b'])
-        marked: If True, generates marked palindrome (w#w^R). If False, generates ww^R.
+        marked: If True, generates marked palindrome (w$w^R). If False, generates ww^R.
 
     Returns:
         Generated palindrome string
@@ -72,11 +72,11 @@ def generate_palindrome(length: int, alphabet: List[str], marked: bool = True) -
         raise ValueError("Length must be positive.")
 
     if marked:
-        # For marked palindromes: generate w, then marker, then w^R (full reverse of w)
+        # For marked palindromes: generate w, then marker ($), then w^R (full reverse of w)
         # Length is the length of w
         w = [random.choice(alphabet) for _ in range(length)]
         w_reverse = w[::-1]
-        return " ".join(w + ["#"] + w_reverse)
+        return " ".join(w + ["$"] + w_reverse)
     else:
         # For unmarked palindromes: generate ww^R where the string reads same forwards/backwards
         # Length is the total length of the final palindrome
@@ -101,7 +101,7 @@ def generate_non_palindrome(length: int, alphabet: List[str], marked: bool = Tru
     Args:
         length: Length parameter (length of w for marked, total length for unmarked)
         alphabet: List of symbols to use (e.g., ['a', 'b'])
-        marked: If True, generates marked non-palindrome (w#w'). If False, generates non-palindrome string.
+        marked: If True, generates marked non-palindrome (w$w'). If False, generates non-palindrome string.
 
     Returns:
         Generated non-palindrome string
@@ -122,7 +122,7 @@ def generate_non_palindrome(length: int, alphabet: List[str], marked: bool = Tru
             # Ensure at least one position differs from the reverse
             w_reverse = w[::-1]
             if w_prime != w_reverse:
-                return " ".join(w + ["#"] + w_prime)
+                return " ".join(w + ["$"] + w_prime)
 
             # Force a difference at a random position
             diff_pos = random.randint(0, length - 1)
@@ -130,7 +130,7 @@ def generate_non_palindrome(length: int, alphabet: List[str], marked: bool = Tru
             alternatives = [s for s in alphabet if s != current]
             if alternatives:
                 w_prime[diff_pos] = random.choice(alternatives)
-                return " ".join(w + ["#"] + w_prime)
+                return " ".join(w + ["$"] + w_prime)
         else:
             # Generate a string that is NOT a palindrome
             symbols = [random.choice(alphabet) for _ in range(length)]
@@ -157,7 +157,7 @@ def check_palindrome(input_string: str, marked: bool = True) -> bool:
 
     Args:
         input_string: Space-separated string to check
-        marked: If True, expects marked palindrome (w#w^R). If False, expects ww^R.
+        marked: If True, expects marked palindrome (w$w^R). If False, expects ww^R.
 
     Returns:
         True if valid palindrome, False otherwise
@@ -165,11 +165,11 @@ def check_palindrome(input_string: str, marked: bool = True) -> bool:
     symbols = input_string.strip().split()
 
     if marked:
-        # Check for marker
-        if "#" not in symbols:
+        # Check for marker ($)
+        if "$" not in symbols:
             return False
 
-        marker_idx = symbols.index("#")
+        marker_idx = symbols.index("$")
         w = symbols[:marker_idx]
         w_reverse_actual = symbols[marker_idx + 1 :]
 
@@ -193,7 +193,7 @@ def get_palindrome_trace(
     """
     Generates a trace showing palindrome verification.
 
-    For marked palindromes (trace mode): w # w^R # pos_0 | pos_1 | ... | result
+    For marked palindromes (trace mode): w $ w^R # pos_0 | pos_1 | ... | result
     For unmarked palindromes (trace mode): ww^R # pos_0 | pos_1 | ... | result
 
     Args:
@@ -213,7 +213,7 @@ def get_palindrome_trace(
     result = "T" if is_palindrome else "F"
 
     if mode == "final_value":
-        # Just input and result
+        # Just input and result (# separates prompt from completion)
         return f"{input_string} # {result}"
 
     elif mode == "trace":
@@ -221,7 +221,7 @@ def get_palindrome_trace(
         symbols = input_string.strip().split()
 
         if marked:
-            marker_idx = symbols.index("#") if "#" in symbols else -1
+            marker_idx = symbols.index("$") if "$" in symbols else -1
             if marker_idx == -1:
                 return f"{input_string} # F"
 
@@ -343,7 +343,7 @@ def get_palindrome_trace(
         symbols = input_string.strip().split()
 
         if marked:
-            marker_idx = symbols.index("#") if "#" in symbols else -1
+            marker_idx = symbols.index("$") if "$" in symbols else -1
             if marker_idx == -1:
                 return f"{input_string} # F"
 
