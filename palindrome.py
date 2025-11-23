@@ -138,7 +138,7 @@ def generate_non_palindrome(
         w_prime = w_reverse.copy()  # Start with reverse
 
         # Force a difference at a random position
-        diff_pos = random.randint(0, length - 1)
+        diff_pos = random.randint(0, half_len - 1)
         current = w_prime[diff_pos]
         # Pre-filter alternatives for efficiency
         alternatives = [s for s in alphabet if s != current]
