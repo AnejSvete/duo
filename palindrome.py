@@ -128,11 +128,12 @@ def generate_non_palindrome(
         raise ValueError(
             "Alphabet must have at least 2 symbols to generate non-palindromes."
         )
+    half_len = length // 2
 
     if marked:
         # Generate w and w', ensuring w' is NOT the reverse of w
         # More efficient: generate w, then create w' by copying reverse and changing one position
-        w = [random.choice(alphabet) for _ in range(length)]
+        w = [random.choice(alphabet) for _ in range(half_len)]
         w_reverse = w[::-1]
         w_prime = w_reverse.copy()  # Start with reverse
 
@@ -153,7 +154,6 @@ def generate_non_palindrome(
     else:
         # Generate a string that is NOT a palindrome
         # More efficient: generate first half, then second half that differs
-        half_len = length // 2
         first_half = [random.choice(alphabet) for _ in range(half_len)]
 
         if length % 2 == 0:
