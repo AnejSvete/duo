@@ -313,9 +313,15 @@ def get_palindrome_trace(
 
                 if extra_padding_count > 0:
                     extra_padding_part = " ".join(["[PAD]"] * extra_padding_count)
+                    # If padded_steps is empty, output padding without | separators
+                    if not padded_steps:
+                        return f"{input_string} # {extra_padding_part} T"
                     all_steps = padded_steps + [extra_padding_part, "T"]
                     return f"{input_string} # {' | '.join(all_steps)}"
                 else:
+                    # If padded_steps is empty, just output the result
+                    if not padded_steps:
+                        return f"{input_string} # T"
                     all_steps = padded_steps + ["T"]
                     return f"{input_string} # {' | '.join(all_steps)}"
 
@@ -368,13 +374,18 @@ def get_palindrome_trace(
 
             if extra_padding_count > 0:
                 extra_padding_part = " ".join(["[PAD]"] * extra_padding_count)
-                all_steps = padded_steps + [
-                    extra_padding_part,
-                    "T" if not mismatch else "F",
-                ]
+                result_token = "T" if not mismatch else "F"
+                # If padded_steps is empty, output padding without | separators
+                if not padded_steps:
+                    return f"{input_string} # {extra_padding_part} {result_token}"
+                all_steps = padded_steps + [extra_padding_part, result_token]
                 return f"{input_string} # {' | '.join(all_steps)}"
             else:
-                all_steps = padded_steps + ["T" if not mismatch else "F"]
+                result_token = "T" if not mismatch else "F"
+                # If padded_steps is empty, just output the result
+                if not padded_steps:
+                    return f"{input_string} # {result_token}"
+                all_steps = padded_steps + [result_token]
                 return f"{input_string} # {' | '.join(all_steps)}"
 
     elif mode == "trace":
@@ -435,10 +446,16 @@ def get_palindrome_trace(
                 if extra_padding_count > 0:
                     # Natural trace + extra padding + final
                     extra_padding_part = " ".join(["[PAD]"] * extra_padding_count)
+                    # If trace_steps is empty, output padding without | separators
+                    if not trace_steps:
+                        return f"{input_string} # {extra_padding_part} T"
                     all_steps = trace_steps + [extra_padding_part, "T"]
                     return f"{input_string} # {' | '.join(all_steps)}"
                 else:
                     # Just natural trace (backward compatible)
+                    # If trace_steps is empty, just output the result
+                    if not trace_steps:
+                        return f"{input_string} # T"
                     all_steps = trace_steps + ["T"]
                     return f"{input_string} # {' | '.join(all_steps)}"
 
@@ -492,10 +509,16 @@ def get_palindrome_trace(
             if extra_padding_count > 0:
                 # Natural trace + extra padding + final
                 extra_padding_part = " ".join(["[PAD]"] * extra_padding_count)
+                # If trace_steps is empty, output padding without | separators
+                if not trace_steps:
+                    return f"{input_string} # {extra_padding_part} T"
                 all_steps = trace_steps + [extra_padding_part, "T"]
                 return f"{input_string} # {' | '.join(all_steps)}"
             else:
                 # Just natural trace (backward compatible)
+                # If trace_steps is empty, just output the result
+                if not trace_steps:
+                    return f"{input_string} # T"
                 all_steps = trace_steps + ["T"]
                 return f"{input_string} # {' | '.join(all_steps)}"
 

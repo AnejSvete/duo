@@ -13,11 +13,11 @@ mode: train  # train / prepare_data / ppl_eval / sample_eval
 seed: 3
 
 loader:
-  global_batch_size: 128
+  global_batch_size: 256
   eval_global_batch_size: ${.global_batch_size}
   # Note: batch_size and eval_batch_size are **per machine**
-  batch_size: 128
-  eval_batch_size: 128
+  batch_size: 256
+  eval_batch_size: 256
   num_workers: ${eval:"len(__import__('os').sched_getaffinity(0))"}
   pin_memory: True
 

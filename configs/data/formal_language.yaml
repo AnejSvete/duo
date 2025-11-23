@@ -5,10 +5,16 @@ properties:
   num_examples_train: 50000
   num_examples_valid: 10000
   num_examples_test: 10000
+  min_train_len: 2
+  max_train_len: 32
+  min_val_len: 16
+  max_val_len: 32
+  min_test_len: 16
+  max_test_len: 32
   format: trace
 
   # Padding configuration - controls extra empty padding beyond natural trace
-  padding_scale_type: linear  # Options: natural, linear, quadratic, cubic, constant
-  padding_multiplier: 1.0  # Scaling factor for extra padding (0.0 = no extra padding)
+  padding_scale_type: natural  # Options: natural, linear, quadratic, cubic, constant
+  padding_multiplier: 0.0  # Scaling factor for extra padding (0.0 = no extra padding)
   padding_constant: null  # Fixed number of extra PAD tokens (for constant mode)
   padding_max: 512  # Optional cap on extra padding length

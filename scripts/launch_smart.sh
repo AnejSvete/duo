@@ -79,15 +79,11 @@ declare -A LONG_LENGTHS
 
 for lang in "${LANGUAGES[@]}"; do
     if [ "$lang" = "arithmetic" ] || [ "$lang" = "bfvp" ]; then
-        # SHORT_LENGTHS[$lang]=150
-        # LONG_LENGTHS[$lang]=300
-        SHORT_LENGTHS[$lang]=180
-        LONG_LENGTHS[$lang]=300
+        SHORT_LENGTHS[$lang]=100
+        LONG_LENGTHS[$lang]=200
     else
-        # SHORT_LENGTHS[$lang]=35
-        # LONG_LENGTHS[$lang]=70
-        SHORT_LENGTHS[$lang]=70
-        LONG_LENGTHS[$lang]=210
+        SHORT_LENGTHS[$lang]=35
+        LONG_LENGTHS[$lang]=70
     fi
 done
 
@@ -168,8 +164,8 @@ for lang in "${LANGUAGES[@]}"; do
         # Uses trace format (depends on trace prep)
         # "train_cot.sh:cot:$LONG:$PREP_TRACE"
         # "train_mdm.sh:mdm:$LONG:$PREP_TRACE"
-        "train_padding.sh:padding:$LONG:$PREP_TRACE"
-        "train_padded_looping.sh:padded_looping:$LONG:$PREP_TRACE"
+        # "train_padding.sh:padding:$LONG:$PREP_TRACE"
+        # "train_padded_looping.sh:padded_looping:$LONG:$PREP_TRACE"
 
         # Uses final_value format (depends on final_value prep)
         "train_classifier.sh:classifier:$SHORT:$PREP_FINAL"

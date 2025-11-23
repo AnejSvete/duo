@@ -550,13 +550,21 @@ def _generate_arithmetic_text(
             # Build output
             if extra_padding_count > 0:
                 # Natural trace + extra padding block + final
-                trace_part = " | ".join(trace_steps)
                 extra_padding_part = " ".join(["[PAD]"] * extra_padding_count)
-                text = f"{initial_repr} # {trace_part} | {extra_padding_part} | {final_value}"
+                # If trace_steps is empty, output padding without | separators
+                if not trace_steps:
+                    text = f"{initial_repr} # {extra_padding_part} {final_value}"
+                else:
+                    trace_part = " | ".join(trace_steps)
+                    text = f"{initial_repr} # {trace_part} | {extra_padding_part} | {final_value}"
             else:
                 # Just natural trace (current behavior)
-                trace_part = " | ".join(trace_steps)
-                text = f"{initial_repr} # {trace_part} | {final_value}"
+                # If trace_steps is empty, just output the result
+                if not trace_steps:
+                    text = f"{initial_repr} # {final_value}"
+                else:
+                    trace_part = " | ".join(trace_steps)
+                    text = f"{initial_repr} # {trace_part} | {final_value}"
         else:
             # No intermediate steps
             text = steps[0]
@@ -598,9 +606,18 @@ def _generate_arithmetic_text(
                 if padded_steps:
                     parts.append(" [PAD] ".join(padded_steps))  # Natural structure padding
                 if extra_padding_count > 0:
-                    parts.append(" ".join(["[PAD]"] * extra_padding_count))  # Extra padding
-                parts.append(final_value)
-                text = f"{initial_repr} # {' [PAD] '.join(parts)}"
+                    extra_padding_part = " ".join(["[PAD]"] * extra_padding_count)
+                    # If padded_steps is empty, don't use [PAD] as separator
+                    if not padded_steps:
+                        text = f"{initial_repr} # {extra_padding_part} {final_value}"
+                    else:
+                        parts.append(extra_padding_part)
+                        parts.append(final_value)
+                        text = f"{initial_repr} # {' [PAD] '.join(parts)}"
+                elif padded_steps:
+                    # Only padded_steps, no extra padding
+                    parts.append(final_value)
+                    text = f"{initial_repr} # {' [PAD] '.join(parts)}"
             else:
                 text = f"{initial_repr} # {final_value}"
         else:

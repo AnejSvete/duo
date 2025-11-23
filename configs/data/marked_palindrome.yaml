@@ -4,12 +4,3 @@ defaults:
 language: marked_palindrome
 properties:
   alphabet: "a,b"  # Comma-separated alphabet symbols
-
-  # Length ranges for generation and stratification
-  # Length represents number of symbols (excluding markers)
-  min_train_len: 2
-  max_train_len: 64
-  min_val_len: 32
-  max_val_len: 64
-  min_test_len: 48
-  max_test_len: 64
