@@ -283,23 +283,27 @@ def get_palindrome_trace(
                     break
 
             if mismatch or len(w) != len(w_reverse):
-                # For failed cases, still pad the trace
+                # For failed cases, still pad the trace - output without | separators
                 trace_steps = push_steps + pop_steps
-                padded_steps = []
+                total_pad_count = 0
                 for step in trace_steps:
                     num_tokens = len(step.split("_"))  # Count tokens in step
-                    padded_steps.append(" ".join(["[PAD]"] * num_tokens))
-                return f"{input_string} # {' | '.join(padded_steps)} | F"
+                    total_pad_count += num_tokens
+                if total_pad_count > 0:
+                    all_padding = " ".join(["[PAD]"] * total_pad_count)
+                    return f"{input_string} # {all_padding} F"
+                else:
+                    return f"{input_string} # F"
             else:
                 # Success case - replace trace with padding
                 trace_steps = push_steps + pop_steps
                 natural_trace_length = len(trace_steps)
 
-                # Replace each step with [PAD] tokens
-                padded_steps = []
+                # Replace each step with [PAD] tokens - collect all padding
+                total_pad_count = 0
                 for step in trace_steps:
                     num_tokens = len(step.split("_"))
-                    padded_steps.append(" ".join(["[PAD]"] * num_tokens))
+                    total_pad_count += num_tokens
 
                 # Compute extra padding
                 extra_padding_count = compute_extra_padding_length(
@@ -311,19 +315,13 @@ def get_palindrome_trace(
                     max_length=padding_max,
                 )
 
-                if extra_padding_count > 0:
-                    extra_padding_part = " ".join(["[PAD]"] * extra_padding_count)
-                    # If padded_steps is empty, output padding without | separators
-                    if not padded_steps:
-                        return f"{input_string} # {extra_padding_part} T"
-                    all_steps = padded_steps + [extra_padding_part, "T"]
-                    return f"{input_string} # {' | '.join(all_steps)}"
+                # Combine all padding (natural + extra) and output without | separators
+                total_pad_count += extra_padding_count
+                if total_pad_count > 0:
+                    all_padding = " ".join(["[PAD]"] * total_pad_count)
+                    return f"{input_string} # {all_padding} T"
                 else:
-                    # If padded_steps is empty, just output the result
-                    if not padded_steps:
-                        return f"{input_string} # T"
-                    all_steps = padded_steps + ["T"]
-                    return f"{input_string} # {' | '.join(all_steps)}"
+                    return f"{input_string} # T"
 
         else:
             # Unmarked palindromes
@@ -356,11 +354,11 @@ def get_palindrome_trace(
             trace_steps = push_steps + pop_steps
             natural_trace_length = len(trace_steps)
 
-            # Replace each step with [PAD] tokens
-            padded_steps = []
+            # Replace each step with [PAD] tokens - collect all padding
+            total_pad_count = 0
             for step in trace_steps:
                 num_tokens = len(step.split("_"))
-                padded_steps.append(" ".join(["[PAD]"] * num_tokens))
+                total_pad_count += num_tokens
 
             # Compute extra padding
             extra_padding_count = compute_extra_padding_length(
@@ -372,21 +370,14 @@ def get_palindrome_trace(
                 max_length=padding_max,
             )
 
-            if extra_padding_count > 0:
-                extra_padding_part = " ".join(["[PAD]"] * extra_padding_count)
-                result_token = "T" if not mismatch else "F"
-                # If padded_steps is empty, output padding without | separators
-                if not padded_steps:
-                    return f"{input_string} # {extra_padding_part} {result_token}"
-                all_steps = padded_steps + [extra_padding_part, result_token]
-                return f"{input_string} # {' | '.join(all_steps)}"
+            # Combine all padding (natural + extra) and output without | separators
+            result_token = "T" if not mismatch else "F"
+            total_pad_count += extra_padding_count
+            if total_pad_count > 0:
+                all_padding = " ".join(["[PAD]"] * total_pad_count)
+                return f"{input_string} # {all_padding} {result_token}"
             else:
-                result_token = "T" if not mismatch else "F"
-                # If padded_steps is empty, just output the result
-                if not padded_steps:
-                    return f"{input_string} # {result_token}"
-                all_steps = padded_steps + [result_token]
-                return f"{input_string} # {' | '.join(all_steps)}"
+                return f"{input_string} # {result_token}"
 
     elif mode == "trace":
         # Stack-based trace mimicking pushdown automaton (PDA)

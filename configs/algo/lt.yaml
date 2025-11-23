@@ -4,5 +4,5 @@ parameterization: lt
 time_conditioning: False
 looping_type: log
 T: 0  # 0 (continuous time) / 1000 
-causal_attention: False
+causal_attention: True
 loss_type: elbo

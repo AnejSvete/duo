@@ -577,11 +577,11 @@ def _generate_text_from_tree(
             final_value = reduction_steps_list[-1]
             natural_trace_length = len(reduction_steps_list) - 1  # Exclude final
 
-            # Create empty padding for natural trace structure
-            padded_steps = []
+            # Create empty padding for natural trace structure - collect all padding
+            total_pad_count = 0
             for step in reduction_steps_list[:-1]:
                 num_tokens = len(step.split())
-                padded_steps.append(" ".join(["[PAD]"] * num_tokens))
+                total_pad_count += num_tokens
 
             # Compute extra padding
             extra_padding_count = compute_extra_padding_length(
@@ -593,24 +593,11 @@ def _generate_text_from_tree(
                 max_length=padding_max,
             )
 
-            # Build output
-            if padded_steps or extra_padding_count > 0:
-                parts = []
-                if padded_steps:
-                    parts.append(" [PAD] ".join(padded_steps))  # Natural structure padding
-                if extra_padding_count > 0:
-                    extra_padding_part = " ".join(["[PAD]"] * extra_padding_count)
-                    # If padded_steps is empty, don't use [PAD] as separator
-                    if not padded_steps:
-                        text = f"{initial_repr} # {extra_padding_part} {final_value}"
-                    else:
-                        parts.append(extra_padding_part)
-                        parts.append(final_value)
-                        text = f"{initial_repr} # {' [PAD] '.join(parts)}"
-                elif padded_steps:
-                    # Only padded_steps, no extra padding
-                    parts.append(final_value)
-                    text = f"{initial_repr} # {' [PAD] '.join(parts)}"
+            # Combine all padding (natural + extra) and output without separators
+            total_pad_count += extra_padding_count
+            if total_pad_count > 0:
+                all_padding = " ".join(["[PAD]"] * total_pad_count)
+                text = f"{initial_repr} # {all_padding} {final_value}"
             else:
                 text = f"{initial_repr} # {final_value}"
         else:
