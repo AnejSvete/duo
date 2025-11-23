@@ -83,7 +83,7 @@ trainer:
   val_check_interval: 0.25
 
 wandb:
-  project: mdm-expressivity
+  project: padded-transformers
   notes: Computational expressivity of MDMs
   group: null
   job_type: null
