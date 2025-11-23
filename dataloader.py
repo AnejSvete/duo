@@ -534,6 +534,38 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
 
 def _get_base_name(dataset_name, config, mode):
     """Helper to generate base name for cache files."""
+    # Get common padding parameters
+    props = getattr(config.data, "properties", {})
+    padding_scale_type = getattr(props, "padding_scale_type", "linear")
+    padding_multiplier = getattr(props, "padding_multiplier", 2.0)
+    padding_constant = getattr(props, "padding_constant", None)
+    padding_max = getattr(props, "padding_max", None)
+
+    # Get dataset size for this mode
+    if mode == "train":
+        dataset_size = getattr(props, "num_examples_train", 50000)
+    elif mode == "validation":
+        dataset_size = getattr(props, "num_examples_valid", 5000)
+    else:  # test
+        dataset_size = getattr(props, "num_examples_test", 5000)
+
+    # Build padding suffix (compact format)
+    # Format: ps{type}_pm{mult}_pc{const}_px{max}
+    padding_parts = [f"ps{padding_scale_type}"]
+    if padding_multiplier != 2.0:  # Only include if non-default
+        padding_parts.append(f"pm{padding_multiplier:.1f}".replace(".", "p"))
+    if padding_constant is not None:
+        padding_parts.append(f"pc{padding_constant}")
+    if padding_max is not None:
+        padding_parts.append(f"px{padding_max}")
+    padding_suffix = "_".join(padding_parts)
+
+    # Build size suffix (only if non-default)
+    size_suffix = ""
+    default_sizes = {"train": 50000, "validation": 5000, "test": 5000}
+    if dataset_size != default_sizes.get(mode, 50000):
+        size_suffix = f"_n{dataset_size}"
+
     if dataset_name in BFVP_CREATORS:
         bfvp_cfg = getattr(config.data, "properties", {})
         # Get mode-specific depth ranges
@@ -564,7 +596,7 @@ def _get_base_name(dataset_name, config, mode):
             max_depth = getattr(bfvp_cfg, "max_test_depth", default_max)
         num_vars = getattr(bfvp_cfg, "num_vars", 2)
         format_str = getattr(bfvp_cfg, "format", "trace").replace("_", "-")
-        return f"{dataset_name}_mind{min_depth}_maxd{max_depth}_nv{num_vars}_f-{format_str}"
+        return f"{dataset_name}_mind{min_depth}_maxd{max_depth}_nv{num_vars}_f-{format_str}_{padding_suffix}{size_suffix}"
     elif dataset_name in FSA_CREATORS:
         lang_cfg = getattr(config.data, "properties", {})
         # Get default training lengths first
@@ -576,7 +608,7 @@ def _get_base_name(dataset_name, config, mode):
         max_len = getattr(lang_cfg, f"max_{mode}_len", default_max)
 
         format_str = getattr(lang_cfg, "format", "trace").replace("_", "-")
-        return f"{dataset_name}_minl{min_len}_maxl{max_len}_f-{format_str}"
+        return f"{dataset_name}_minl{min_len}_maxl{max_len}_f-{format_str}_{padding_suffix}{size_suffix}"
     elif dataset_name in ARITHMETIC_CREATORS:
         arith_cfg = getattr(config.data, "properties", {})
         # Get mode-specific depth ranges
@@ -608,9 +640,25 @@ def _get_base_name(dataset_name, config, mode):
         min_val = getattr(arith_cfg, "min_val", 0)
         max_val = getattr(arith_cfg, "max_val", 50)
         format_str = getattr(arith_cfg, "format", "trace").replace("_", "-")
-        return f"{dataset_name}_mind{min_depth}_maxd{max_depth}_minv{min_val}_maxv{max_val}_f-{format_str}"
+        return f"{dataset_name}_mind{min_depth}_maxd{max_depth}_minv{min_val}_maxv{max_val}_f-{format_str}_{padding_suffix}{size_suffix}"
+    elif dataset_name in PALINDROME_CREATORS:
+        pal_cfg = getattr(config.data, "properties", {})
+        # Get default training lengths first
+        default_min = getattr(pal_cfg, "min_train_len", 4)
+        default_max = getattr(pal_cfg, "max_train_len", 32)
+
+        # Get mode-specific lengths with fallback to training defaults
+        min_len = getattr(pal_cfg, f"min_{mode}_len", default_min)
+        max_len = getattr(pal_cfg, f"max_{mode}_len", default_max)
+
+        # Get alphabet info
+        alphabet_str = getattr(pal_cfg, "alphabet", "a,b")
+        alphabet_size = len(alphabet_str.split(","))
+
+        format_str = getattr(pal_cfg, "format", "final_value").replace("_", "-")
+        return f"{dataset_name}_minl{min_len}_maxl{max_len}_alph{alphabet_size}_f-{format_str}_{padding_suffix}{size_suffix}"
     else:
-        return dataset_name
+        return f"{dataset_name}_{padding_suffix}{size_suffix}"
 
 
 def get_dataset(

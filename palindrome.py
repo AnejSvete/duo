@@ -1,6 +1,17 @@
 import argparse
+import logging
 import random
+import time
+from collections import Counter
 from typing import Dict, List, Optional, Tuple
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 # Palindrome language creators dictionary
 PALINDROME_CREATORS = {
@@ -76,7 +87,9 @@ def generate_palindrome(length: int, alphabet: List[str], marked: bool = True) -
         # Length is the length of w
         w = [random.choice(alphabet) for _ in range(length)]
         w_reverse = w[::-1]
-        return " ".join(w + ["$"] + w_reverse)
+        # Optimized: pre-allocate list
+        result = w + ["$"] + w_reverse
+        return " ".join(result)
     else:
         # For unmarked palindromes: generate ww^R where the string reads same forwards/backwards
         # Length is the total length of the final palindrome
@@ -89,12 +102,15 @@ def generate_palindrome(length: int, alphabet: List[str], marked: bool = True) -
             return " ".join(first_half + reverse_half)
         else:
             # For odd-length palindromes, add middle element
-            middle = [random.choice(alphabet)]
+            middle = random.choice(alphabet)
             reverse_half = first_half[::-1]
-            return " ".join(first_half + middle + reverse_half)
+            result = first_half + [middle] + reverse_half
+            return " ".join(result)
 
 
-def generate_non_palindrome(length: int, alphabet: List[str], marked: bool = True) -> str:
+def generate_non_palindrome(
+    length: int, alphabet: List[str], marked: bool = True
+) -> str:
     """
     Generates a NON-palindrome string over the given alphabet.
 
@@ -110,45 +126,61 @@ def generate_non_palindrome(length: int, alphabet: List[str], marked: bool = Tru
         raise ValueError("Length must be positive.")
 
     if len(alphabet) < 2:
-        raise ValueError("Alphabet must have at least 2 symbols to generate non-palindromes.")
+        raise ValueError(
+            "Alphabet must have at least 2 symbols to generate non-palindromes."
+        )
 
-    max_attempts = 100
-    for _ in range(max_attempts):
-        if marked:
-            # Generate w and w', ensuring w' is NOT the reverse of w
-            w = [random.choice(alphabet) for _ in range(length)]
-            w_prime = [random.choice(alphabet) for _ in range(length)]
+    if marked:
+        # Generate w and w', ensuring w' is NOT the reverse of w
+        # More efficient: generate w, then create w' by copying reverse and changing one position
+        w = [random.choice(alphabet) for _ in range(length)]
+        w_reverse = w[::-1]
+        w_prime = w_reverse.copy()  # Start with reverse
 
-            # Ensure at least one position differs from the reverse
-            w_reverse = w[::-1]
-            if w_prime != w_reverse:
-                return " ".join(w + ["$"] + w_prime)
-
-            # Force a difference at a random position
-            diff_pos = random.randint(0, length - 1)
-            current = w_prime[diff_pos]
-            alternatives = [s for s in alphabet if s != current]
-            if alternatives:
-                w_prime[diff_pos] = random.choice(alternatives)
-                return " ".join(w + ["$"] + w_prime)
+        # Force a difference at a random position
+        diff_pos = random.randint(0, length - 1)
+        current = w_prime[diff_pos]
+        # Pre-filter alternatives for efficiency
+        alternatives = [s for s in alphabet if s != current]
+        if alternatives:
+            w_prime[diff_pos] = random.choice(alternatives)
         else:
-            # Generate a string that is NOT a palindrome
-            symbols = [random.choice(alphabet) for _ in range(length)]
+            # Edge case: alphabet size is 1, but this should be caught above
+            raise RuntimeError("Cannot generate non-palindrome with single-symbol alphabet")
 
-            # Check if it's accidentally a palindrome
-            if symbols != symbols[::-1]:
-                return " ".join(symbols)
+        return " ".join(w + ["$"] + w_prime)
+    else:
+        # Generate a string that is NOT a palindrome
+        # More efficient: generate first half, then second half that differs
+        half_len = length // 2
+        first_half = [random.choice(alphabet) for _ in range(half_len)]
 
-            # Force it to be non-palindrome by changing a position
-            # Change a position that will break symmetry
-            change_pos = random.randint(0, length // 2)
-            current = symbols[change_pos]
-            alternatives = [s for s in alphabet if s != current]
-            if alternatives:
-                symbols[change_pos] = random.choice(alternatives)
-                return " ".join(symbols)
+        if length % 2 == 0:
+            # Even length: copy first half reversed, then change one position
+            second_half = first_half[::-1].copy()
+            if half_len > 0:
+                diff_pos = random.randint(0, half_len - 1)
+                current = second_half[diff_pos]
+                alternatives = [s for s in alphabet if s != current]
+                if alternatives:
+                    second_half[diff_pos] = random.choice(alternatives)
+                result = first_half + second_half
+            else:
+                # Edge case: length is 0
+                result = []
+        else:
+            # Odd length: add middle, copy first half reversed, change one position
+            middle = [random.choice(alphabet)]
+            second_half = first_half[::-1].copy()
+            if half_len > 0:
+                diff_pos = random.randint(0, half_len - 1)
+                current = second_half[diff_pos]
+                alternatives = [s for s in alphabet if s != current]
+                if alternatives:
+                    second_half[diff_pos] = random.choice(alternatives)
+            result = first_half + middle + second_half
 
-    raise RuntimeError(f"Failed to generate non-palindrome after {max_attempts} attempts.")
+        return " ".join(result)
 
 
 def check_palindrome(input_string: str, marked: bool = True) -> bool:
@@ -209,7 +241,7 @@ def get_palindrome_trace(
         Formatted trace string
     """
     is_palindrome = check_palindrome(input_string, marked)
-    print(f"Checking palindrome: '{input_string}' -> {'T' if is_palindrome else 'F'}")
+    # print(f"Checking palindrome: '{input_string}' -> {'T' if is_palindrome else 'F'}")
     result = "T" if is_palindrome else "F"
 
     if mode == "final_value":
@@ -336,7 +368,10 @@ def get_palindrome_trace(
 
             if extra_padding_count > 0:
                 extra_padding_part = " ".join(["[PAD]"] * extra_padding_count)
-                all_steps = padded_steps + [extra_padding_part, "T" if not mismatch else "F"]
+                all_steps = padded_steps + [
+                    extra_padding_part,
+                    "T" if not mismatch else "F",
+                ]
                 return f"{input_string} # {' | '.join(all_steps)}"
             else:
                 all_steps = padded_steps + ["T" if not mismatch else "F"]
@@ -538,25 +573,61 @@ def make_all_splits(
     """
     random.seed(seed)
 
+    logger.info("=" * 60)
+    logger.info("Starting palindrome data generation")
+    logger.info("=" * 60)
+    logger.info(f"Type: {'Marked' if marked else 'Unmarked'} palindromes")
+    logger.info(f"Alphabet: {alphabet} (size: {len(alphabet)})")
+    logger.info(f"Mode: {mode}")
+    logger.info(f"Seed: {seed}")
+    logger.info(f"Negative ratio: {negative_ratio:.1%}")
+    if padding_multiplier > 0 or padding_constant:
+        logger.info(f"Padding: scale_type={padding_scale_type}, multiplier={padding_multiplier}, constant={padding_constant}, max={padding_max}")
+    logger.info("")
+
     # Generate each split independently with its own length ranges
     split_pools = {}
+    overall_start_time = time.time()
 
     for split_name in ["train", "validation", "test"]:
+        split_start_time = time.time()
         min_len, max_len = length_ranges[split_name]
         num_examples = split_sizes[split_name]
+
+        logger.info(f"Generating {split_name.upper()} split:")
+        logger.info(f"  Target: {num_examples} examples")
+        logger.info(f"  Length range: [{min_len}, {max_len}]")
 
         # Calculate how many positive and negative examples to generate
         num_negative = int(num_examples * negative_ratio)
         num_positive = num_examples - num_negative
 
+        logger.info(f"  Positive (palindromes): {num_positive}")
+        logger.info(f"  Negative (non-palindromes): {num_negative}")
+
         examples = []
         seen = set()  # Track unique examples
-        attempts = 0
         max_attempts = num_examples * 1000
 
+        # Track statistics
+        duplicate_count = 0
+        positive_count = 0
+        negative_count = 0
+        length_distribution = Counter()
+
         # Generate positive examples (palindromes)
-        while len([e for e in examples if e.get("label") == "positive"]) < num_positive and attempts < max_attempts:
+        logger.info("  Generating positive examples...")
+        attempts = 0
+        last_log_time = time.time()
+
+        while positive_count < num_positive and attempts < max_attempts:
             attempts += 1
+
+            # Log progress every 2 seconds or every 1000 attempts
+            current_time = time.time()
+            if current_time - last_log_time > 2.0 or attempts % 1000 == 0:
+                logger.info(f"    Progress: {positive_count}/{num_positive} (attempts: {attempts}, duplicates: {duplicate_count})")
+                last_log_time = current_time
 
             # Sample length uniformly from range
             length = random.randint(min_len, max_len)
@@ -566,6 +637,7 @@ def make_all_splits(
 
             # Check for duplicates
             if palindrome_str in seen:
+                duplicate_count += 1
                 continue
 
             seen.add(palindrome_str)
@@ -582,11 +654,25 @@ def make_all_splits(
             )
 
             examples.append({"text": text, "label": "positive"})
+            positive_count += 1
+            length_distribution[length] += 1
+
+        logger.info(f"    Completed: {positive_count}/{num_positive} positive examples")
 
         # Generate negative examples (non-palindromes)
+        logger.info("  Generating negative examples...")
         attempts = 0
-        while len([e for e in examples if e.get("label") == "negative"]) < num_negative and attempts < max_attempts:
+        last_log_time = time.time()
+        neg_duplicate_count = 0
+
+        while negative_count < num_negative and attempts < max_attempts:
             attempts += 1
+
+            # Log progress every 2 seconds or every 1000 attempts
+            current_time = time.time()
+            if current_time - last_log_time > 2.0 or attempts % 1000 == 0:
+                logger.info(f"    Progress: {negative_count}/{num_negative} (attempts: {attempts}, duplicates: {neg_duplicate_count})")
+                last_log_time = current_time
 
             # Sample length uniformly from range
             length = random.randint(min_len, max_len)
@@ -596,6 +682,7 @@ def make_all_splits(
 
             # Check for duplicates
             if non_palindrome_str in seen:
+                neg_duplicate_count += 1
                 continue
 
             seen.add(non_palindrome_str)
@@ -612,15 +699,54 @@ def make_all_splits(
             )
 
             examples.append({"text": text, "label": "negative"})
+            negative_count += 1
+            length_distribution[length] += 1
 
-        if len(examples) < num_examples:
-            print(
-                f"Warning: Could only generate {len(examples)}/{num_examples} examples for {split_name} "
-                f"within length range [{min_len}, {max_len}] after {attempts} attempts."
+        logger.info(f"    Completed: {negative_count}/{num_negative} negative examples")
+
+        total_generated = positive_count + negative_count
+        total_duplicates = duplicate_count + neg_duplicate_count
+
+        if total_generated < num_examples:
+            logger.warning(
+                f"  WARNING: Only generated {total_generated}/{num_examples} examples "
+                f"within length range [{min_len}, {max_len}]"
             )
+
+        # Log statistics
+        split_time = time.time() - split_start_time
+        logger.info("  Statistics:")
+        logger.info(f"    Total generated: {total_generated}/{num_examples}")
+        logger.info(f"    Duplicates encountered: {total_duplicates}")
+        logger.info(f"    Unique examples: {len(seen)}")
+        logger.info(f"    Generation time: {split_time:.2f}s")
+        logger.info(f"    Examples/second: {total_generated/split_time:.1f}")
+
+        # Log length distribution
+        if length_distribution:
+            min_len_seen = min(length_distribution.keys())
+            max_len_seen = max(length_distribution.keys())
+            avg_len = sum(length * count for length, count in length_distribution.items()) / total_generated
+            logger.info(f"    Length stats: min={min_len_seen}, max={max_len_seen}, avg={avg_len:.1f}")
+
+            # Show distribution for small datasets or if highly skewed
+            if total_generated <= 100 or len(length_distribution) <= 10:
+                sorted_lengths = sorted(length_distribution.items())
+                dist_str = ", ".join(f"{length}:{count}" for length, count in sorted_lengths)
+                logger.info(f"    Length distribution: {dist_str}")
 
         random.shuffle(examples)
         split_pools[split_name] = examples
+        logger.info("")
+
+    overall_time = time.time() - overall_start_time
+    total_examples = sum(len(pool) for pool in split_pools.values())
+    logger.info("=" * 60)
+    logger.info("Generation complete!")
+    logger.info(f"Total examples: {total_examples}")
+    logger.info(f"Total time: {overall_time:.2f}s")
+    logger.info(f"Overall rate: {total_examples/overall_time:.1f} examples/second")
+    logger.info("=" * 60)
 
     return split_pools
 
@@ -659,25 +785,40 @@ def make_examples(
     Returns:
         List of example dictionaries with "text" key
     """
+    start_time = time.time()
+
     if seed is not None:
         random.seed(seed)
+
+    logger.info(f"Generating {num_examples} examples (length range: [{min_len}, {max_len}])")
 
     # Calculate how many positive and negative examples to generate
     num_negative = int(num_examples * negative_ratio)
     num_positive = num_examples - num_negative
 
+    logger.info(f"  Positive: {num_positive}, Negative: {num_negative}")
+
     examples = []
     seen = set()
 
-    # Generate positive examples (palindromes)
-    for _ in range(num_positive * 10):  # Allow retries for uniqueness
-        if len([e for e in examples if e.get("label") == "positive"]) >= num_positive:
-            break
+    # Track counts efficiently
+    positive_count = 0
+    negative_count = 0
+    duplicate_count = 0
+    length_distribution = Counter()
 
+    # Generate positive examples (palindromes)
+    logger.info("  Generating positive examples...")
+    attempts = 0
+    max_attempts = num_positive * 10
+
+    while positive_count < num_positive and attempts < max_attempts:
+        attempts += 1
         length = random.randint(min_len, max_len)
         palindrome_str = generate_palindrome(length, alphabet, marked)
 
         if palindrome_str in seen:
+            duplicate_count += 1
             continue
 
         seen.add(palindrome_str)
@@ -691,16 +832,24 @@ def make_examples(
             padding_max=padding_max,
         )
         examples.append({"text": text, "label": "positive"})
+        positive_count += 1
+        length_distribution[length] += 1
+
+    logger.info(f"    Generated {positive_count}/{num_positive} (duplicates: {duplicate_count})")
 
     # Generate negative examples (non-palindromes)
-    for _ in range(num_negative * 10):  # Allow retries for uniqueness
-        if len([e for e in examples if e.get("label") == "negative"]) >= num_negative:
-            break
+    logger.info("  Generating negative examples...")
+    attempts = 0
+    neg_duplicate_count = 0
+    max_attempts = num_negative * 10
 
+    while negative_count < num_negative and attempts < max_attempts:
+        attempts += 1
         length = random.randint(min_len, max_len)
         non_palindrome_str = generate_non_palindrome(length, alphabet, marked)
 
         if non_palindrome_str in seen:
+            neg_duplicate_count += 1
             continue
 
         seen.add(non_palindrome_str)
@@ -714,6 +863,21 @@ def make_examples(
             padding_max=padding_max,
         )
         examples.append({"text": text, "label": "negative"})
+        negative_count += 1
+        length_distribution[length] += 1
+
+    logger.info(f"    Generated {negative_count}/{num_negative} (duplicates: {neg_duplicate_count})")
+
+    total_generated = positive_count + negative_count
+    total_duplicates = duplicate_count + neg_duplicate_count
+    elapsed_time = time.time() - start_time
+
+    logger.info(f"  Total: {total_generated}/{num_examples} in {elapsed_time:.2f}s ({total_generated/elapsed_time:.1f} ex/s)")
+    logger.info(f"  Total duplicates: {total_duplicates}, Unique: {len(seen)}")
+
+    if length_distribution:
+        avg_len = sum(length * count for length, count in length_distribution.items()) / total_generated
+        logger.info(f"  Avg length: {avg_len:.1f}")
 
     random.shuffle(examples)
     return examples
@@ -750,7 +914,7 @@ if __name__ == "__main__":
         "--format",
         type=str,
         default="final_value",
-        choices=["trace", "final_value", "verify"],
+        choices=["trace", "final_value", "verify", "empty_trace"],
         help="Output format.",
     )
     parser.add_argument(
@@ -765,17 +929,32 @@ if __name__ == "__main__":
         default=None,
         help="Random seed for reproducibility.",
     )
+    parser.add_argument(
+        "--negative_ratio",
+        type=float,
+        default=0.5,
+        help="Ratio of negative examples (non-palindromes) to generate (default: 0.5).",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging (debug level).",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress all logging except errors.",
+    )
 
     args = parser.parse_args()
 
-    alphabet = args.alphabet.split(",")
+    # Configure logging level based on arguments
+    if args.quiet:
+        logger.setLevel(logging.ERROR)
+    elif args.verbose:
+        logger.setLevel(logging.DEBUG)
 
-    print(
-        f"Generating {args.num_examples} {'marked' if args.marked else 'unmarked'} palindromes"
-    )
-    print(f"Length range: [{args.min_len}, {args.max_len}]")
-    print(f"Alphabet: {alphabet}")
-    print(f"Format: {args.format}")
+    alphabet = args.alphabet.split(",")
 
     examples = make_examples(
         num_examples=args.num_examples,
@@ -785,8 +964,10 @@ if __name__ == "__main__":
         alphabet=alphabet,
         mode=args.format,
         seed=args.seed,
+        negative_ratio=args.negative_ratio,
     )
 
     print("\n--- Generated Examples ---")
     for i, ex in enumerate(examples):
-        print(f"[{i+1}] {ex['text']}")
+        label_marker = "✓" if ex["label"] == "positive" else "✗"
+        print(f"[{i+1}] {label_marker} {ex['text']}")

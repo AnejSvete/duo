@@ -1,6 +1,9 @@
 import argparse
+import logging
 import random
 from typing import Any, Dict, List, Set, Tuple, Optional
+
+LOGGER = logging.getLogger(__name__)
 
 # A creator dictionary, analogous to FSA_CREATORS and BFVP_CREATORS,
 # for easy integration with the existing dataloader.
@@ -303,6 +306,12 @@ def make_all_splits(
     # Generate each split independently with its own depth and length ranges
     split_pools = {}
 
+    LOGGER.info(f"Starting arithmetic data generation with seed={seed}")
+    LOGGER.info(f"Split sizes: {split_sizes}")
+    LOGGER.info(f"Depth ranges: {depth_ranges}")
+    LOGGER.info(f"Length ranges: {length_ranges}")
+    LOGGER.info(f"Value range: [{min_val}, {max_val}]")
+
     for split_name in ["train", "validation", "test"]:
         split_min_depth, split_max_depth = depth_ranges[split_name]
         num_examples = split_sizes[split_name]
@@ -315,14 +324,32 @@ def make_all_splits(
             min_len, max_len = None, None
             use_length_filter = False
 
+        LOGGER.info(f"\n{'='*80}")
+        LOGGER.info(f"Generating {split_name} split:")
+        LOGGER.info(f"  Target: {num_examples} examples")
+        LOGGER.info(f"  Depth range: [{split_min_depth}, {split_max_depth}]")
+        if use_length_filter:
+            LOGGER.info(f"  Length filter: [{min_len}, {max_len}] (applied to INPUT part before '#')")
+        else:
+            LOGGER.info(f"  Length filter: None (accepting all lengths)")
+        LOGGER.info(f"{'='*80}")
+
         examples = []
         attempts = 0
         max_attempts = num_examples * 1000  # Generous limit for rejection sampling
+
+        # Track statistics for debugging
+        rejected_count = 0
+        accepted_lengths = []
+        rejected_lengths = []
+        depth_to_length_map = {}  # Track depth -> lengths mapping
 
         while len(examples) < num_examples and attempts < max_attempts:
             attempts += 1
 
             depth = random.randint(split_min_depth, split_max_depth)
+            if depth not in depth_to_length_map:
+                depth_to_length_map[depth] = []
             expression_tree = generate_expression_tree(depth, min_val, max_val)
 
             text = _generate_arithmetic_text(
@@ -348,11 +375,102 @@ def make_all_splits(
 
                 if min_len <= text_length <= max_len:
                     examples.append({"text": text})
+                    accepted_lengths.append(text_length)
+                    depth_to_length_map[depth].append(text_length)
+
+                    # Log progress periodically
+                    if len(examples) % 1000 == 0:
+                        LOGGER.info(f"  Progress: {len(examples)}/{num_examples} examples generated (attempts={attempts}, rejection_rate={rejected_count/attempts*100:.1f}%)")
+                else:
+                    rejected_count += 1
+                    rejected_lengths.append(text_length)
+
+                    # Log sample rejections to understand why examples are being rejected
+                    if rejected_count <= 10 or (rejected_count % 1000 == 0):
+                        LOGGER.debug(f"  Rejected example {rejected_count}: length={text_length} not in [{min_len}, {max_len}], depth={depth}")
             else:
                 examples.append({"text": text})
+                # Track lengths even when not filtering
+                if "#" in text:
+                    input_part = text.split("#")[0].strip()
+                    text_length = len(input_part.split())
+                else:
+                    text_length = len(text.split())
+                accepted_lengths.append(text_length)
+                depth_to_length_map[depth].append(text_length)
+
+                # Log progress periodically
+                if len(examples) % 1000 == 0:
+                    LOGGER.info(f"  Progress: {len(examples)}/{num_examples} examples generated (attempts={attempts})")
+
+        # Print summary statistics for this split
+        import numpy as np
+
+        LOGGER.info(f"\n{'='*80}")
+        LOGGER.info(f"{split_name.upper()} split generation complete:")
+        LOGGER.info(f"  Generated: {len(examples)}/{num_examples} examples")
+        LOGGER.info(f"  Total attempts: {attempts}")
+        if use_length_filter:
+            LOGGER.info(f"  Accepted: {len(accepted_lengths)}")
+            LOGGER.info(f"  Rejected: {rejected_count}")
+            LOGGER.info(f"  Rejection rate: {rejected_count/attempts*100:.1f}%")
+
+        if accepted_lengths:
+            accepted_array = np.array(accepted_lengths)
+            LOGGER.info(f"\n  Accepted lengths distribution:")
+            LOGGER.info(f"    Min: {accepted_array.min()}")
+            LOGGER.info(f"    Max: {accepted_array.max()}")
+            LOGGER.info(f"    Mean: {accepted_array.mean():.2f}")
+            LOGGER.info(f"    Median: {np.median(accepted_array):.2f}")
+            LOGGER.info(f"    Std: {np.std(accepted_array):.2f}")
+
+            # Show percentiles
+            percentiles = [10, 25, 50, 75, 90, 95, 99]
+            LOGGER.info(f"    Percentiles:")
+            for p in percentiles:
+                val = np.percentile(accepted_array, p)
+                LOGGER.info(f"      {p}%: {val:.1f}")
+
+            # Show histogram of lengths (binned)
+            unique, counts = np.unique(accepted_array, return_counts=True)
+            LOGGER.info(f"\n    Length histogram (top 20 most common):")
+            sorted_idx = np.argsort(-counts)[:20]
+            for idx in sorted_idx:
+                length = unique[idx]
+                count = counts[idx]
+                percentage = count / len(accepted_array) * 100
+                bar = '#' * int(percentage / 2)  # Simple bar chart
+                LOGGER.info(f"      len={length:3d}: {count:5d} ({percentage:5.1f}%) {bar}")
+
+        if rejected_lengths and use_length_filter:
+            rejected_array = np.array(rejected_lengths)
+            LOGGER.info(f"\n  Rejected lengths distribution:")
+            LOGGER.info(f"    Min: {rejected_array.min()}")
+            LOGGER.info(f"    Max: {rejected_array.max()}")
+            LOGGER.info(f"    Mean: {rejected_array.mean():.2f}")
+            LOGGER.info(f"    Median: {np.median(rejected_array):.2f}")
+
+            # Show why examples were rejected
+            too_short = np.sum(rejected_array < min_len)
+            too_long = np.sum(rejected_array > max_len)
+            LOGGER.info(f"    Too short (< {min_len}): {too_short} ({too_short/len(rejected_array)*100:.1f}%)")
+            LOGGER.info(f"    Too long (> {max_len}): {too_long} ({too_long/len(rejected_array)*100:.1f}%)")
+
+        # Show depth-to-length mapping
+        if depth_to_length_map:
+            LOGGER.info(f"\n  Depth-to-Length analysis:")
+            for depth in sorted(depth_to_length_map.keys()):
+                lengths = depth_to_length_map[depth]
+                if lengths:
+                    depth_array = np.array(lengths)
+                    LOGGER.info(f"    Depth {depth}: n={len(lengths):5d}, "
+                                f"len_range=[{depth_array.min():3d}, {depth_array.max():3d}], "
+                                f"mean={depth_array.mean():6.2f}, median={np.median(depth_array):6.2f}")
+
+        LOGGER.info(f"{'='*80}\n")
 
         if len(examples) < num_examples:
-            print(f"Warning: Could only generate {len(examples)}/{num_examples} examples for {split_name} "
+            LOGGER.warning(f"⚠️  Warning: Could only generate {len(examples)}/{num_examples} examples for {split_name} "
                   f"within length range [{min_len}, {max_len}] after {attempts} attempts. "
                   f"Consider widening the length range or depth range.")
 

@@ -2,13 +2,13 @@ cache_dir: /cluster/scratch/asvete/duo
 language: null
 
 properties:
-  num_examples_train: 200000
-  num_examples_valid: 20000
-  num_examples_test: 20000
+  num_examples_train: 100000
+  num_examples_valid: 10000
+  num_examples_test: 10000
   format: trace
 
   # Padding configuration - controls extra empty padding beyond natural trace
   padding_scale_type: linear  # Options: natural, linear, quadratic, cubic, constant
-  padding_multiplier: 2.0  # Scaling factor for extra padding (0.0 = no extra padding)
+  padding_multiplier: 1.0  # Scaling factor for extra padding (0.0 = no extra padding)
   padding_constant: null  # Fixed number of extra PAD tokens (for constant mode)
   padding_max: 512  # Optional cap on extra padding length
