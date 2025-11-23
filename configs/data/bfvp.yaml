@@ -13,6 +13,6 @@ properties:
   min_train_depth: 1
   max_train_depth: 4
   min_val_depth: 2
-  max_val_depth: 5
+  max_val_depth: 4
   min_test_depth: 3
-  max_test_depth: 6
+  max_test_depth: 4

@@ -2,7 +2,7 @@ cache_dir: /cluster/scratch/asvete/duo
 language: null
 
 properties:
-  num_examples_train: 100000
+  num_examples_train: 50000
   num_examples_valid: 10000
   num_examples_test: 10000
   format: trace
