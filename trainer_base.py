@@ -578,7 +578,7 @@ class TrainerBase(L.LightningModule):
                 skip_special_tokens=True,
             )
             self.trainer.logger.log_table(
-                key=f"conditioned_generation@global_step{self.global_step}",
+                key=f"gen@step{self.global_step}",
                 columns=[
                     f"Generated {_gen_mode}" for _gen_mode in all_generated_samples
                 ]
@@ -1025,7 +1025,7 @@ class TrainerBase(L.LightningModule):
                 skip_special_tokens=True,
             )
             self.trainer.logger.log_table(
-                key=f"test_conditioned_generation@global_step{self.global_step}",
+                key=f"test_gen@step{self.global_step}",
                 columns=[
                     f"Generated {_gen_mode}" for _gen_mode in all_generated_samples
                 ]

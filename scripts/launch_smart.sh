@@ -82,8 +82,8 @@ for lang in "${LANGUAGES[@]}"; do
         SHORT_LENGTHS[$lang]=100
         LONG_LENGTHS[$lang]=200
     else
-        SHORT_LENGTHS[$lang]=35
-        LONG_LENGTHS[$lang]=70
+        SHORT_LENGTHS[$lang]=50
+        LONG_LENGTHS[$lang]=100
     fi
 done
 
