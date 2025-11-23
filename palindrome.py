@@ -8,8 +8,8 @@ from typing import Dict, List, Optional, Tuple
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%H:%M:%S'
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%H:%M:%S",
 )
 logger = logging.getLogger(__name__)
 
@@ -81,19 +81,18 @@ def generate_palindrome(length: int, alphabet: List[str], marked: bool = True) -
     """
     if length <= 0:
         raise ValueError("Length must be positive.")
+    # Length is the total length of the final palindrome
+    half_len = length // 2
 
     if marked:
         # For marked palindromes: generate w, then marker ($), then w^R (full reverse of w)
-        # Length is the length of w
-        w = [random.choice(alphabet) for _ in range(length)]
+        w = [random.choice(alphabet) for _ in range(half_len)]
         w_reverse = w[::-1]
         # Optimized: pre-allocate list
         result = w + ["$"] + w_reverse
         return " ".join(result)
     else:
         # For unmarked palindromes: generate ww^R where the string reads same forwards/backwards
-        # Length is the total length of the final palindrome
-        half_len = length // 2
         first_half = [random.choice(alphabet) for _ in range(half_len)]
 
         # For even-length palindromes
@@ -146,7 +145,9 @@ def generate_non_palindrome(
             w_prime[diff_pos] = random.choice(alternatives)
         else:
             # Edge case: alphabet size is 1, but this should be caught above
-            raise RuntimeError("Cannot generate non-palindrome with single-symbol alphabet")
+            raise RuntimeError(
+                "Cannot generate non-palindrome with single-symbol alphabet"
+            )
 
         return " ".join(w + ["$"] + w_prime)
     else:
@@ -596,7 +597,9 @@ def make_all_splits(
     logger.info(f"Seed: {seed}")
     logger.info(f"Negative ratio: {negative_ratio:.1%}")
     if padding_multiplier > 0 or padding_constant:
-        logger.info(f"Padding: scale_type={padding_scale_type}, multiplier={padding_multiplier}, constant={padding_constant}, max={padding_max}")
+        logger.info(
+            f"Padding: scale_type={padding_scale_type}, multiplier={padding_multiplier}, constant={padding_constant}, max={padding_max}"
+        )
     logger.info("")
 
     # Generate each split independently with its own length ranges
@@ -640,7 +643,9 @@ def make_all_splits(
             # Log progress every 2 seconds or every 1000 attempts
             current_time = time.time()
             if current_time - last_log_time > 2.0 or attempts % 1000 == 0:
-                logger.info(f"    Progress: {positive_count}/{num_positive} (attempts: {attempts}, duplicates: {duplicate_count})")
+                logger.info(
+                    f"    Progress: {positive_count}/{num_positive} (attempts: {attempts}, duplicates: {duplicate_count})"
+                )
                 last_log_time = current_time
 
             # Sample length uniformly from range
@@ -685,7 +690,9 @@ def make_all_splits(
             # Log progress every 2 seconds or every 1000 attempts
             current_time = time.time()
             if current_time - last_log_time > 2.0 or attempts % 1000 == 0:
-                logger.info(f"    Progress: {negative_count}/{num_negative} (attempts: {attempts}, duplicates: {neg_duplicate_count})")
+                logger.info(
+                    f"    Progress: {negative_count}/{num_negative} (attempts: {attempts}, duplicates: {neg_duplicate_count})"
+                )
                 last_log_time = current_time
 
             # Sample length uniformly from range
@@ -740,13 +747,20 @@ def make_all_splits(
         if length_distribution:
             min_len_seen = min(length_distribution.keys())
             max_len_seen = max(length_distribution.keys())
-            avg_len = sum(length * count for length, count in length_distribution.items()) / total_generated
-            logger.info(f"    Length stats: min={min_len_seen}, max={max_len_seen}, avg={avg_len:.1f}")
+            avg_len = (
+                sum(length * count for length, count in length_distribution.items())
+                / total_generated
+            )
+            logger.info(
+                f"    Length stats: min={min_len_seen}, max={max_len_seen}, avg={avg_len:.1f}"
+            )
 
             # Show distribution for small datasets or if highly skewed
             if total_generated <= 100 or len(length_distribution) <= 10:
                 sorted_lengths = sorted(length_distribution.items())
-                dist_str = ", ".join(f"{length}:{count}" for length, count in sorted_lengths)
+                dist_str = ", ".join(
+                    f"{length}:{count}" for length, count in sorted_lengths
+                )
                 logger.info(f"    Length distribution: {dist_str}")
 
         random.shuffle(examples)
@@ -804,7 +818,9 @@ def make_examples(
     if seed is not None:
         random.seed(seed)
 
-    logger.info(f"Generating {num_examples} examples (length range: [{min_len}, {max_len}])")
+    logger.info(
+        f"Generating {num_examples} examples (length range: [{min_len}, {max_len}])"
+    )
 
     # Calculate how many positive and negative examples to generate
     num_negative = int(num_examples * negative_ratio)
@@ -849,7 +865,9 @@ def make_examples(
         positive_count += 1
         length_distribution[length] += 1
 
-    logger.info(f"    Generated {positive_count}/{num_positive} (duplicates: {duplicate_count})")
+    logger.info(
+        f"    Generated {positive_count}/{num_positive} (duplicates: {duplicate_count})"
+    )
 
     # Generate negative examples (non-palindromes)
     logger.info("  Generating negative examples...")
@@ -880,17 +898,24 @@ def make_examples(
         negative_count += 1
         length_distribution[length] += 1
 
-    logger.info(f"    Generated {negative_count}/{num_negative} (duplicates: {neg_duplicate_count})")
+    logger.info(
+        f"    Generated {negative_count}/{num_negative} (duplicates: {neg_duplicate_count})"
+    )
 
     total_generated = positive_count + negative_count
     total_duplicates = duplicate_count + neg_duplicate_count
     elapsed_time = time.time() - start_time
 
-    logger.info(f"  Total: {total_generated}/{num_examples} in {elapsed_time:.2f}s ({total_generated/elapsed_time:.1f} ex/s)")
+    logger.info(
+        f"  Total: {total_generated}/{num_examples} in {elapsed_time:.2f}s ({total_generated/elapsed_time:.1f} ex/s)"
+    )
     logger.info(f"  Total duplicates: {total_duplicates}, Unique: {len(seen)}")
 
     if length_distribution:
-        avg_len = sum(length * count for length, count in length_distribution.items()) / total_generated
+        avg_len = (
+            sum(length * count for length, count in length_distribution.items())
+            / total_generated
+        )
         logger.info(f"  Avg length: {avg_len:.1f}")
 
     random.shuffle(examples)
