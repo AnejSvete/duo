@@ -8,7 +8,7 @@ properties:
   format: trace
 
   # Padding configuration - controls extra empty padding beyond natural trace
-  padding_scale_type: natural  # Options: natural, linear, quadratic, cubic, constant
-  padding_multiplier: 0.0  # Scaling factor for extra padding (0.0 = no extra padding)
+  padding_scale_type: linear  # Options: natural, linear, quadratic, cubic, constant
+  padding_multiplier: 2.0  # Scaling factor for extra padding (0.0 = no extra padding)
   padding_constant: null  # Fixed number of extra PAD tokens (for constant mode)
   padding_max: 512  # Optional cap on extra padding length
