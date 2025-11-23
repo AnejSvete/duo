@@ -223,7 +223,37 @@ def _prepare_data(config, logger, tokenizer):
     if test_ds is not None:
         logger.info(f"Test dataset size: {len(test_ds.dataset)}")
 
+    # Print 50 example sequences from the training set
+    logger.info("\n" + "="*80)
+    logger.info("SAMPLE PREPARED EXAMPLES (first 50 from training set)")
+    logger.info("="*80)
+
+    num_examples_to_print = min(50, len(train_ds.dataset))
+    for i in range(num_examples_to_print):
+        example = train_ds.dataset[i]
+
+        # Decode the tokenized sequence back to text
+        if hasattr(example, 'input_ids'):
+            tokens = example.input_ids
+        elif isinstance(example, dict) and 'input_ids' in example:
+            tokens = example['input_ids']
+        else:
+            tokens = example
+
+        # Convert token IDs back to text
+        if hasattr(tokenizer, 'decode'):
+            text = tokenizer.decode(tokens)
+        else:
+            # Fallback: try to convert tokens directly
+            text = ' '.join([tokenizer.idx_to_token.get(int(t), f'<UNK:{t}>') for t in tokens if int(t) != tokenizer.pad_token_id])
+
+        logger.info(f"\nExample {i+1}/{num_examples_to_print}:")
+        logger.info(f"  Raw tokens: {tokens[:20]}{'...' if len(tokens) > 20 else ''}")
+        logger.info(f"  Decoded: {text}")
+
+    logger.info("\n" + "="*80)
     logger.info("Data preparation complete. Data is now cached and ready for training.")
+    logger.info("="*80)
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="config")

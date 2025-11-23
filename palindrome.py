@@ -199,7 +199,7 @@ def get_palindrome_trace(
     Args:
         input_string: The palindrome string to trace
         marked: Whether this is a marked palindrome
-        mode: Format mode (trace, final_value, or verify)
+        mode: Format mode (trace, final_value, empty_trace, or verify)
         padding_scale_type: Type of padding scaling ("natural", "linear", "quadratic", "cubic", "constant")
         padding_multiplier: Multiplier for extra padding
         padding_constant: Fixed amount of extra padding (for constant mode)
@@ -215,6 +215,132 @@ def get_palindrome_trace(
     if mode == "final_value":
         # Just input and result (# separates prompt from completion)
         return f"{input_string} # {result}"
+
+    elif mode == "empty_trace":
+        # Generate trace structure but replace actual trace steps with [PAD] tokens
+        symbols = input_string.strip().split()
+
+        if marked:
+            marker_idx = symbols.index("$") if "$" in symbols else -1
+            if marker_idx == -1:
+                return f"{input_string} # F"
+
+            w = symbols[:marker_idx]
+            w_reverse = symbols[marker_idx + 1 :]
+            input_length = len(w) + len(w_reverse)
+
+            # Generate trace steps (same logic as trace mode)
+            push_steps = [f"push_{char}" for char in w]
+
+            pop_steps = []
+            stack = w.copy()
+            mismatch = False
+
+            for i, char in enumerate(w_reverse):
+                if i < len(stack):
+                    expected = stack[len(stack) - 1 - i]
+                    if char == expected:
+                        pop_steps.append(f"pop={char}")
+                    else:
+                        pop_steps.append(f"pop≠{char}")
+                        mismatch = True
+                        break
+                else:
+                    pop_steps.append(f"empty≠{char}")
+                    mismatch = True
+                    break
+
+            if mismatch or len(w) != len(w_reverse):
+                # For failed cases, still pad the trace
+                trace_steps = push_steps + pop_steps
+                padded_steps = []
+                for step in trace_steps:
+                    num_tokens = len(step.split("_"))  # Count tokens in step
+                    padded_steps.append(" ".join(["[PAD]"] * num_tokens))
+                return f"{input_string} # {' | '.join(padded_steps)} | F"
+            else:
+                # Success case - replace trace with padding
+                trace_steps = push_steps + pop_steps
+                natural_trace_length = len(trace_steps)
+
+                # Replace each step with [PAD] tokens
+                padded_steps = []
+                for step in trace_steps:
+                    num_tokens = len(step.split("_"))
+                    padded_steps.append(" ".join(["[PAD]"] * num_tokens))
+
+                # Compute extra padding
+                extra_padding_count = compute_extra_padding_length(
+                    input_length=input_length,
+                    natural_trace_length=natural_trace_length,
+                    scale_type=padding_scale_type,
+                    multiplier=padding_multiplier,
+                    constant=padding_constant,
+                    max_length=padding_max,
+                )
+
+                if extra_padding_count > 0:
+                    extra_padding_part = " ".join(["[PAD]"] * extra_padding_count)
+                    all_steps = padded_steps + [extra_padding_part, "T"]
+                    return f"{input_string} # {' | '.join(all_steps)}"
+                else:
+                    all_steps = padded_steps + ["T"]
+                    return f"{input_string} # {' | '.join(all_steps)}"
+
+        else:
+            # Unmarked palindromes
+            n = len(symbols)
+            mid = n // 2
+            input_length = n
+
+            push_steps = [f"push_{symbols[i]}" for i in range(mid)]
+
+            if n % 2 == 1:
+                push_steps.append(f"skip_{symbols[mid]}")
+                start_compare = mid + 1
+            else:
+                start_compare = mid
+
+            pop_steps = []
+            mismatch = False
+            for i in range(start_compare, n):
+                mirror_idx = n - 1 - i
+                expected = symbols[mirror_idx]
+                actual = symbols[i]
+
+                if actual == expected:
+                    pop_steps.append(f"pop={actual}")
+                else:
+                    pop_steps.append(f"pop≠{actual}")
+                    mismatch = True
+                    break
+
+            trace_steps = push_steps + pop_steps
+            natural_trace_length = len(trace_steps)
+
+            # Replace each step with [PAD] tokens
+            padded_steps = []
+            for step in trace_steps:
+                num_tokens = len(step.split("_"))
+                padded_steps.append(" ".join(["[PAD]"] * num_tokens))
+
+            # Compute extra padding
+            extra_padding_count = compute_extra_padding_length(
+                input_length=input_length,
+                natural_trace_length=natural_trace_length,
+                scale_type=padding_scale_type,
+                multiplier=padding_multiplier,
+                constant=padding_constant,
+                max_length=padding_max,
+            )
+
+            if extra_padding_count > 0:
+                extra_padding_part = " ".join(["[PAD]"] * extra_padding_count)
+                all_steps = padded_steps + [extra_padding_part, "T" if not mismatch else "F"]
+                return f"{input_string} # {' | '.join(all_steps)}"
+            else:
+                all_steps = padded_steps + ["T" if not mismatch else "F"]
+                return f"{input_string} # {' | '.join(all_steps)}"
 
     elif mode == "trace":
         # Stack-based trace mimicking pushdown automaton (PDA)
