@@ -232,7 +232,7 @@ def evaluate_expression_tree(start_tree: Dict[str, Any]) -> str:
     return current_tree.get("const", "ERROR")
 
 
-def get_prefix_reduction_steps(start_tree: Dict[str, Any]) -> List[str]:
+def get_postfix_reduction_steps(start_tree: Dict[str, Any]) -> List[str]:
     """
     Takes a variable-free expression tree and returns the evaluation trace
     as a list of postfix notation strings.
@@ -247,12 +247,12 @@ def get_prefix_reduction_steps(start_tree: Dict[str, Any]) -> List[str]:
     return steps
 
 
-def get_prefix_reduction_trace(start_tree: Dict[str, Any]) -> str:
+def get_postfix_reduction_trace(start_tree: Dict[str, Any]) -> str:
     """
     Takes a variable-free expression tree and returns the full evaluation trace
-    string, with each step in prefix notation.
+    string, with each step in postfix notation.
     """
-    steps = get_prefix_reduction_steps(start_tree)
+    steps = get_postfix_reduction_steps(start_tree)
     if len(steps) <= 1:
         return steps[0]
     return f"{steps[0]} # {' | '.join(steps[1:])}"
@@ -538,7 +538,7 @@ def _generate_text_from_tree(
 ) -> str:
     """Helper function to generate text representation from trees."""
     if mode == "trace":
-        steps = get_prefix_reduction_steps(substituted_tree)
+        steps = get_postfix_reduction_steps(substituted_tree)
         initial_repr = steps[0]
         input_length = len(initial_repr.split())
 
@@ -585,7 +585,7 @@ def _generate_text_from_tree(
         text = f"{postfix_str} # {final_value}"
 
     elif mode == "empty_trace":
-        steps = get_prefix_reduction_steps(substituted_tree)
+        steps = get_postfix_reduction_steps(substituted_tree)
         initial_repr = steps[0]
         input_length = len(initial_repr.split())
 
@@ -627,7 +627,7 @@ def _generate_text_from_tree(
             assignment_parts.append(f"{var} {'T' if value else 'F'}")
         assignment_str = " ".join(assignment_parts)
         initial_formula_str = tree_to_postfix_str(expression_tree)
-        full_trace_str = get_prefix_reduction_trace(substituted_tree)
+        full_trace_str = get_postfix_reduction_trace(substituted_tree)
         trace_parts = full_trace_str.split(" # ", 1)
         if len(trace_parts) == 2:
             reduction_trace = trace_parts[1]
