@@ -2,6 +2,7 @@ name: mdlm
 backbone: dit  # dit / dimamba / hf_dit
 parameterization: subs
 time_conditioning: False
-T: 0  # 0 (continuous time) / 1000 
+T: 0  # 0 (continuous time) / 1000
 causal_attention: False
 loss_type: elbo
+looping_type: constant  # Not used for diffusion models, but needed for batch size resolver

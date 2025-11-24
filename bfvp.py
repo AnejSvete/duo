@@ -314,6 +314,9 @@ def make_all_splits(
     LOGGER.info(f"Depth ranges: {depth_ranges}")
     LOGGER.info(f"Length ranges: {length_ranges}")
 
+    # Track examples globally to prevent cross-split duplicates
+    global_seen = set()
+
     for split_name in ["train", "validation", "test"]:
         split_min_depth, split_max_depth = depth_ranges[split_name]
         num_examples = split_sizes[split_name]
@@ -338,15 +341,15 @@ def make_all_splits(
 
         examples = []
         attempts = 0
-        max_attempts = num_examples * 1000  # Generous limit for rejection sampling
 
         # Track statistics for debugging
         rejected_count = 0
+        cross_split_duplicates = 0
         accepted_lengths = []
         rejected_lengths = []
         depth_to_length_map = {}  # Track depth -> lengths mapping
 
-        while len(examples) < num_examples and attempts < max_attempts:
+        while len(examples) < num_examples:
             attempts += 1
 
             current_depth = random.randint(split_min_depth, split_max_depth)
@@ -368,6 +371,11 @@ def make_all_splits(
                 padding_max=padding_max,
             )
 
+            # Check for cross-split duplicates
+            if text in global_seen:
+                cross_split_duplicates += 1
+                continue
+
             # Apply length filter if specified
             if use_length_filter:
                 # Compute length based on INPUT part only (before '#')
@@ -379,13 +387,14 @@ def make_all_splits(
                     text_length = len(text.split())
 
                 if min_len <= text_length <= max_len:
+                    global_seen.add(text)
                     examples.append({"text": text})
                     accepted_lengths.append(text_length)
                     depth_to_length_map[current_depth].append(text_length)
 
                     # Log progress periodically
                     if len(examples) % 1000 == 0:
-                        LOGGER.info(f"  Progress: {len(examples)}/{num_examples} examples generated (attempts={attempts}, rejection_rate={rejected_count/attempts*100:.1f}%)")
+                        LOGGER.info(f"  Progress: {len(examples)}/{num_examples} examples generated (attempts={attempts}, length_rejected={rejected_count}, cross_split_dups={cross_split_duplicates})")
                 else:
                     rejected_count += 1
                     rejected_lengths.append(text_length)
@@ -394,6 +403,7 @@ def make_all_splits(
                     if rejected_count <= 10 or (rejected_count % 1000 == 0):
                         LOGGER.debug(f"  Rejected example {rejected_count}: length={text_length} not in [{min_len}, {max_len}], depth={current_depth}")
             else:
+                global_seen.add(text)
                 examples.append({"text": text})
                 # Track lengths even when not filtering
                 if "#" in text:
@@ -406,7 +416,7 @@ def make_all_splits(
 
                 # Log progress periodically
                 if len(examples) % 1000 == 0:
-                    LOGGER.info(f"  Progress: {len(examples)}/{num_examples} examples generated (attempts={attempts})")
+                    LOGGER.info(f"  Progress: {len(examples)}/{num_examples} examples generated (attempts={attempts}, cross_split_dups={cross_split_duplicates})")
 
         # Print summary statistics for this split
         import numpy as np
@@ -415,10 +425,11 @@ def make_all_splits(
         LOGGER.info(f"{split_name.upper()} split generation complete:")
         LOGGER.info(f"  Generated: {len(examples)}/{num_examples} examples")
         LOGGER.info(f"  Total attempts: {attempts}")
+        LOGGER.info(f"  Cross-split duplicates skipped: {cross_split_duplicates}")
         if use_length_filter:
-            LOGGER.info(f"  Accepted: {len(accepted_lengths)}")
-            LOGGER.info(f"  Rejected: {rejected_count}")
-            LOGGER.info(f"  Rejection rate: {rejected_count/attempts*100:.1f}%")
+            LOGGER.info(f"  Length-based accepted: {len(accepted_lengths)}")
+            LOGGER.info(f"  Length-based rejected: {rejected_count}")
+            LOGGER.info(f"  Length rejection rate: {rejected_count/attempts*100:.1f}%")
 
         if accepted_lengths:
             accepted_array = np.array(accepted_lengths)

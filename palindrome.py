@@ -606,6 +606,9 @@ def make_all_splits(
     split_pools = {}
     overall_start_time = time.time()
 
+    # Track examples globally to prevent cross-split duplicates
+    global_seen = set()
+
     for split_name in ["train", "validation", "test"]:
         split_start_time = time.time()
         min_len, max_len = length_ranges[split_name]
@@ -623,28 +626,23 @@ def make_all_splits(
         logger.info(f"  Negative (non-palindromes): {num_negative}")
 
         examples = []
-        seen = set()  # Track unique examples
-        max_attempts = num_examples * 1000
-
         # Track statistics
-        duplicate_count = 0
+        within_split_duplicates = 0
+        cross_split_duplicates = 0
         positive_count = 0
         negative_count = 0
         length_distribution = Counter()
 
         # Generate positive examples (palindromes)
         logger.info("  Generating positive examples...")
-        attempts = 0
         last_log_time = time.time()
 
-        while positive_count < num_positive and attempts < max_attempts:
-            attempts += 1
-
-            # Log progress every 2 seconds or every 1000 attempts
+        while positive_count < num_positive:
+            # Log progress every 2 seconds
             current_time = time.time()
-            if current_time - last_log_time > 2.0 or attempts % 1000 == 0:
+            if current_time - last_log_time > 2.0:
                 logger.info(
-                    f"    Progress: {positive_count}/{num_positive} (attempts: {attempts}, duplicates: {duplicate_count})"
+                    f"    Progress: {positive_count}/{num_positive} (within-split dups: {within_split_duplicates}, cross-split dups: {cross_split_duplicates})"
                 )
                 last_log_time = current_time
 
@@ -654,12 +652,16 @@ def make_all_splits(
             # Generate palindrome
             palindrome_str = generate_palindrome(length, alphabet, marked)
 
-            # Check for duplicates
-            if palindrome_str in seen:
-                duplicate_count += 1
-                continue
+            # Check for cross-split duplicates only
+            if palindrome_str in global_seen:
+                cross_split_duplicates += 1
+                continue  # Skip if already in another split
 
-            seen.add(palindrome_str)
+            # Count within-split duplicates for statistics, but allow them
+            # (We don't track a per-split seen set, so duplicates are naturally allowed)
+
+            # Add to global tracker
+            global_seen.add(palindrome_str)
 
             # Generate output based on mode
             text = get_palindrome_trace(
@@ -680,18 +682,14 @@ def make_all_splits(
 
         # Generate negative examples (non-palindromes)
         logger.info("  Generating negative examples...")
-        attempts = 0
         last_log_time = time.time()
-        neg_duplicate_count = 0
 
-        while negative_count < num_negative and attempts < max_attempts:
-            attempts += 1
-
-            # Log progress every 2 seconds or every 1000 attempts
+        while negative_count < num_negative:
+            # Log progress every 2 seconds
             current_time = time.time()
-            if current_time - last_log_time > 2.0 or attempts % 1000 == 0:
+            if current_time - last_log_time > 2.0:
                 logger.info(
-                    f"    Progress: {negative_count}/{num_negative} (attempts: {attempts}, duplicates: {neg_duplicate_count})"
+                    f"    Progress: {negative_count}/{num_negative} (cross-split dups: {cross_split_duplicates})"
                 )
                 last_log_time = current_time
 
@@ -701,12 +699,13 @@ def make_all_splits(
             # Generate non-palindrome
             non_palindrome_str = generate_non_palindrome(length, alphabet, marked)
 
-            # Check for duplicates
-            if non_palindrome_str in seen:
-                neg_duplicate_count += 1
-                continue
+            # Check for cross-split duplicates only
+            if non_palindrome_str in global_seen:
+                cross_split_duplicates += 1
+                continue  # Skip if already in another split
 
-            seen.add(non_palindrome_str)
+            # Add to global tracker
+            global_seen.add(non_palindrome_str)
 
             # Generate output based on mode (will correctly label as F)
             text = get_palindrome_trace(
@@ -726,20 +725,13 @@ def make_all_splits(
         logger.info(f"    Completed: {negative_count}/{num_negative} negative examples")
 
         total_generated = positive_count + negative_count
-        total_duplicates = duplicate_count + neg_duplicate_count
-
-        if total_generated < num_examples:
-            logger.warning(
-                f"  WARNING: Only generated {total_generated}/{num_examples} examples "
-                f"within length range [{min_len}, {max_len}]"
-            )
 
         # Log statistics
         split_time = time.time() - split_start_time
         logger.info("  Statistics:")
         logger.info(f"    Total generated: {total_generated}/{num_examples}")
-        logger.info(f"    Duplicates encountered: {total_duplicates}")
-        logger.info(f"    Unique examples: {len(seen)}")
+        logger.info(f"    Cross-split duplicates skipped: {cross_split_duplicates}")
+        logger.info("    All examples are unique across splits")
         logger.info(f"    Generation time: {split_time:.2f}s")
         logger.info(f"    Examples/second: {total_generated/split_time:.1f}")
 

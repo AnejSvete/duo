@@ -1,7 +1,8 @@
 name: sedd
 backbone: dit  # dit / dimamba
-parameterization: score 
+parameterization: score
 time_conditioning: True
-T: 0  # 0 (continuous time) / 1000 
+T: 0  # 0 (continuous time) / 1000
 causal_attention: False
 loss_type: elbo  # elbo, low_var
+looping_type: constant  # Not used for diffusion models, but needed for batch size resolver

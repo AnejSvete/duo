@@ -13,11 +13,12 @@ mode: train  # train / prepare_data / ppl_eval / sample_eval
 seed: 3
 
 loader:
-  global_batch_size: 128
+  # Adaptive batch size: 200 for looping models (LT with log/linear), 500 for non-looping models
+  global_batch_size: ${adaptive_batch_size:${algo.name},${algo.looping_type}}
   eval_global_batch_size: ${.global_batch_size}
   # Note: batch_size and eval_batch_size are **per machine**
-  batch_size: 128
-  eval_batch_size: 128
+  batch_size: ${.global_batch_size}
+  eval_batch_size: ${.global_batch_size}
   num_workers: ${eval:"len(__import__('os').sched_getaffinity(0))"}
   pin_memory: True
 

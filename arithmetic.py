@@ -171,6 +171,19 @@ def tree_to_prefix_str(tree: Dict[str, Any]) -> str:
     return f"{op} {' '.join(children_strs)}"
 
 
+def tree_to_postfix_str(tree: Dict[str, Any]) -> str:
+    """Converts an expression tree to a postfix notation string (Reverse Polish Notation)."""
+    if "const" in tree:
+        return str(tree["const"])
+    if "var" in tree:
+        return tree["var"]
+
+    children_strs = [tree_to_postfix_str(child) for child in tree["children"]]
+    op = tree["op"]
+
+    return f"{' '.join(children_strs)} {op}"
+
+
 def reduce_expression_tree_step(node: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
     """
     Performs one reduction on the deepest, leftmost reducible sub-expression.
@@ -199,25 +212,25 @@ def reduce_expression_tree_step(node: Dict[str, Any]) -> Tuple[Dict[str, Any], b
     return node, False
 
 
-def get_prefix_reduction_steps(start_tree: Dict[str, Any]) -> List[str]:
+def get_postfix_reduction_steps(start_tree: Dict[str, Any]) -> List[str]:
     """
-    Generates the evaluation trace of an expression as a list of prefix strings.
+    Generates the evaluation trace of an expression as a list of postfix strings.
     """
     current_tree = start_tree
-    steps = [tree_to_prefix_str(current_tree)]
+    steps = [tree_to_postfix_str(current_tree)]
     while "op" in current_tree:
         current_tree, reduced = reduce_expression_tree_step(current_tree)
         if not reduced:
             break
-        steps.append(tree_to_prefix_str(current_tree))
+        steps.append(tree_to_postfix_str(current_tree))
     return steps
 
 
-def get_prefix_reduction_trace(start_tree: Dict[str, Any]) -> str:
+def get_postfix_reduction_trace(start_tree: Dict[str, Any]) -> str:
     """
-    Generates the full evaluation trace of an expression, with each step in prefix.
+    Generates the full evaluation trace of an expression, with each step in postfix.
     """
-    steps = get_prefix_reduction_steps(start_tree)
+    steps = get_postfix_reduction_steps(start_tree)
     if len(steps) <= 1:
         return steps[0]
     return f"{steps[0]} # {' | '.join(steps[1:])}"
@@ -312,6 +325,9 @@ def make_all_splits(
     LOGGER.info(f"Length ranges: {length_ranges}")
     LOGGER.info(f"Value range: [{min_val}, {max_val}]")
 
+    # Track examples globally to prevent cross-split duplicates
+    global_seen = set()
+
     for split_name in ["train", "validation", "test"]:
         split_min_depth, split_max_depth = depth_ranges[split_name]
         num_examples = split_sizes[split_name]
@@ -336,15 +352,15 @@ def make_all_splits(
 
         examples = []
         attempts = 0
-        max_attempts = num_examples * 1000  # Generous limit for rejection sampling
 
         # Track statistics for debugging
         rejected_count = 0
+        cross_split_duplicates = 0
         accepted_lengths = []
         rejected_lengths = []
         depth_to_length_map = {}  # Track depth -> lengths mapping
 
-        while len(examples) < num_examples and attempts < max_attempts:
+        while len(examples) < num_examples:
             attempts += 1
 
             depth = random.randint(split_min_depth, split_max_depth)
@@ -363,6 +379,11 @@ def make_all_splits(
             if text is None:
                 continue
 
+            # Check for cross-split duplicates
+            if text in global_seen:
+                cross_split_duplicates += 1
+                continue
+
             # Apply length filter if specified
             if use_length_filter:
                 # Compute length based on INPUT part only (before '#')
@@ -374,13 +395,14 @@ def make_all_splits(
                     text_length = len(text.split())
 
                 if min_len <= text_length <= max_len:
+                    global_seen.add(text)
                     examples.append({"text": text})
                     accepted_lengths.append(text_length)
                     depth_to_length_map[depth].append(text_length)
 
                     # Log progress periodically
                     if len(examples) % 1000 == 0:
-                        LOGGER.info(f"  Progress: {len(examples)}/{num_examples} examples generated (attempts={attempts}, rejection_rate={rejected_count/attempts*100:.1f}%)")
+                        LOGGER.info(f"  Progress: {len(examples)}/{num_examples} examples generated (attempts={attempts}, length_rejected={rejected_count}, cross_split_dups={cross_split_duplicates})")
                 else:
                     rejected_count += 1
                     rejected_lengths.append(text_length)
@@ -389,6 +411,7 @@ def make_all_splits(
                     if rejected_count <= 10 or (rejected_count % 1000 == 0):
                         LOGGER.debug(f"  Rejected example {rejected_count}: length={text_length} not in [{min_len}, {max_len}], depth={depth}")
             else:
+                global_seen.add(text)
                 examples.append({"text": text})
                 # Track lengths even when not filtering
                 if "#" in text:
@@ -401,7 +424,7 @@ def make_all_splits(
 
                 # Log progress periodically
                 if len(examples) % 1000 == 0:
-                    LOGGER.info(f"  Progress: {len(examples)}/{num_examples} examples generated (attempts={attempts})")
+                    LOGGER.info(f"  Progress: {len(examples)}/{num_examples} examples generated (attempts={attempts}, cross_split_dups={cross_split_duplicates})")
 
         # Print summary statistics for this split
         import numpy as np
@@ -410,10 +433,11 @@ def make_all_splits(
         LOGGER.info(f"{split_name.upper()} split generation complete:")
         LOGGER.info(f"  Generated: {len(examples)}/{num_examples} examples")
         LOGGER.info(f"  Total attempts: {attempts}")
+        LOGGER.info(f"  Cross-split duplicates skipped: {cross_split_duplicates}")
         if use_length_filter:
-            LOGGER.info(f"  Accepted: {len(accepted_lengths)}")
-            LOGGER.info(f"  Rejected: {rejected_count}")
-            LOGGER.info(f"  Rejection rate: {rejected_count/attempts*100:.1f}%")
+            LOGGER.info(f"  Length-based accepted: {len(accepted_lengths)}")
+            LOGGER.info(f"  Length-based rejected: {rejected_count}")
+            LOGGER.info(f"  Length rejection rate: {rejected_count/attempts*100:.1f}%")
 
         if accepted_lengths:
             accepted_array = np.array(accepted_lengths)
@@ -528,7 +552,7 @@ def _generate_arithmetic_text(
 ) -> str:
     """Helper function to generate text representation from expression tree."""
     if mode == "trace":
-        steps = get_prefix_reduction_steps(expression_tree)
+        steps = get_postfix_reduction_steps(expression_tree)
         initial_repr = steps[0]
         input_length = len(initial_repr.split())
 
@@ -570,12 +594,12 @@ def _generate_arithmetic_text(
             text = steps[0]
 
     elif mode == "final_value":
-        prefix_str = tree_to_prefix_str(expression_tree)
+        postfix_str = tree_to_postfix_str(expression_tree)
         final_value = evaluate_expression_tree(expression_tree)
-        text = f"{prefix_str} # {final_value}"
+        text = f"{postfix_str} # {final_value}"
 
     elif mode == "empty_trace":
-        steps = get_prefix_reduction_steps(expression_tree)
+        steps = get_postfix_reduction_steps(expression_tree)
         initial_repr = steps[0]
         input_length = len(initial_repr.split())
 
@@ -617,7 +641,7 @@ def _generate_arithmetic_text(
 
         if num_to_variablize == 0:
             # Fallback for simple trees with no variety in constants
-            return get_prefix_reduction_trace(expression_tree)
+            return get_postfix_reduction_trace(expression_tree)
 
         constants_to_variablize = random.sample(unique_constants, num_to_variablize)
 
@@ -635,9 +659,9 @@ def _generate_arithmetic_text(
             assignment_parts.append(f"{var} {val}")
         assignment_str = " ".join(assignment_parts)
 
-        formula_with_vars_str = tree_to_prefix_str(variable_tree)
+        formula_with_vars_str = tree_to_postfix_str(variable_tree)
 
-        full_trace_str = get_prefix_reduction_trace(expression_tree)
+        full_trace_str = get_postfix_reduction_trace(expression_tree)
         trace_parts = full_trace_str.split(" # ", 1)
         reduction_trace = trace_parts[1] if len(trace_parts) == 2 else trace_parts[0]
 
@@ -650,7 +674,7 @@ def _generate_arithmetic_text(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Generate arithmetic expressions in prefix notation with bounded intermediate values.",
+        description="Generate arithmetic expressions in postfix notation with bounded intermediate values.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -690,7 +714,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    print(f"--- 🚀 Generating Arithmetic Expressions (Prefix Notation) 🚀 ---")
+    print(f"--- 🚀 Generating Arithmetic Expressions (Postfix Notation) 🚀 ---")
     print(f"Value Range: [{args.min_val}, {args.max_val}]")
     print(
         f"Generating {args.num_examples} examples with tree depth from {args.min_depth} to {args.max_depth}."

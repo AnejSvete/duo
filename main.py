@@ -19,6 +19,20 @@ omegaconf.OmegaConf.register_new_resolver("eval", eval)
 omegaconf.OmegaConf.register_new_resolver("div_up", lambda x, y: (x + y - 1) // y)
 
 
+def _is_looping_model(algo_name, looping_type):
+    """Determine if model is a looping model based on algorithm and looping type."""
+    # LT with non-constant looping is considered a looping model
+    if algo_name == "lt" and looping_type != "constant":
+        return True
+    # AR uses constant looping (single-pass) so it's not a looping model
+    # MDLM, D3PM, SEDD are also non-looping
+    return False
+
+
+omegaconf.OmegaConf.register_new_resolver("adaptive_batch_size",
+    lambda algo_name, looping_type: 200 if _is_looping_model(algo_name, looping_type) else 500)
+
+
 def _load_from_checkpoint(diffusion_model, config, tokenizer):
     if "hf" in config.algo.backbone:
         return diffusion_model(config, tokenizer=tokenizer).to("cuda")
