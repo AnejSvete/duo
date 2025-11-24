@@ -158,6 +158,23 @@ def tree_to_prefix_str(tree: Dict[str, Any]) -> str:
     return f"{op} {' '.join(children_strs)}"
 
 
+def tree_to_postfix_str(tree: Dict[str, Any]) -> str:
+    """Converts an expression tree to a postfix notation string (Reverse Polish Notation)."""
+    if "const" in tree:
+        return tree["const"]
+    if "var" in tree:
+        return tree["var"]
+
+    op = tree["op"]
+    if op == "not":
+        child_str = tree_to_postfix_str(tree["child"])
+        return f"{child_str} {op}"
+
+    # 'and' or 'or'
+    children_strs = [tree_to_postfix_str(child) for child in tree["children"]]
+    return f"{' '.join(children_strs)} {op}"
+
+
 def reduce_expression_tree_step(node: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
     """
     Performs one layer of reduction on a variable-free expression tree.
@@ -218,15 +235,15 @@ def evaluate_expression_tree(start_tree: Dict[str, Any]) -> str:
 def get_prefix_reduction_steps(start_tree: Dict[str, Any]) -> List[str]:
     """
     Takes a variable-free expression tree and returns the evaluation trace
-    as a list of prefix notation strings.
+    as a list of postfix notation strings.
     """
     current_tree = start_tree
-    steps = [tree_to_prefix_str(current_tree)]
+    steps = [tree_to_postfix_str(current_tree)]
     while "op" in current_tree:
         current_tree, reduced = reduce_expression_tree_step(current_tree)
         if not reduced:
             break
-        steps.append(tree_to_prefix_str(current_tree))
+        steps.append(tree_to_postfix_str(current_tree))
     return steps
 
 
@@ -563,9 +580,9 @@ def _generate_text_from_tree(
             text = steps[0]
 
     elif mode == "final_value":
-        prefix_str = tree_to_prefix_str(substituted_tree)
+        postfix_str = tree_to_postfix_str(substituted_tree)
         final_value = evaluate_expression_tree(substituted_tree)
-        text = f"{prefix_str} # {final_value}"
+        text = f"{postfix_str} # {final_value}"
 
     elif mode == "empty_trace":
         steps = get_prefix_reduction_steps(substituted_tree)
@@ -609,7 +626,7 @@ def _generate_text_from_tree(
             value = assignments[var]
             assignment_parts.append(f"{var} {'T' if value else 'F'}")
         assignment_str = " ".join(assignment_parts)
-        initial_formula_str = tree_to_prefix_str(expression_tree)
+        initial_formula_str = tree_to_postfix_str(expression_tree)
         full_trace_str = get_prefix_reduction_trace(substituted_tree)
         trace_parts = full_trace_str.split(" # ", 1)
         if len(trace_parts) == 2:
@@ -625,7 +642,7 @@ def _generate_text_from_tree(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Generate Boolean formulas in prefix notation."
+        description="Generate Boolean formulas in postfix notation."
     )
     parser.add_argument(
         "--min_depth",
