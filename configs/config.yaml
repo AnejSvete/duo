@@ -13,7 +13,9 @@ mode: train  # train / prepare_data / ppl_eval / sample_eval
 seed: 3
 
 loader:
-  # Adaptive batch size: 200 for looping models (LT with log/linear), 500 for non-looping models
+  # Target effective batch size for optimizer updates (applies across all model types)
+  target_effective_batch_size: 1024
+  # Adaptive batch size: 256 for looping models (LT with log/linear), 1024 for non-looping models
   global_batch_size: ${adaptive_batch_size:${algo.name},${algo.looping_type}}
   eval_global_batch_size: ${.global_batch_size}
   # Note: batch_size and eval_batch_size are **per machine**
@@ -74,7 +76,11 @@ trainer:
   accelerator: cuda
   num_nodes: 1
   devices: ${device_count:}
-  accumulate_grad_batches: 1
+  precision: 16-mixed
+  # Automatically compute accumulation steps to match target effective batch size
+  # For looping models (batch_size=256): accumulate 4 batches → effective=1024
+  # For non-looping models (batch_size=1024): accumulate 1 batch → effective=1024
+  accumulate_grad_batches: ${adaptive_accumulation_steps:${algo.name},${algo.looping_type},${loader.target_effective_batch_size}}
   gradient_clip_val: 10.0
   num_sanity_val_steps: 2
   max_steps: 20000

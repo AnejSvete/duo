@@ -32,7 +32,18 @@ def _is_looping_model(algo_name, looping_type):
 omegaconf.OmegaConf.register_new_resolver(
     "adaptive_batch_size",
     lambda algo_name, looping_type: (
-        256 if _is_looping_model(algo_name, looping_type) else 1024
+        512 if _is_looping_model(algo_name, looping_type) else 2048
+    ),
+)
+
+omegaconf.OmegaConf.register_new_resolver(
+    "adaptive_accumulation_steps",
+    lambda algo_name, looping_type, target_effective_batch: (
+        max(
+            1,
+            target_effective_batch
+            // (512 if _is_looping_model(algo_name, looping_type) else 2048),
+        )
     ),
 )
 

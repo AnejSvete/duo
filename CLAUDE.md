@@ -91,6 +91,22 @@ python main.py mode=ppl_eval eval.checkpoint_path=path/to/checkpoint.ckpt
 python main.py mode=sample_eval eval.checkpoint_path=path/to/checkpoint.ckpt
 ```
 
+### Gradient Accumulation for Model Comparability
+
+The codebase automatically adjusts gradient accumulation to ensure fair comparison between models:
+
+- **Non-looping models** (AR, MDLM, D3PM, SEDD): batch_size=1024, accumulate=1 → effective=1024
+- **Looping models** (LT log/linear): batch_size=256, accumulate=4 → effective=1024
+
+All models train with the same effective batch size (1024 by default), making them directly comparable. To adjust:
+
+```bash
+# Change target effective batch size for all models
+python main.py loader.target_effective_batch_size=2048 algo=lt
+```
+
+See [GRADIENT_ACCUMULATION.md](GRADIENT_ACCUMULATION.md) for details.
+
 ### Curriculum Learning
 
 Enable progressive training on longer sequences:
