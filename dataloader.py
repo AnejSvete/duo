@@ -512,6 +512,21 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
             texts = examples["text"]
             tokenizer = get_tokenizer(config)
             tokenizer.padding_side, tokenizer.truncation_side = "right", "right"
+
+            # Check for truncation issues (log first few examples)
+            if hasattr(preprocess_and_tokenize, '_log_count'):
+                preprocess_and_tokenize._log_count += 1
+            else:
+                preprocess_and_tokenize._log_count = 1
+
+            if preprocess_and_tokenize._log_count <= 3:
+                for i, text in enumerate(texts[:2]):
+                    token_count = len(text.split())
+                    LOGGER.warning(
+                        f"Sample {i}: text has {token_count} tokens, "
+                        f"max_length={block_size}, text='{text[:100]}...'"
+                    )
+
             tokens = tokenizer(
                 texts,
                 max_length=block_size,
@@ -522,6 +537,9 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
                 return_token_type_ids=True,
             )
             tokens["text"] = texts
+            # Preserve label field if it exists (e.g., for palindrome tasks)
+            if "label" in examples:
+                tokens["label"] = examples["label"]
             return tokens
 
         tokenized_dataset = dataset.map(

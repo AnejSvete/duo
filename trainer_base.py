@@ -558,7 +558,7 @@ class TrainerBase(L.LightningModule):
             ):
                 generated_samples = self.tokenizer.batch_decode(
                     generated[: self.config.sampling.num_sample_log],
-                    skip_special_tokens=True,
+                    skip_special_tokens=False,  # Changed: keep special tokens to debug
                 )
                 all_generated_samples[display_mode] = generated_samples
 
@@ -1005,7 +1005,7 @@ class TrainerBase(L.LightningModule):
             ):
                 generated_samples = self.tokenizer.batch_decode(
                     generated[: self.config.sampling.num_sample_log],
-                    skip_special_tokens=True,
+                    skip_special_tokens=False,  # Changed: keep special tokens to debug
                 )
                 all_generated_samples[display_mode] = generated_samples
 

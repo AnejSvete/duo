@@ -78,9 +78,19 @@ class MaskedFormalCollator:
         col_indices = torch.arange(input_ids.shape[1], device=input_ids.device)
         do_not_mask = col_indices <= cutoff_indices.unsqueeze(1)
 
-        return {
+        result = {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "do_not_mask": do_not_mask,
             "text": texts,  # Keep raw text for computing true sequence lengths
         }
+
+        # Preserve additional fields from batch items (e.g., "label" for palindromes)
+        # Check if all items have the same extra keys
+        if batch:
+            extra_keys = set(batch[0].keys()) - {"text", "input_ids", "attention_mask"}
+            for key in extra_keys:
+                # Collect values for this key from all items
+                result[key] = [item[key] for item in batch]
+
+        return result
