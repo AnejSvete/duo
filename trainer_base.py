@@ -11,7 +11,10 @@ import transformers
 
 import metrics
 import models
+import utils
 from length_stratified_metrics import PerGenerationModeMetrics
+
+LOGGER = utils.get_logger(__name__)
 
 torch.set_printoptions(
     threshold=float("inf"),  # Print all elements (no truncation)
@@ -391,6 +394,35 @@ class TrainerBase(L.LightningModule):
     def training_step(self, batch, batch_idx):
         current_accumulation_step = batch_idx % self.trainer.accumulate_grad_batches
 
+        # DEBUG: Log first training batch of first epoch to inspect sequences
+        if batch_idx == 0 and self.current_epoch == 0 and self.trainer.global_rank == 0:
+            LOGGER.info("="*80)
+            LOGGER.info("DEBUG: First training batch (to check for truncation)")
+            LOGGER.info("="*80)
+            num_samples = min(3, batch["input_ids"].shape[0])
+            for i in range(num_samples):
+                # Decode full sequence
+                decoded = self.tokenizer.decode(batch["input_ids"][i], skip_special_tokens=False)
+                decoded_no_special = self.tokenizer.decode(batch["input_ids"][i], skip_special_tokens=True)
+
+                # Count tokens
+                num_tokens = (batch["attention_mask"][i] == 1).sum().item()
+
+                # Get text if available
+                text = batch["text"][i] if "text" in batch else "N/A"
+
+                # Get label if available
+                label = batch["label"][i] if "label" in batch else "N/A"
+
+                LOGGER.info(f"\nTrain Sample {i}:")
+                LOGGER.info(f"  Label (metadata): {label}")
+                LOGGER.info(f"  Num tokens: {num_tokens}")
+                LOGGER.info(f"  Original text: {text[:150]}...")
+                LOGGER.info(f"  Decoded (with special): {decoded[:150]}...")
+                LOGGER.info(f"  Decoded (no special): {decoded_no_special[:150]}...")
+                LOGGER.info(f"  Ends with T or F: {decoded_no_special.strip().endswith('T') or decoded_no_special.strip().endswith('F')}")
+            LOGGER.info("="*80)
+
         # Robust fallback for do_not_mask
         if "do_not_mask" not in batch:
             batch["do_not_mask"] = torch.zeros_like(
@@ -429,6 +461,51 @@ class TrainerBase(L.LightningModule):
         assert self.metrics.valid_nlls.nll.weight == 0
 
     def validation_step(self, batch, batch_idx):
+        # DEBUG: Log first validation batch of first epoch to inspect sequences
+        if batch_idx == 0 and self.current_epoch == 0 and self.trainer.global_rank == 0:
+            LOGGER.info("="*80)
+            LOGGER.info("DEBUG: First validation batch (to check for truncation)")
+            LOGGER.info("="*80)
+            num_samples = min(3, batch["input_ids"].shape[0])
+            for i in range(num_samples):
+                # Decode full sequence
+                decoded = self.tokenizer.decode(batch["input_ids"][i], skip_special_tokens=False)
+                decoded_no_special = self.tokenizer.decode(batch["input_ids"][i], skip_special_tokens=True)
+
+                # Count tokens
+                num_tokens = (batch["attention_mask"][i] == 1).sum().item()
+
+                # Get text if available
+                text = batch["text"][i] if "text" in batch else "N/A"
+
+                # Get label if available
+                label = batch["label"][i] if "label" in batch else "N/A"
+
+                # Extract prompt and target parts
+                if "do_not_mask" in batch:
+                    do_not_mask = batch["do_not_mask"][i]
+                    prompt_ids = batch["input_ids"][i].clone()
+                    prompt_ids[~do_not_mask] = self.tokenizer.pad_token_id
+                    decoded_prompt = self.tokenizer.decode(prompt_ids, skip_special_tokens=True)
+
+                    target_ids = batch["input_ids"][i].clone()
+                    target_ids[do_not_mask] = self.tokenizer.pad_token_id
+                    decoded_target = self.tokenizer.decode(target_ids, skip_special_tokens=True)
+                else:
+                    decoded_prompt = "N/A"
+                    decoded_target = "N/A"
+
+                LOGGER.info(f"\nValidation Sample {i}:")
+                LOGGER.info(f"  Label (metadata): {label}")
+                LOGGER.info(f"  Num tokens: {num_tokens}")
+                LOGGER.info(f"  Original text: {text[:150]}...")
+                LOGGER.info(f"  Decoded (with special): {decoded[:150]}...")
+                LOGGER.info(f"  Decoded (no special): {decoded_no_special[:150]}...")
+                LOGGER.info(f"  Ends with T or F: {decoded_no_special.strip().endswith('T') or decoded_no_special.strip().endswith('F')}")
+                LOGGER.info(f"  Prompt part: {decoded_prompt[:100]}...")
+                LOGGER.info(f"  Target part: {decoded_target[:100]}...")
+            LOGGER.info("="*80)
+
         # Robust fallback for do_not_mask
         if "do_not_mask" not in batch:
             batch["do_not_mask"] = torch.zeros_like(
@@ -561,6 +638,19 @@ class TrainerBase(L.LightningModule):
                     skip_special_tokens=False,  # Changed: keep special tokens to debug
                 )
                 all_generated_samples[display_mode] = generated_samples
+
+                # DEBUG: Log generated samples on first validation batch
+                if batch_idx == 0 and self.current_epoch == 0:
+                    LOGGER.info(f"\nDEBUG: Generated samples for mode '{display_mode}':")
+                    for i, gen_sample in enumerate(generated_samples[:2]):
+                        target_sample = self.tokenizer.decode(
+                            batch["input_ids"][i], skip_special_tokens=False
+                        )
+                        LOGGER.info(f"  Sample {i}:")
+                        LOGGER.info(f"    Generated: {gen_sample[:150]}...")
+                        LOGGER.info(f"    Target:    {target_sample[:150]}...")
+                        LOGGER.info(f"    Generated ends with T/F: {gen_sample.strip().endswith('T') or gen_sample.strip().endswith('F')}")
+                        LOGGER.info(f"    Target ends with T/F: {target_sample.strip().endswith('T') or target_sample.strip().endswith('F')}")
 
         # Logic for logging samples remains the same
         if self.trainer.global_rank == 0 and hasattr(self.trainer.logger, "log_table"):
