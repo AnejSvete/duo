@@ -282,7 +282,11 @@ def make_all_splits(
     padding_max: Optional[int] = None,
 ) -> Dict[str, List[Dict[str, str]]]:
     """
-    Generates ALL splits (train/validation/test) with length-based stratification.
+    Generates ALL splits (train/validation/test) using interdependent sampling.
+
+    Each generated string is independently assigned to one of the three splits
+    based on probabilistic sampling of remaining needs. This ensures no overlap
+    between splits and mimics the FSA generation pattern.
 
     Args:
         min_depth: Default minimum depth (used if depth_ranges not provided)
@@ -316,190 +320,129 @@ def make_all_splits(
             "test": (min_depth, max_depth),
         }
 
-    # Generate each split independently with its own depth and length ranges
-    split_pools = {}
-
     LOGGER.info(f"Starting arithmetic data generation with seed={seed}")
     LOGGER.info(f"Split sizes: {split_sizes}")
     LOGGER.info(f"Depth ranges: {depth_ranges}")
     LOGGER.info(f"Length ranges: {length_ranges}")
     LOGGER.info(f"Value range: [{min_val}, {max_val}]")
 
-    # Track examples globally to prevent cross-split duplicates
-    global_seen = set()
+    # Interdependent sampling: generate examples and assign to splits dynamically
+    assignment = {}  # Maps text -> assigned split
+    counts = {s: 0 for s in ["train", "validation", "test"]}
+    split_pools = {s: [] for s in ["train", "validation", "test"]}
+
+    total_needed = sum(split_sizes.values())
+    max_attempts = total_needed * 100
+    attempts = 0
+
+    while sum(counts.values()) < total_needed and attempts < max_attempts:
+        attempts += 1
+
+        # First decide which split to target based on remaining needs
+        remaining = {
+            s: max(0, split_sizes[s] - counts[s])
+            for s in ["train", "validation", "test"]
+        }
+        total_remaining = sum(remaining.values())
+
+        if total_remaining == 0:
+            break
+
+        # Probabilistically select a target split based on remaining needs
+        p = random.random()
+        cumulative = 0.0
+        target_split = None
+        for s in ["train", "validation", "test"]:
+            cumulative += remaining[s] / total_remaining
+            if p < cumulative:
+                target_split = s
+                break
+
+        if target_split is None:
+            target_split = "test"  # Fallback
+
+        # Generate a candidate example using the target split's depth and length range
+        split_min_depth, split_max_depth = depth_ranges[target_split]
+        depth = random.randint(split_min_depth, split_max_depth)
+
+        expression_tree = generate_expression_tree(depth, min_val, max_val)
+
+        text = _generate_arithmetic_text(
+            expression_tree,
+            mode,
+            padding_scale_type=padding_scale_type,
+            padding_multiplier=padding_multiplier,
+            padding_constant=padding_constant,
+            padding_max=padding_max,
+        )
+        if text is None:
+            continue
+
+        # Check if we've seen this example before
+        if text in assignment:
+            # Already assigned to a split - skip to avoid cross-contamination
+            continue
+
+        # Apply length filter if specified for the target split
+        if length_ranges is not None and target_split in length_ranges:
+            min_len, max_len = length_ranges[target_split]
+            # Compute length based on INPUT part only (before '#')
+            if "#" in text:
+                input_part = text.split("#")[0].strip()
+                text_length = len(input_part.split())
+            else:
+                text_length = len(text.split())
+
+            if not (min_len <= text_length <= max_len):
+                # Example doesn't match target split's length range, skip it
+                continue
+
+        # New example that passes all filters - assign it to the target split
+        assignment[text] = target_split
+        split_pools[target_split].append({"text": text})
+        counts[target_split] += 1
+
+        # Log progress periodically
+        if sum(counts.values()) % 1000 == 0:
+            LOGGER.info(f"Progress: {counts} / {split_sizes} (attempts={attempts})")
+
+    # Shuffle each pool
+    for pool in split_pools.values():
+        random.shuffle(pool)
+
+    # Log final statistics
+    import numpy as np
+
+    LOGGER.info(f"\n{'='*80}")
+    LOGGER.info(f"Arithmetic generation complete:")
+    LOGGER.info(f"  Total attempts: {attempts}")
+    LOGGER.info(f"  Total unique examples: {len(assignment)}")
 
     for split_name in ["train", "validation", "test"]:
-        split_min_depth, split_max_depth = depth_ranges[split_name]
-        num_examples = split_sizes[split_name]
+        examples = split_pools[split_name]
+        LOGGER.info(f"\n{split_name.upper()} split:")
+        LOGGER.info(f"  Generated: {len(examples)}/{split_sizes[split_name]} examples")
 
-        # Get length range for this split if specified
-        if length_ranges is not None and split_name in length_ranges:
-            min_len, max_len = length_ranges[split_name]
-            use_length_filter = True
-        else:
-            min_len, max_len = None, None
-            use_length_filter = False
+        if len(examples) < split_sizes[split_name]:
+            LOGGER.warning(f"⚠️  Warning: Could only generate {len(examples)}/{split_sizes[split_name]} examples for {split_name}")
 
-        LOGGER.info(f"\n{'='*80}")
-        LOGGER.info(f"Generating {split_name} split:")
-        LOGGER.info(f"  Target: {num_examples} examples")
-        LOGGER.info(f"  Depth range: [{split_min_depth}, {split_max_depth}]")
-        if use_length_filter:
-            LOGGER.info(f"  Length filter: [{min_len}, {max_len}] (applied to INPUT part before '#')")
-        else:
-            LOGGER.info(f"  Length filter: None (accepting all lengths)")
-        LOGGER.info(f"{'='*80}")
-
-        examples = []
-        attempts = 0
-
-        # Track statistics for debugging
-        rejected_count = 0
-        cross_split_duplicates = 0
-        accepted_lengths = []
-        rejected_lengths = []
-        depth_to_length_map = {}  # Track depth -> lengths mapping
-
-        while len(examples) < num_examples:
-            attempts += 1
-
-            depth = random.randint(split_min_depth, split_max_depth)
-            if depth not in depth_to_length_map:
-                depth_to_length_map[depth] = []
-            expression_tree = generate_expression_tree(depth, min_val, max_val)
-
-            text = _generate_arithmetic_text(
-                expression_tree,
-                mode,
-                padding_scale_type=padding_scale_type,
-                padding_multiplier=padding_multiplier,
-                padding_constant=padding_constant,
-                padding_max=padding_max,
-            )
-            if text is None:
-                continue
-
-            # Check for cross-split duplicates
-            if text in global_seen:
-                cross_split_duplicates += 1
-                continue
-
-            # Apply length filter if specified
-            if use_length_filter:
-                # Compute length based on INPUT part only (before '#')
-                # This matches curriculum filtering logic and actual problem size
+        # Compute length statistics
+        if examples:
+            lengths = []
+            for ex in examples:
+                text = ex["text"]
                 if "#" in text:
                     input_part = text.split("#")[0].strip()
                     text_length = len(input_part.split())
                 else:
                     text_length = len(text.split())
+                lengths.append(text_length)
 
-                if min_len <= text_length <= max_len:
-                    global_seen.add(text)
-                    examples.append({"text": text})
-                    accepted_lengths.append(text_length)
-                    depth_to_length_map[depth].append(text_length)
+            lengths_array = np.array(lengths)
+            LOGGER.info(f"  Length stats: min={lengths_array.min()}, max={lengths_array.max()}, "
+                       f"mean={lengths_array.mean():.2f}, median={np.median(lengths_array):.2f}")
 
-                    # Log progress periodically
-                    if len(examples) % 1000 == 0:
-                        LOGGER.info(f"  Progress: {len(examples)}/{num_examples} examples generated (attempts={attempts}, length_rejected={rejected_count}, cross_split_dups={cross_split_duplicates})")
-                else:
-                    rejected_count += 1
-                    rejected_lengths.append(text_length)
-
-                    # Log sample rejections to understand why examples are being rejected
-                    if rejected_count <= 10 or (rejected_count % 1000 == 0):
-                        LOGGER.debug(f"  Rejected example {rejected_count}: length={text_length} not in [{min_len}, {max_len}], depth={depth}")
-            else:
-                global_seen.add(text)
-                examples.append({"text": text})
-                # Track lengths even when not filtering
-                if "#" in text:
-                    input_part = text.split("#")[0].strip()
-                    text_length = len(input_part.split())
-                else:
-                    text_length = len(text.split())
-                accepted_lengths.append(text_length)
-                depth_to_length_map[depth].append(text_length)
-
-                # Log progress periodically
-                if len(examples) % 1000 == 0:
-                    LOGGER.info(f"  Progress: {len(examples)}/{num_examples} examples generated (attempts={attempts}, cross_split_dups={cross_split_duplicates})")
-
-        # Print summary statistics for this split
-        import numpy as np
-
-        LOGGER.info(f"\n{'='*80}")
-        LOGGER.info(f"{split_name.upper()} split generation complete:")
-        LOGGER.info(f"  Generated: {len(examples)}/{num_examples} examples")
-        LOGGER.info(f"  Total attempts: {attempts}")
-        LOGGER.info(f"  Cross-split duplicates skipped: {cross_split_duplicates}")
-        if use_length_filter:
-            LOGGER.info(f"  Length-based accepted: {len(accepted_lengths)}")
-            LOGGER.info(f"  Length-based rejected: {rejected_count}")
-            LOGGER.info(f"  Length rejection rate: {rejected_count/attempts*100:.1f}%")
-
-        if accepted_lengths:
-            accepted_array = np.array(accepted_lengths)
-            LOGGER.info(f"\n  Accepted lengths distribution:")
-            LOGGER.info(f"    Min: {accepted_array.min()}")
-            LOGGER.info(f"    Max: {accepted_array.max()}")
-            LOGGER.info(f"    Mean: {accepted_array.mean():.2f}")
-            LOGGER.info(f"    Median: {np.median(accepted_array):.2f}")
-            LOGGER.info(f"    Std: {np.std(accepted_array):.2f}")
-
-            # Show percentiles
-            percentiles = [10, 25, 50, 75, 90, 95, 99]
-            LOGGER.info(f"    Percentiles:")
-            for p in percentiles:
-                val = np.percentile(accepted_array, p)
-                LOGGER.info(f"      {p}%: {val:.1f}")
-
-            # Show histogram of lengths (binned)
-            unique, counts = np.unique(accepted_array, return_counts=True)
-            LOGGER.info(f"\n    Length histogram (top 20 most common):")
-            sorted_idx = np.argsort(-counts)[:20]
-            for idx in sorted_idx:
-                length = unique[idx]
-                count = counts[idx]
-                percentage = count / len(accepted_array) * 100
-                bar = '#' * int(percentage / 2)  # Simple bar chart
-                LOGGER.info(f"      len={length:3d}: {count:5d} ({percentage:5.1f}%) {bar}")
-
-        if rejected_lengths and use_length_filter:
-            rejected_array = np.array(rejected_lengths)
-            LOGGER.info(f"\n  Rejected lengths distribution:")
-            LOGGER.info(f"    Min: {rejected_array.min()}")
-            LOGGER.info(f"    Max: {rejected_array.max()}")
-            LOGGER.info(f"    Mean: {rejected_array.mean():.2f}")
-            LOGGER.info(f"    Median: {np.median(rejected_array):.2f}")
-
-            # Show why examples were rejected
-            too_short = np.sum(rejected_array < min_len)
-            too_long = np.sum(rejected_array > max_len)
-            LOGGER.info(f"    Too short (< {min_len}): {too_short} ({too_short/len(rejected_array)*100:.1f}%)")
-            LOGGER.info(f"    Too long (> {max_len}): {too_long} ({too_long/len(rejected_array)*100:.1f}%)")
-
-        # Show depth-to-length mapping
-        if depth_to_length_map:
-            LOGGER.info(f"\n  Depth-to-Length analysis:")
-            for depth in sorted(depth_to_length_map.keys()):
-                lengths = depth_to_length_map[depth]
-                if lengths:
-                    depth_array = np.array(lengths)
-                    LOGGER.info(f"    Depth {depth}: n={len(lengths):5d}, "
-                                f"len_range=[{depth_array.min():3d}, {depth_array.max():3d}], "
-                                f"mean={depth_array.mean():6.2f}, median={np.median(depth_array):6.2f}")
-
-        LOGGER.info(f"{'='*80}\n")
-
-        if len(examples) < num_examples:
-            LOGGER.warning(f"⚠️  Warning: Could only generate {len(examples)}/{num_examples} examples for {split_name} "
-                  f"within length range [{min_len}, {max_len}] after {attempts} attempts. "
-                  f"Consider widening the length range or depth range.")
-
-        random.shuffle(examples)
-        split_pools[split_name] = examples
+    LOGGER.info(f"{'='*80}\n")
 
     return split_pools
 

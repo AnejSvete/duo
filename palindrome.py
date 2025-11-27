@@ -566,7 +566,11 @@ def make_all_splits(
     negative_ratio: float = 0.5,
 ) -> Dict[str, List[Dict[str, str]]]:
     """
-    Generates ALL splits (train/validation/test) with length-based stratification.
+    Generates ALL splits (train/validation/test) using interdependent sampling.
+
+    Each generated string is independently assigned to one of the three splits
+    based on probabilistic sampling of remaining needs. This ensures no overlap
+    between splits and mimics the FSA generation pattern.
 
     Args:
         marked: If True, generates marked palindromes (w#w^R). If False, generates ww^R.
@@ -595,6 +599,8 @@ def make_all_splits(
     logger.info(f"Alphabet: {alphabet} (size: {len(alphabet)})")
     logger.info(f"Mode: {mode}")
     logger.info(f"Seed: {seed}")
+    logger.info(f"Split sizes: {split_sizes}")
+    logger.info(f"Length ranges: {length_ranges}")
     logger.info(f"Negative ratio: {negative_ratio:.1%}")
     if padding_multiplier > 0 or padding_constant:
         logger.info(
@@ -602,170 +608,131 @@ def make_all_splits(
         )
     logger.info("")
 
-    # Generate each split independently with its own length ranges
-    split_pools = {}
+    # Interdependent sampling: generate examples and assign to splits dynamically
+    assignment = {}  # Maps text -> assigned split
+    counts = {s: 0 for s in ["train", "validation", "test"]}
+    split_pools = {s: [] for s in ["train", "validation", "test"]}
+
+    # Track positive/negative counts per split
+    positive_counts = {s: 0 for s in ["train", "validation", "test"]}
+    negative_counts = {s: 0 for s in ["train", "validation", "test"]}
+
+    # Calculate target positive/negative for each split
+    target_positive = {s: int(split_sizes[s] * (1 - negative_ratio)) for s in ["train", "validation", "test"]}
+    target_negative = {s: split_sizes[s] - target_positive[s] for s in ["train", "validation", "test"]}
+
+    total_needed = sum(split_sizes.values())
+    max_attempts = total_needed * 100
+    attempts = 0
     overall_start_time = time.time()
 
-    # Track examples globally to prevent cross-split duplicates
-    global_seen = set()
+    while sum(counts.values()) < total_needed and attempts < max_attempts:
+        attempts += 1
 
-    for split_name in ["train", "validation", "test"]:
-        split_start_time = time.time()
-        min_len, max_len = length_ranges[split_name]
-        num_examples = split_sizes[split_name]
+        # First decide which split to target based on remaining needs
+        remaining = {
+            s: max(0, split_sizes[s] - counts[s])
+            for s in ["train", "validation", "test"]
+        }
+        total_remaining = sum(remaining.values())
 
-        logger.info(f"Generating {split_name.upper()} split:")
-        logger.info(f"  Target: {num_examples} examples")
-        logger.info(f"  Length range: [{min_len}, {max_len}]")
+        if total_remaining == 0:
+            break
 
-        # Calculate how many positive and negative examples to generate
-        num_negative = int(num_examples * negative_ratio)
-        num_positive = num_examples - num_negative
+        # Probabilistically select a target split based on remaining needs
+        p = random.random()
+        cumulative = 0.0
+        target_split = None
+        for s in ["train", "validation", "test"]:
+            cumulative += remaining[s] / total_remaining
+            if p < cumulative:
+                target_split = s
+                break
 
-        logger.info(f"  Positive (palindromes): {num_positive}")
-        logger.info(f"  Negative (non-palindromes): {num_negative}")
+        if target_split is None:
+            target_split = "test"  # Fallback
 
-        examples = []
-        # Track statistics
-        within_split_duplicates = 0
-        cross_split_duplicates = 0
-        positive_count = 0
-        negative_count = 0
-        length_distribution = Counter()
+        # Decide if we need positive or negative for this split
+        pos_remaining = target_positive[target_split] - positive_counts[target_split]
+        neg_remaining = target_negative[target_split] - negative_counts[target_split]
 
-        # Generate positive examples (palindromes)
-        logger.info("  Generating positive examples...")
-        last_log_time = time.time()
+        if pos_remaining > 0 and neg_remaining > 0:
+            # Need both, choose probabilistically
+            generate_positive = random.random() < (pos_remaining / (pos_remaining + neg_remaining))
+        elif pos_remaining > 0:
+            generate_positive = True
+        elif neg_remaining > 0:
+            generate_positive = False
+        else:
+            # This split is complete, continue to next iteration
+            continue
 
-        while positive_count < num_positive:
-            # Log progress every 2 seconds
-            current_time = time.time()
-            if current_time - last_log_time > 2.0:
-                logger.info(
-                    f"    Progress: {positive_count}/{num_positive} (within-split dups: {within_split_duplicates}, cross-split dups: {cross_split_duplicates})"
-                )
-                last_log_time = current_time
+        # Generate a candidate example using the target split's length range
+        min_len, max_len = length_ranges[target_split]
+        length = random.randint(min_len, max_len)
 
-            # Sample length uniformly from range
-            length = random.randint(min_len, max_len)
-
-            # Generate palindrome
+        if generate_positive:
             palindrome_str = generate_palindrome(length, alphabet, marked)
+        else:
+            palindrome_str = generate_non_palindrome(length, alphabet, marked)
 
-            # Check for cross-split duplicates only
-            if palindrome_str in global_seen:
-                cross_split_duplicates += 1
-                continue  # Skip if already in another split
+        # Check if we've seen this example before
+        if palindrome_str in assignment:
+            # Already assigned to a split - skip to avoid cross-contamination
+            continue
 
-            # Count within-split duplicates for statistics, but allow them
-            # (We don't track a per-split seen set, so duplicates are naturally allowed)
+        # Generate output based on mode
+        text = get_palindrome_trace(
+            palindrome_str,
+            marked,
+            mode,
+            padding_scale_type=padding_scale_type,
+            padding_multiplier=padding_multiplier,
+            padding_constant=padding_constant,
+            padding_max=padding_max,
+        )
 
-            # Add to global tracker
-            global_seen.add(palindrome_str)
+        # New example - assign it to the target split
+        assignment[palindrome_str] = target_split
+        label = "positive" if generate_positive else "negative"
+        split_pools[target_split].append({"text": text, "label": label})
+        counts[target_split] += 1
 
-            # Generate output based on mode
-            text = get_palindrome_trace(
-                palindrome_str,
-                marked,
-                mode,
-                padding_scale_type=padding_scale_type,
-                padding_multiplier=padding_multiplier,
-                padding_constant=padding_constant,
-                padding_max=padding_max,
-            )
+        if generate_positive:
+            positive_counts[target_split] += 1
+        else:
+            negative_counts[target_split] += 1
 
-            examples.append({"text": text, "label": "positive"})
-            positive_count += 1
-            length_distribution[length] += 1
+        # Log progress periodically
+        if sum(counts.values()) % 1000 == 0:
+            logger.info(f"Progress: {counts} / {split_sizes} (attempts={attempts})")
 
-        logger.info(f"    Completed: {positive_count}/{num_positive} positive examples")
+    # Shuffle each pool
+    for pool in split_pools.values():
+        random.shuffle(pool)
 
-        # Generate negative examples (non-palindromes)
-        logger.info("  Generating negative examples...")
-        last_log_time = time.time()
-
-        while negative_count < num_negative:
-            # Log progress every 2 seconds
-            current_time = time.time()
-            if current_time - last_log_time > 2.0:
-                logger.info(
-                    f"    Progress: {negative_count}/{num_negative} (cross-split dups: {cross_split_duplicates})"
-                )
-                last_log_time = current_time
-
-            # Sample length uniformly from range
-            length = random.randint(min_len, max_len)
-
-            # Generate non-palindrome
-            non_palindrome_str = generate_non_palindrome(length, alphabet, marked)
-
-            # Check for cross-split duplicates only
-            if non_palindrome_str in global_seen:
-                cross_split_duplicates += 1
-                continue  # Skip if already in another split
-
-            # Add to global tracker
-            global_seen.add(non_palindrome_str)
-
-            # Generate output based on mode (will correctly label as F)
-            text = get_palindrome_trace(
-                non_palindrome_str,
-                marked,
-                mode,
-                padding_scale_type=padding_scale_type,
-                padding_multiplier=padding_multiplier,
-                padding_constant=padding_constant,
-                padding_max=padding_max,
-            )
-
-            examples.append({"text": text, "label": "negative"})
-            negative_count += 1
-            length_distribution[length] += 1
-
-        logger.info(f"    Completed: {negative_count}/{num_negative} negative examples")
-
-        total_generated = positive_count + negative_count
-
-        # Log statistics
-        split_time = time.time() - split_start_time
-        logger.info("  Statistics:")
-        logger.info(f"    Total generated: {total_generated}/{num_examples}")
-        logger.info(f"    Cross-split duplicates skipped: {cross_split_duplicates}")
-        logger.info("    All examples are unique across splits")
-        logger.info(f"    Generation time: {split_time:.2f}s")
-        logger.info(f"    Examples/second: {total_generated/split_time:.1f}")
-
-        # Log length distribution
-        if length_distribution:
-            min_len_seen = min(length_distribution.keys())
-            max_len_seen = max(length_distribution.keys())
-            avg_len = (
-                sum(length * count for length, count in length_distribution.items())
-                / total_generated
-            )
-            logger.info(
-                f"    Length stats: min={min_len_seen}, max={max_len_seen}, avg={avg_len:.1f}"
-            )
-
-            # Show distribution for small datasets or if highly skewed
-            if total_generated <= 100 or len(length_distribution) <= 10:
-                sorted_lengths = sorted(length_distribution.items())
-                dist_str = ", ".join(
-                    f"{length}:{count}" for length, count in sorted_lengths
-                )
-                logger.info(f"    Length distribution: {dist_str}")
-
-        random.shuffle(examples)
-        split_pools[split_name] = examples
-        logger.info("")
-
+    # Log final statistics
     overall_time = time.time() - overall_start_time
     total_examples = sum(len(pool) for pool in split_pools.values())
+
     logger.info("=" * 60)
-    logger.info("Generation complete!")
+    logger.info("Palindrome generation complete!")
     logger.info(f"Total examples: {total_examples}")
+    logger.info(f"Total attempts: {attempts}")
+    logger.info(f"Total unique examples: {len(assignment)}")
     logger.info(f"Total time: {overall_time:.2f}s")
     logger.info(f"Overall rate: {total_examples/overall_time:.1f} examples/second")
+
+    for split_name in ["train", "validation", "test"]:
+        examples = split_pools[split_name]
+        logger.info(f"\n{split_name.upper()} split:")
+        logger.info(f"  Generated: {len(examples)}/{split_sizes[split_name]} examples")
+        logger.info(f"  Positive: {positive_counts[split_name]}/{target_positive[split_name]}")
+        logger.info(f"  Negative: {negative_counts[split_name]}/{target_negative[split_name]}")
+
+        if len(examples) < split_sizes[split_name]:
+            logger.warning(f"⚠️  Warning: Could only generate {len(examples)}/{split_sizes[split_name]} examples for {split_name}")
+
     logger.info("=" * 60)
 
     return split_pools
