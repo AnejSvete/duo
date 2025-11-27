@@ -2,15 +2,15 @@ cache_dir: /cluster/scratch/asvete/duo
 language: null
 
 properties:
-  num_examples_train: 200
-  num_examples_valid: 100
-  num_examples_test: 100
+  num_examples_train: 500_000
+  num_examples_valid: 20_000
+  num_examples_test: 20_000
   min_train_len: 2
-  max_train_len: 8
-  min_val_len: 2
-  max_val_len: 8
-  min_test_len: 2
-  max_test_len: 8
+  max_train_len: 128
+  min_val_len: 64
+  max_val_len: 128
+  min_test_len: 96
+  max_test_len: 128
   format: trace
 
   # Padding configuration - controls extra empty padding beyond natural trace
