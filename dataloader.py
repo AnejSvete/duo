@@ -134,6 +134,24 @@ class FormalTokenizer(transformers.PreTrainedTokenizer):
     def get_vocab(self) -> typing.Dict[str, int]:
         return self._vocab_str_to_int
 
+    def build_inputs_with_special_tokens(
+        self, token_ids_0: typing.List[int], token_ids_1: typing.Optional[typing.List[int]] = None
+    ) -> typing.List[int]:
+        """
+        Build model inputs by prepending BOS token.
+
+        Args:
+            token_ids_0: List of token IDs for the first sequence
+            token_ids_1: Optional list of token IDs for the second sequence (not used)
+
+        Returns:
+            List of token IDs with BOS prepended: [BOS] + token_ids_0
+        """
+        bos = [self.bos_token_id] if self.bos_token_id is not None else []
+        if token_ids_1 is None:
+            return bos + token_ids_0
+        return bos + token_ids_0 + token_ids_1
+
 
 def _group_texts(examples, block_size, bos, eos):
     concatenated_examples = list(itertools.chain(*examples["input_ids"]))

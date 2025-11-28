@@ -13,6 +13,10 @@ class MaskedFormalCollator:
     The collator identifies the '#' symbol in each trace and generates a
     `do_not_mask` tensor, which is True for all tokens up to and including '#'
     and False for all subsequent tokens.
+
+    Note: The tokenizer prepends a BOS token, so sequences will be:
+    [BOS] + tokens_before_# + [#] + tokens_after_#
+    The do_not_mask will protect: [BOS] + tokens_before_# + [#]
     """
 
     def __init__(self, tokenizer: PreTrainedTokenizer, max_length: int):
@@ -39,6 +43,7 @@ class MaskedFormalCollator:
             padding="max_length",
             truncation=True,
             max_length=self.max_length,
+            add_special_tokens=True,
             return_tensors="pt",
         )
 

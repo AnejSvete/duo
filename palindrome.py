@@ -307,15 +307,14 @@ def get_palindrome_trace(
                     max_length=padding_max,
                 )
 
-                # print(
-                #     f"For {input_string}, len = {input_length} and extra_padding_count = {total_pad_count}"
-                # )
+                print(
+                    f"For {input_string}, len = {input_length} and total_pad_count = {total_pad_count}"
+                )
 
                 # Combine all padding (natural + extra) and output without | separators
-                total_pad_count += total_pad_count
                 if total_pad_count > 0:
                     all_padding = " ".join(["[PAD]"] * total_pad_count)
-                    # print(f"For {input_string}, total_pad_count = {total_pad_count}")
+                    print(f"For {input_string}, total_pad_count = {total_pad_count}")
                     return f"{input_string} # {all_padding} T"
                 else:
                     return f"{input_string} # T"
