@@ -482,6 +482,10 @@ class CurriculumLearningCallback(Callback):
                         f"Sample text: '{sample_text[:100]}...' (length: {full_len})"
                     )
 
+        # Adaptive sampling interval: sample at least 100 examples, but not more than every 100th
+        dataset_size = len(dataset)
+        sample_interval = max(1, min(dataset_size // 100, 100))
+
         for idx in range(len(dataset)):
             example = dataset[idx]
 
@@ -512,8 +516,8 @@ class CurriculumLearningCallback(Callback):
             else:
                 continue
 
-            # Collect length samples (every 10000th example) for distribution analysis
-            if idx % 10000 == 0:
+            # Collect length samples with adaptive interval for distribution analysis
+            if idx % sample_interval == 0:
                 length_samples.append(seq_len)
 
             # Include example if within current bin range

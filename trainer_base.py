@@ -582,7 +582,7 @@ class TrainerBase(L.LightningModule):
 
             # Compute accuracy (exact match and token-level)
             acc_exact, acc_token, correct_prediction = self._compute_accuracy(
-                generated, targets
+                generated, targets, batch
             )
 
             # Also get per-sample metrics for length stratification
@@ -590,7 +590,7 @@ class TrainerBase(L.LightningModule):
                 acc_exact_per_sample,
                 acc_token_per_sample,
                 correct_prediction_per_sample,
-            ) = self._compute_accuracy_per_sample(generated, targets)
+            ) = self._compute_accuracy_per_sample(generated, targets, batch)
 
             # Update length-stratified metrics
             self.val_length_metrics.update(
@@ -664,15 +664,18 @@ class TrainerBase(L.LightningModule):
                         target_sample = self.tokenizer.decode(
                             batch["input_ids"][i], skip_special_tokens=False
                         )
+                        target_sample_no_special = self.tokenizer.decode(
+                            batch["input_ids"][i], skip_special_tokens=True
+                        )
+                        # More robust check: look for T or F anywhere in the text
+                        gen_has_label = ' T ' in gen_sample or ' F ' in gen_sample or gen_sample.strip().endswith(' T') or gen_sample.strip().endswith(' F')
+                        target_has_label = ' T ' in target_sample_no_special or ' F ' in target_sample_no_special or target_sample_no_special.strip().endswith(' T') or target_sample_no_special.strip().endswith(' F')
+
                         LOGGER.info(f"  Sample {i}:")
                         LOGGER.info(f"    Generated: {gen_sample}")
                         LOGGER.info(f"    Target:    {target_sample}")
-                        LOGGER.info(
-                            f"    Generated ends with T/F: {gen_sample.strip().endswith('T') or gen_sample.strip().endswith('F')}"
-                        )
-                        LOGGER.info(
-                            f"    Target ends with T/F: {target_sample.strip().endswith('T') or target_sample.strip().endswith('F')}"
-                        )
+                        LOGGER.info(f"    Generated contains T/F: {gen_has_label}")
+                        LOGGER.info(f"    Target contains T/F: {target_has_label}")
 
         # Logic for logging samples remains the same
         if self.trainer.global_rank == 0 and hasattr(self.trainer.logger, "log_table"):
@@ -717,9 +720,14 @@ class TrainerBase(L.LightningModule):
 
         return prompts, targets
 
-    def _compute_accuracy(self, generated, targets):
+    def _compute_accuracy(self, generated, targets, batch=None):
         """
         Computes exact match and token-level accuracy.
+
+        Args:
+            generated: Generated token IDs
+            targets: Target token IDs
+            batch: Optional batch dict containing 'label' and 'text' fields for robust label extraction
         """
         # `target_mask` is True only for tokens that should be predicted.
         target_mask = targets != self.tokenizer.pad_token_id
@@ -741,28 +749,75 @@ class TrainerBase(L.LightningModule):
             num_correct_tokens / num_target_tokens if num_target_tokens > 0 else 0.0
         )
 
-        # 3. Last Prompt Token Accuracy: Is the prediction correct at the last non-padding token in the prompt?
-        # Find the last index that is True in target_mask for each sequence.
-        last_prompt_indices = target_mask.float().cumsum(dim=1).argmax(dim=1)
-        # Clamp indices to valid range
-        last_prompt_indices = torch.clamp(last_prompt_indices, 0, targets.shape[1] - 1)
-        # Only consider if there is at least one target token
-        has_prompt = target_mask.any(dim=1)
-        last_prompt_targets = targets[
-            torch.arange(targets.shape[0]), last_prompt_indices
-        ]
-        last_prompt_preds = generated[
-            torch.arange(generated.shape[0]), last_prompt_indices
-        ]
-        last_prompt_correct = (last_prompt_preds == last_prompt_targets) & has_prompt
-        correct_prediction = last_prompt_correct.float().mean().item()
+        # 3. Label-based Accuracy: Extract predicted label from generated text and compare to ground truth
+        # This is more robust than token-level comparison for classification tasks
+        if batch is not None and "label" in batch and "text" in batch:
+            num_correct_labels = 0
+            num_valid_examples = 0
+
+            for i in range(generated.shape[0]):
+                # Get ground truth label from batch
+                gt_label = batch["label"][i] if isinstance(batch["label"], list) else batch["label"][i].item()
+
+                # Map ground truth label to expected token (positive -> T, negative -> F)
+                if gt_label == "positive":
+                    expected_token = "T"
+                elif gt_label == "negative":
+                    expected_token = "F"
+                else:
+                    # Skip if label format is unexpected
+                    continue
+
+                # Decode generated sequence and extract predicted label
+                gen_text = self.tokenizer.decode(generated[i], skip_special_tokens=True)
+
+                # Extract last T or F from generated text (most robust approach)
+                # Look for standalone T or F tokens
+                tokens = gen_text.strip().split()
+                predicted_token = None
+                for token in reversed(tokens):
+                    if token in ["T", "F"]:
+                        predicted_token = token
+                        break
+
+                if predicted_token is not None:
+                    num_valid_examples += 1
+                    if predicted_token == expected_token:
+                        num_correct_labels += 1
+
+            # Use label-based accuracy if we have valid examples
+            if num_valid_examples > 0:
+                correct_prediction = num_correct_labels / num_valid_examples
+            else:
+                # Fallback to token-level accuracy if no valid labels found
+                last_prompt_indices = target_mask.float().cumsum(dim=1).argmax(dim=1)
+                last_prompt_indices = torch.clamp(last_prompt_indices, 0, targets.shape[1] - 1)
+                has_prompt = target_mask.any(dim=1)
+                last_prompt_targets = targets[torch.arange(targets.shape[0]), last_prompt_indices]
+                last_prompt_preds = generated[torch.arange(generated.shape[0]), last_prompt_indices]
+                last_prompt_correct = (last_prompt_preds == last_prompt_targets) & has_prompt
+                correct_prediction = last_prompt_correct.float().mean().item()
+        else:
+            # Fallback: Last Prompt Token Accuracy (original method)
+            last_prompt_indices = target_mask.float().cumsum(dim=1).argmax(dim=1)
+            last_prompt_indices = torch.clamp(last_prompt_indices, 0, targets.shape[1] - 1)
+            has_prompt = target_mask.any(dim=1)
+            last_prompt_targets = targets[torch.arange(targets.shape[0]), last_prompt_indices]
+            last_prompt_preds = generated[torch.arange(generated.shape[0]), last_prompt_indices]
+            last_prompt_correct = (last_prompt_preds == last_prompt_targets) & has_prompt
+            correct_prediction = last_prompt_correct.float().mean().item()
 
         return acc_exact, acc_token, correct_prediction
 
-    def _compute_accuracy_per_sample(self, generated, targets):
+    def _compute_accuracy_per_sample(self, generated, targets, batch=None):
         """
         Computes per-sample accuracy metrics (returns tensors, not scalars).
         Used for length-stratified metrics tracking.
+
+        Args:
+            generated: Generated token IDs
+            targets: Target token IDs
+            batch: Optional batch dict containing 'label' and 'text' fields for robust label extraction
 
         Returns:
             acc_exact: Tensor of shape (batch_size,) with 1.0 for exact matches, 0.0 otherwise
@@ -771,6 +826,7 @@ class TrainerBase(L.LightningModule):
         """
         # `target_mask` is True only for tokens that should be predicted.
         target_mask = targets != self.tokenizer.pad_token_id
+        batch_size = generated.shape[0]
 
         # 1. Exact Match Accuracy per sample
         is_correct_or_ignored = (generated == targets) | ~target_mask
@@ -788,19 +844,50 @@ class TrainerBase(L.LightningModule):
             torch.zeros_like(num_correct_per_sample),
         )
 
-        # 3. Last Prompt Token Accuracy per sample
-        last_prompt_indices = target_mask.float().cumsum(dim=1).argmax(dim=1)
-        last_prompt_indices = torch.clamp(last_prompt_indices, 0, targets.shape[1] - 1)
-        has_prompt = target_mask.any(dim=1)
-        last_prompt_targets = targets[
-            torch.arange(targets.shape[0]), last_prompt_indices
-        ]
-        last_prompt_preds = generated[
-            torch.arange(generated.shape[0]), last_prompt_indices
-        ]
-        correct_prediction_per_sample = (
-            (last_prompt_preds == last_prompt_targets) & has_prompt
-        ).float()
+        # 3. Label-based Accuracy per sample
+        if batch is not None and "label" in batch and "text" in batch:
+            correct_prediction_per_sample = torch.zeros(batch_size, dtype=torch.float32, device=generated.device)
+
+            for i in range(batch_size):
+                # Get ground truth label from batch
+                gt_label = batch["label"][i] if isinstance(batch["label"], list) else batch["label"][i].item()
+
+                # Map ground truth label to expected token (positive -> T, negative -> F)
+                if gt_label == "positive":
+                    expected_token = "T"
+                elif gt_label == "negative":
+                    expected_token = "F"
+                else:
+                    # Skip if label format is unexpected
+                    continue
+
+                # Decode generated sequence and extract predicted label
+                gen_text = self.tokenizer.decode(generated[i], skip_special_tokens=True)
+
+                # Extract last T or F from generated text
+                tokens = gen_text.strip().split()
+                predicted_token = None
+                for token in reversed(tokens):
+                    if token in ["T", "F"]:
+                        predicted_token = token
+                        break
+
+                if predicted_token is not None and predicted_token == expected_token:
+                    correct_prediction_per_sample[i] = 1.0
+        else:
+            # Fallback: Last Prompt Token Accuracy per sample
+            last_prompt_indices = target_mask.float().cumsum(dim=1).argmax(dim=1)
+            last_prompt_indices = torch.clamp(last_prompt_indices, 0, targets.shape[1] - 1)
+            has_prompt = target_mask.any(dim=1)
+            last_prompt_targets = targets[
+                torch.arange(targets.shape[0]), last_prompt_indices
+            ]
+            last_prompt_preds = generated[
+                torch.arange(generated.shape[0]), last_prompt_indices
+            ]
+            correct_prediction_per_sample = (
+                (last_prompt_preds == last_prompt_targets) & has_prompt
+            ).float()
 
         return acc_exact_per_sample, acc_token_per_sample, correct_prediction_per_sample
 
@@ -1026,7 +1113,7 @@ class TrainerBase(L.LightningModule):
 
             # Compute accuracy (exact match and token-level)
             acc_exact, acc_token, correct_prediction = self._compute_accuracy(
-                generated, targets
+                generated, targets, batch
             )
 
             # Also get per-sample metrics for length stratification
@@ -1034,7 +1121,7 @@ class TrainerBase(L.LightningModule):
                 acc_exact_per_sample,
                 acc_token_per_sample,
                 correct_prediction_per_sample,
-            ) = self._compute_accuracy_per_sample(generated, targets)
+            ) = self._compute_accuracy_per_sample(generated, targets, batch)
 
             # Update length-stratified metrics
             self.test_length_metrics.update(
