@@ -1,6 +1,6 @@
 import argparse
 import random
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional, Tuple
 
 
 def compute_extra_padding_length(
@@ -37,9 +37,9 @@ def compute_extra_padding_length(
         # Extra padding proportional to input length
         extra = int(input_length * multiplier)
     elif scale_type == "quadratic":
-        extra = int((input_length ** 2) * multiplier)
+        extra = int((input_length**2) * multiplier)
     elif scale_type == "cubic":
-        extra = int((input_length ** 3) * multiplier)
+        extra = int((input_length**3) * multiplier)
     else:
         raise ValueError(f"Unknown scale_type: {scale_type}")
 
@@ -608,7 +608,9 @@ def _generate_fsa_text(
 
     if mode == "trace":
         if len(trace_levels) > 1:
-            trace_steps = trace_levels[1:-1]  # Intermediate steps (exclude initial and final)
+            trace_steps = trace_levels[
+                1:-1
+            ]  # Intermediate steps (exclude initial and final)
             final_value = trace_levels[-1]
             natural_trace_length = len(trace_steps)
 
@@ -652,14 +654,8 @@ def _generate_fsa_text(
             final_value = reduction_steps_list[-1]
             natural_trace_length = len(reduction_steps_list) - 1  # Exclude final
 
-            # Create empty padding for natural trace structure - collect all padding
-            total_pad_count = 0
-            for step in reduction_steps_list[:-1]:
-                num_values = len(step.split())
-                total_pad_count += num_values
-
             # Compute extra padding
-            extra_padding_count = compute_extra_padding_length(
+            total_pad_count = compute_extra_padding_length(
                 input_length=input_length,
                 natural_trace_length=natural_trace_length,
                 scale_type=padding_scale_type,
@@ -668,8 +664,6 @@ def _generate_fsa_text(
                 max_length=padding_max,
             )
 
-            # Combine all padding (natural + extra) and output without separators
-            total_pad_count += extra_padding_count
             if total_pad_count > 0:
                 all_padding = " ".join(["[PAD]"] * total_pad_count)
                 text = f"{initial_repr} # {all_padding} {final_value}"
