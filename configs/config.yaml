@@ -48,7 +48,7 @@ curriculum:
   epochs_per_bin: 2  # Number of epochs to train on each length bin
   overlap: 0.2  # Overlap ratio between consecutive bins (0-1)
   min_batches_per_epoch: 1  # Minimum batches per epoch (auto-expands range if needed)
-  min_examples_per_bin: 10  # Minimum examples per bin (bins with fewer are skipped)
+  min_examples_per_bin: 1024  # Minimum examples per bin (bins with fewer are skipped)
   use_quantiles: true  # Use quantiles for bin boundaries (true) or uniform ranges (false)
   sample_size: 1000  # Number of examples to sample when estimating dataset length
   sample_strategy: "linspace"  # Sampling strategy: "linspace" or "random"

@@ -242,7 +242,6 @@ def get_palindrome_trace(
         Formatted trace string
     """
     is_palindrome = check_palindrome(input_string, marked)
-    # print(f"Checking palindrome: '{input_string}' -> {'T' if is_palindrome else 'F'}")
     result = "T" if is_palindrome else "F"
 
     if mode == "final_value":
@@ -332,14 +331,9 @@ def get_palindrome_trace(
                     # For linear/quadratic/cubic/constant: replace natural trace with computed padding
                     total_pad_count = extra_padding
 
-                print(
-                    f"For {input_string}, len = {input_length}, padding_scale_type={padding_scale_type}, multiplier={padding_multiplier}, constant={padding_constant}, max_length={padding_max}, and total_pad_count = {total_pad_count}"
-                )
-
                 # Combine all padding (natural + extra) and output without | separators
                 if total_pad_count > 0:
                     all_padding = " ".join(["[PAD]"] * total_pad_count)
-                    print(f"For {input_string}, total_pad_count = {total_pad_count}")
                     return f"{input_string} # {all_padding} T"
                 else:
                     return f"{input_string} # T"

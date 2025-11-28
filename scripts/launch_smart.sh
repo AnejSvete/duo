@@ -79,11 +79,11 @@ declare -A LONG_LENGTHS
 
 for lang in "${LANGUAGES[@]}"; do
     if [ "$lang" = "arithmetic" ] || [ "$lang" = "bfvp" ]; then
-        SHORT_LENGTHS[$lang]=15
-        LONG_LENGTHS[$lang]=30
+        SHORT_LENGTHS[$lang]=140
+        LONG_LENGTHS[$lang]=270
     else
-        SHORT_LENGTHS[$lang]=15
-        LONG_LENGTHS[$lang]=30
+        SHORT_LENGTHS[$lang]=140
+        LONG_LENGTHS[$lang]=270
     fi
 done
 
