@@ -286,10 +286,7 @@ def get_palindrome_trace(
             if mismatch or len(w) != len(w_reverse):
                 # For failed cases, still pad the trace - output without | separators
                 trace_steps = push_steps + pop_steps
-                total_pad_count = 0
-                for step in trace_steps:
-                    num_tokens = len(step.split("_"))  # Count tokens in step
-                    total_pad_count += num_tokens
+                total_pad_count = len(trace_steps)
                 if total_pad_count > 0:
                     all_padding = " ".join(["[PAD]"] * total_pad_count)
                     return f"{input_string} # {all_padding} F"
@@ -300,14 +297,8 @@ def get_palindrome_trace(
                 trace_steps = push_steps + pop_steps
                 natural_trace_length = len(trace_steps)
 
-                # Replace each step with [PAD] tokens - collect all padding
-                total_pad_count = 0
-                for step in trace_steps:
-                    num_tokens = len(step.split("_"))
-                    total_pad_count += num_tokens
-
                 # Compute extra padding
-                extra_padding_count = compute_extra_padding_length(
+                total_pad_count = compute_extra_padding_length(
                     input_length=input_length,
                     natural_trace_length=natural_trace_length,
                     scale_type=padding_scale_type,
@@ -316,10 +307,15 @@ def get_palindrome_trace(
                     max_length=padding_max,
                 )
 
+                # print(
+                #     f"For {input_string}, len = {input_length} and extra_padding_count = {total_pad_count}"
+                # )
+
                 # Combine all padding (natural + extra) and output without | separators
-                total_pad_count += extra_padding_count
+                total_pad_count += total_pad_count
                 if total_pad_count > 0:
                     all_padding = " ".join(["[PAD]"] * total_pad_count)
+                    # print(f"For {input_string}, total_pad_count = {total_pad_count}")
                     return f"{input_string} # {all_padding} T"
                 else:
                     return f"{input_string} # T"
@@ -355,14 +351,8 @@ def get_palindrome_trace(
             trace_steps = push_steps + pop_steps
             natural_trace_length = len(trace_steps)
 
-            # Replace each step with [PAD] tokens - collect all padding
-            total_pad_count = 0
-            for step in trace_steps:
-                num_tokens = len(step.split("_"))
-                total_pad_count += num_tokens
-
             # Compute extra padding
-            extra_padding_count = compute_extra_padding_length(
+            total_pad_count = compute_extra_padding_length(
                 input_length=input_length,
                 natural_trace_length=natural_trace_length,
                 scale_type=padding_scale_type,
@@ -373,7 +363,6 @@ def get_palindrome_trace(
 
             # Combine all padding (natural + extra) and output without | separators
             result_token = "T" if not mismatch else "F"
-            total_pad_count += extra_padding_count
             if total_pad_count > 0:
                 all_padding = " ".join(["[PAD]"] * total_pad_count)
                 return f"{input_string} # {all_padding} {result_token}"
@@ -618,8 +607,13 @@ def make_all_splits(
     negative_counts = {s: 0 for s in ["train", "validation", "test"]}
 
     # Calculate target positive/negative for each split
-    target_positive = {s: int(split_sizes[s] * (1 - negative_ratio)) for s in ["train", "validation", "test"]}
-    target_negative = {s: split_sizes[s] - target_positive[s] for s in ["train", "validation", "test"]}
+    target_positive = {
+        s: int(split_sizes[s] * (1 - negative_ratio))
+        for s in ["train", "validation", "test"]
+    }
+    target_negative = {
+        s: split_sizes[s] - target_positive[s] for s in ["train", "validation", "test"]
+    }
 
     total_needed = sum(split_sizes.values())
     max_attempts = total_needed * 100
@@ -658,7 +652,9 @@ def make_all_splits(
 
         if pos_remaining > 0 and neg_remaining > 0:
             # Need both, choose probabilistically
-            generate_positive = random.random() < (pos_remaining / (pos_remaining + neg_remaining))
+            generate_positive = random.random() < (
+                pos_remaining / (pos_remaining + neg_remaining)
+            )
         elif pos_remaining > 0:
             generate_positive = True
         elif neg_remaining > 0:
@@ -727,11 +723,17 @@ def make_all_splits(
         examples = split_pools[split_name]
         logger.info(f"\n{split_name.upper()} split:")
         logger.info(f"  Generated: {len(examples)}/{split_sizes[split_name]} examples")
-        logger.info(f"  Positive: {positive_counts[split_name]}/{target_positive[split_name]}")
-        logger.info(f"  Negative: {negative_counts[split_name]}/{target_negative[split_name]}")
+        logger.info(
+            f"  Positive: {positive_counts[split_name]}/{target_positive[split_name]}"
+        )
+        logger.info(
+            f"  Negative: {negative_counts[split_name]}/{target_negative[split_name]}"
+        )
 
         if len(examples) < split_sizes[split_name]:
-            logger.warning(f"⚠️  Warning: Could only generate {len(examples)}/{split_sizes[split_name]} examples for {split_name}")
+            logger.warning(
+                f"⚠️  Warning: Could only generate {len(examples)}/{split_sizes[split_name]} examples for {split_name}"
+            )
 
     logger.info("=" * 60)
 
