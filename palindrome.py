@@ -286,7 +286,25 @@ def get_palindrome_trace(
             if mismatch or len(w) != len(w_reverse):
                 # For failed cases, still pad the trace - output without | separators
                 trace_steps = push_steps + pop_steps
-                total_pad_count = len(trace_steps)
+                natural_trace_length = len(trace_steps)
+
+                # Compute padding: for "natural" mode, add extra to natural trace
+                # For other modes (linear, quadratic, etc.), replace natural trace
+                extra_padding = compute_extra_padding_length(
+                    input_length=input_length,
+                    natural_trace_length=natural_trace_length,
+                    scale_type=padding_scale_type,
+                    multiplier=padding_multiplier,
+                    constant=padding_constant,
+                    max_length=padding_max,
+                )
+
+                if padding_scale_type == "natural":
+                    total_pad_count = natural_trace_length + extra_padding
+                else:
+                    # For linear/quadratic/cubic/constant: replace natural trace with computed padding
+                    total_pad_count = extra_padding
+
                 if total_pad_count > 0:
                     all_padding = " ".join(["[PAD]"] * total_pad_count)
                     return f"{input_string} # {all_padding} F"
@@ -297,8 +315,9 @@ def get_palindrome_trace(
                 trace_steps = push_steps + pop_steps
                 natural_trace_length = len(trace_steps)
 
-                # Compute extra padding
-                total_pad_count = compute_extra_padding_length(
+                # Compute padding: for "natural" mode, add extra to natural trace
+                # For other modes (linear, quadratic, etc.), replace natural trace
+                extra_padding = compute_extra_padding_length(
                     input_length=input_length,
                     natural_trace_length=natural_trace_length,
                     scale_type=padding_scale_type,
@@ -306,6 +325,12 @@ def get_palindrome_trace(
                     constant=padding_constant,
                     max_length=padding_max,
                 )
+
+                if padding_scale_type == "natural":
+                    total_pad_count = natural_trace_length + extra_padding
+                else:
+                    # For linear/quadratic/cubic/constant: replace natural trace with computed padding
+                    total_pad_count = extra_padding
 
                 print(
                     f"For {input_string}, len = {input_length}, padding_scale_type={padding_scale_type}, multiplier={padding_multiplier}, constant={padding_constant}, max_length={padding_max}, and total_pad_count = {total_pad_count}"
@@ -350,8 +375,9 @@ def get_palindrome_trace(
             trace_steps = push_steps + pop_steps
             natural_trace_length = len(trace_steps)
 
-            # Compute extra padding
-            total_pad_count = compute_extra_padding_length(
+            # Compute padding: for "natural" mode, add extra to natural trace
+            # For other modes (linear, quadratic, etc.), replace natural trace
+            extra_padding = compute_extra_padding_length(
                 input_length=input_length,
                 natural_trace_length=natural_trace_length,
                 scale_type=padding_scale_type,
@@ -359,6 +385,12 @@ def get_palindrome_trace(
                 constant=padding_constant,
                 max_length=padding_max,
             )
+
+            if padding_scale_type == "natural":
+                total_pad_count = natural_trace_length + extra_padding
+            else:
+                # For linear/quadratic/cubic/constant: replace natural trace with computed padding
+                total_pad_count = extra_padding
 
             # Combine all padding (natural + extra) and output without | separators
             result_token = "T" if not mismatch else "F"

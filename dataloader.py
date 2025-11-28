@@ -327,6 +327,12 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
                 "test": (min_test_len or 0, max_test_len or 10000),
             }
 
+        # Get padding configuration
+        padding_scale_type = getattr(bfvp_cfg, "padding_scale_type", "natural")
+        padding_multiplier = getattr(bfvp_cfg, "padding_multiplier", 0.0)
+        padding_constant = getattr(bfvp_cfg, "padding_constant", None)
+        padding_max = getattr(bfvp_cfg, "padding_max", None)
+
         LOGGER.info(
             f"Generating bfvp data with: "
             f"train_depth=[{min_train_depth},{max_train_depth}], "
@@ -341,6 +347,11 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
                 f"val_len=[{min_val_len},{max_val_len}], "
                 f"test_len=[{min_test_len},{max_test_len}]"
             )
+        if padding_multiplier > 0 or padding_constant:
+            LOGGER.info(
+                f"  Padding: scale_type={padding_scale_type}, multiplier={padding_multiplier}, "
+                f"constant={padding_constant}, max={padding_max}"
+            )
 
         split_pools = bfvp.make_all_splits(
             min_depth=min_train_depth,
@@ -351,6 +362,10 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
             split_sizes=split_sizes,
             depth_ranges=depth_ranges,
             length_ranges=length_ranges,
+            padding_scale_type=padding_scale_type,
+            padding_multiplier=padding_multiplier,
+            padding_constant=padding_constant,
+            padding_max=padding_max,
         )
 
     elif dataset_name in FSA_CREATORS:
@@ -371,6 +386,12 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
             "test": (min_test_len, max_test_len),
         }
 
+        # Get padding configuration
+        padding_scale_type = getattr(lang_cfg, "padding_scale_type", "natural")
+        padding_multiplier = getattr(lang_cfg, "padding_multiplier", 0.0)
+        padding_constant = getattr(lang_cfg, "padding_constant", None)
+        padding_max = getattr(lang_cfg, "padding_max", None)
+
         LOGGER.info(
             f"Generating {dataset_name} data with: "
             f"train_len=[{min_train_len},{max_train_len}], "
@@ -378,6 +399,11 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
             f"test_len=[{min_test_len},{max_test_len}], "
             f"format={format_mode}, seed={seed}"
         )
+        if padding_multiplier > 0 or padding_constant:
+            LOGGER.info(
+                f"  Padding: scale_type={padding_scale_type}, multiplier={padding_multiplier}, "
+                f"constant={padding_constant}, max={padding_max}"
+            )
 
         fsa = FSA_CREATORS[dataset_name]()
         symbol_map, mult_table, identity_id, _, _ = fsa.compute_syntactic_monoid()
@@ -396,6 +422,10 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
             mode=format_mode,
             seed=seed,
             split_sizes=split_sizes,
+            padding_scale_type=padding_scale_type,
+            padding_multiplier=padding_multiplier,
+            padding_constant=padding_constant,
+            padding_max=padding_max,
         )
 
     elif dataset_name in ARITHMETIC_CREATORS:
@@ -448,6 +478,12 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
                 "test": (min_test_len or 0, max_test_len or 10000),
             }
 
+        # Get padding configuration
+        padding_scale_type = getattr(arith_cfg, "padding_scale_type", "natural")
+        padding_multiplier = getattr(arith_cfg, "padding_multiplier", 0.0)
+        padding_constant = getattr(arith_cfg, "padding_constant", None)
+        padding_max = getattr(arith_cfg, "padding_max", None)
+
         LOGGER.info(
             f"Generating arithmetic data with: "
             f"train_depth=[{min_train_depth},{max_train_depth}], "
@@ -462,6 +498,11 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
                 f"val_len=[{min_val_len},{max_val_len}], "
                 f"test_len=[{min_test_len},{max_test_len}]"
             )
+        if padding_multiplier > 0 or padding_constant:
+            LOGGER.info(
+                f"  Padding: scale_type={padding_scale_type}, multiplier={padding_multiplier}, "
+                f"constant={padding_constant}, max={padding_max}"
+            )
 
         split_pools = arithmetic.make_all_splits(
             min_depth=min_train_depth,
@@ -473,6 +514,10 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
             split_sizes=split_sizes,
             depth_ranges=depth_ranges,
             length_ranges=length_ranges,
+            padding_scale_type=padding_scale_type,
+            padding_multiplier=padding_multiplier,
+            padding_constant=padding_constant,
+            padding_max=padding_max,
         )
 
     elif dataset_name in PALINDROME_CREATORS:
@@ -498,6 +543,12 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
             "test": (min_test_len, max_test_len),
         }
 
+        # Get padding configuration
+        padding_scale_type = getattr(pal_cfg, "padding_scale_type", "natural")
+        padding_multiplier = getattr(pal_cfg, "padding_multiplier", 0.0)
+        padding_constant = getattr(pal_cfg, "padding_constant", None)
+        padding_max = getattr(pal_cfg, "padding_max", None)
+
         LOGGER.info(
             f"Generating {dataset_name} data with: "
             f"train_len=[{min_train_len},{max_train_len}], "
@@ -505,6 +556,11 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
             f"test_len=[{min_test_len},{max_test_len}], "
             f"alphabet={alphabet}, format={format_mode}, seed={seed}"
         )
+        if padding_multiplier > 0 or padding_constant:
+            LOGGER.info(
+                f"  Padding: scale_type={padding_scale_type}, multiplier={padding_multiplier}, "
+                f"constant={padding_constant}, max={padding_max}"
+            )
 
         split_pools = palindrome.make_all_splits(
             marked=marked,
@@ -513,6 +569,10 @@ def _generate_and_cache_all_splits(dataset_name, config, block_size, num_proc):
             seed=seed,
             split_sizes=split_sizes,
             length_ranges=length_ranges,
+            padding_scale_type=padding_scale_type,
+            padding_multiplier=padding_multiplier,
+            padding_constant=padding_constant,
+            padding_max=padding_max,
         )
 
     else:
