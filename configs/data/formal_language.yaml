@@ -6,11 +6,11 @@ properties:
   num_examples_valid: 40_000
   num_examples_test: 40_000
   min_train_len: 2
-  max_train_len: 64
-  min_val_len: 32
-  max_val_len: 64
-  min_test_len: 32
-  max_test_len: 64
+  max_train_len: 32
+  min_val_len: 16
+  max_val_len: 32
+  min_test_len: 16
+  max_test_len: 32
   format: trace
 
   # Padding configuration - controls extra empty padding beyond natural trace
